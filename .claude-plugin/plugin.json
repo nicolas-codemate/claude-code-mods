@@ -1,0 +1,6 @@
+{
+  "name": "diff-review",
+  "version": "0.1.0",
+  "description": "Review explorer: uncommitted changes, the whole PR or one commit at a time, with a [+] on any diff line to ask Claude about it and the answer drawn under the line",
+  "types": "./types/index.d.ts"
+}
