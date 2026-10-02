@@ -72,9 +72,6 @@ test('the explorer walks the three views, picks files and commits, and asks abou
   await pane.press({ key: 'line-3' })
   expect(await pane.find({ type: 'Input' })).toBeDefined()
   await pane.press({ key: 'cancel-question' })
-  await pane.press({ key: 'ask-end-3' })
-  expect(await pane.find({ type: 'Input' })).toBeDefined()
-  await pane.press({ key: 'cancel-question' })
   await pane.press({ key: 'ask-3' })
   await pane.input({ key: await questionFieldKey(pane), text: 'Why 2?' })
   expect(submittedPrompts).toEqual(['Why 2?'])
@@ -216,18 +213,18 @@ test('in the PR view each file of the PR carries a viewed box that GitHub keeps'
   await pane.press({ key: 'navigate-z' })
   expect(await pane.find({ type: 'Text', text: /^#42 / })).toBeDefined()
   expect(await pane.find({ type: 'Text', text: /viewed 1\/2/ })).toBeDefined()
-  expect((await pane.find({ key: 'viewed-src/Tax.php' }))?.text).toBe('☑')
-  expect((await pane.find({ key: 'viewed-src/Total.php' }))?.text).toBe('☐')
+  expect((await pane.find({ key: 'viewed-src/Tax.php' }))?.text).toBe('[✓]')
+  expect((await pane.find({ key: 'viewed-src/Total.php' }))?.text).toBe('[ ]')
 
   await pane.press({ key: 'viewed-src/Total.php' })
   expect(githubMutations).toEqual(['mark'])
-  expect((await pane.find({ key: 'viewed-src/Total.php' }))?.text).toBe('☑')
+  expect((await pane.find({ key: 'viewed-src/Total.php' }))?.text).toBe('[✓]')
   expect(await pane.find({ type: 'Text', text: /viewed 2\/2/ })).toBeDefined()
 
   isGithubRefusing = true
   await pane.press({ key: 'viewed-src/Total.php' })
   expect(githubMutations).toEqual(['mark', 'unmark'])
-  expect((await pane.find({ key: 'viewed-src/Total.php' }))?.text).toBe('☑')
+  expect((await pane.find({ key: 'viewed-src/Total.php' }))?.text).toBe('[✓]')
   await pane.unmount()
 })
 
@@ -467,6 +464,7 @@ test('a question can be asked on a block of the PR overview', async ($, on) => {
 
 test('a thread takes replies, each answered in place, and flags a cleared conversation', async ($, on) => {
   const submittedPrompts: string[] = []
+  const submittedContexts: Array<readonly string[] | undefined> = []
   mock.clock(on, { now: 1000 })
   on('process.run', async (_, e) => ({ value: { ...answerGit(e.argv.slice(1)), stderr: '' } }) as never)
   on('fs.read', async () => ({ value: '' }) as never)
@@ -477,7 +475,8 @@ test('a thread takes replies, each answered in place, and flags a cleared conver
   on('ui.toast', async () => ({ value: undefined }) as never)
   on('prompt.submit', async (_, e) => {
     submittedPrompts.push(e.text)
-    return { text: e.text } as never
+    submittedContexts.push(e.context)
+    return { text: e.text, context: e.context } as never
   })
   on('turn.start', async (_, e) => ({ turnId: e.turnId }) as never)
   on('turn.complete', async () => ({ text: '' }) as never)
@@ -514,6 +513,14 @@ test('a thread takes replies, each answered in place, and flags a cleared conver
   pane = await $.ui.mount(paneTarget)
   expect(await pane.find({ type: 'Markdown', text: 'Added after.' })).toBeDefined()
   expect(await pane.find({ type: 'Text', text: /Conversation cleared since/ })).toBeDefined()
+
+  const dictateReplyKey = (await pane.findAll({ type: 'Button', text: '↓ dictate in prompt' }))[0]?.key ?? ''
+  await pane.press({ key: dictateReplyKey })
+  expect(await pane.find({ type: 'Text', text: /Ask from the prompt below/ })).toBeDefined()
+  await $.prompt.submit({ text: 'Dictated follow-up', origin: { kind: 'composer' } } as never)
+  expect(submittedContexts[submittedContexts.length - 1]?.[0]).toContain('follows up in the review thread')
+  expect(submittedContexts[submittedContexts.length - 1]?.[0]).toContain('Because the total doubled.')
+  expect(await pane.find({ type: 'Text', text: /> Dictated follow-up/ })).toBeDefined()
   await pane.unmount()
 })
 
@@ -563,5 +570,172 @@ test('new files can be marked one by one or all at once, then added to the index
 
   await pane.press({ key: 'stage-all' })
   expect(gitAddCalls[3]).toEqual([])
+  await pane.unmount()
+})
+
+test('a question armed on a line is asked from the main prompt, with the line as its context', async ($, on) => {
+  const submittedPrompts: Array<{ text: string; context?: readonly string[] }> = []
+  mock.clock(on, { now: 1000 })
+  on('process.run', async (_, e) => ({ value: { ...answerGit(e.argv.slice(1)), stderr: '' } }) as never)
+  on('fs.read', async () => ({ value: '' }) as never)
+  on('command.register', async (_, e) => ({ value: { command: e.name } }) as never)
+  on('session.start', async () => ({ cwd: ROOT }) as never)
+  on('ui.open', async () => ({ value: { isPlaced: true } }) as never)
+  on('ui.toast', async () => ({ value: undefined }) as never)
+  on('prompt.submit', async (_, e) => {
+    submittedPrompts.push({ text: e.text, context: e.context })
+    return { text: e.text, context: e.context } as never
+  })
+
+  await $.session.start({ source: 'startup', cwd: ROOT } as never)
+  await $.command.run({ command: 'diff-review', args: '', presentation: { isFullscreen: true, columns: 300 } } as never)
+  const pane = await $.ui.mount({
+    plugin: 'diff-review',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'diff-review',
+    props: { title: 'Review', isFocused: true, bodyColumns: 200, placement: 'dock' } as never,
+  })
+  await pane.press({ key: 'file-src/Total.php' })
+  await pane.press({ key: 'ask-3' })
+  await pane.press({ key: 'ask-from-prompt' })
+  expect(await pane.find({ type: 'Input' })).toBeUndefined()
+  expect(await pane.find({ type: 'Text', text: /Ask from the prompt below/ })).toBeDefined()
+
+  await $.prompt.submit({ text: 'Why 2 here?', origin: { kind: 'composer' } } as never)
+  expect(submittedPrompts[0]?.text).toBe('Why 2 here?')
+  expect(submittedPrompts[0]?.context?.[0]).toContain('src/Total.php, line 2 (added)')
+  expect(await pane.find({ type: 'Text', text: /Ask from the prompt below/ })).toBeUndefined()
+  expect(await pane.find({ type: 'Text', text: /> Why 2 here\?/ })).toBeDefined()
+
+  await $.prompt.submit({ text: 'Unrelated question', origin: { kind: 'composer' } } as never)
+  expect(submittedPrompts[1]?.context).toBeUndefined()
+
+  await pane.press({ key: 'ask-2' })
+  await pane.press({ key: 'ask-from-prompt' })
+  await $.prompt.submit({ text: 'From the attached terminal', origin: { kind: 'unclassified' } } as never)
+  expect(submittedPrompts[2]?.context?.[0]).toContain('src/Total.php')
+
+  await pane.press({ key: 'ask-2' })
+  await pane.press({ key: 'ask-from-prompt' })
+  await pane.press({ key: 'ask-3' })
+  expect(await pane.find({ type: 'Text', text: /Ask from the prompt below/ })).toBeUndefined()
+  await $.prompt.submit({ text: 'Plain message', origin: { kind: 'composer' } } as never)
+  expect(submittedPrompts[3]?.context).toBeUndefined()
+  await pane.unmount()
+})
+
+test('with a thread under its last lines, the diff scrolls past its end to show it', async ($, on) => {
+  const longDiff = ['@@ -1,0 +1,60 @@', ...Array.from({ length: 60 }, (_, index) => `+line ${index + 1}`)].join('\n')
+  mock.clock(on, { now: 1000 })
+  on('process.run', async (_, e) => {
+    const gitArguments = e.argv.slice(1).filter(argument => argument !== '-C' && argument !== ROOT)
+    if (gitArguments[0] === 'diff' && gitArguments[1] === '--no-color') {
+      return { value: { exitCode: 0, stdout: longDiff, stderr: '' } } as never
+    }
+    if (gitArguments[0] === 'ls-files') {
+      return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
+    }
+    return { value: { ...answerGit(e.argv.slice(1)), stderr: '' } } as never
+  })
+  on('fs.read', async () => ({ value: '' }) as never)
+  on('command.register', async (_, e) => ({ value: { command: e.name } }) as never)
+  on('session.start', async () => ({ cwd: ROOT }) as never)
+  on('ui.open', async () => ({ value: { isPlaced: true } }) as never)
+  on('prompt.submit', async (_, e) => ({ text: e.text }) as never)
+
+  await $.session.start({ source: 'startup', cwd: ROOT } as never)
+  await $.command.run({ command: 'diff-review', args: '', presentation: { isFullscreen: true, columns: 300 } } as never)
+  const paneTarget = {
+    plugin: 'diff-review',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'diff-review',
+    props: { title: 'Review', isFocused: true, bodyColumns: 200, placement: 'dock', scroll: { offset: 0, bodyRows: 30 } } as never,
+  } as const
+  const wheelDown = () =>
+    $.ui.scroll({ component: 'Pane', requestId: 'diff-review', offset: 0, by: 10, bodyRows: 30, contentRows: 30, origin: { kind: 'person' }, pointer: { column: 120, row: 10 } } as never)
+
+  let pane = await $.ui.mount(paneTarget)
+  await pane.unmount()
+  for (let tick = 0; tick < 3; tick += 1) await wheelDown()
+  pane = await $.ui.mount(paneTarget)
+  await pane.press({ key: 'ask-60' })
+  await pane.input({ key: await questionFieldKey(pane), text: 'Why the last line?' })
+  await pane.unmount()
+
+  for (let tick = 0; tick < 3; tick += 1) await wheelDown()
+  pane = await $.ui.mount(paneTarget)
+  expect(await pane.find({ type: 'Code', text: /^line 60$/ })).toBeDefined()
+  expect(await pane.find({ type: 'Code', text: /^line 30$/ })).toBeUndefined()
+  expect(await pane.find({ type: 'Text', text: /> Why the last line\?/ })).toBeDefined()
+  await pane.unmount()
+})
+
+test('a pane narrower than the minimum asks to be widened, and long lines wrap instead of being cut', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  on('process.run', async (_, e) => ({ value: { ...answerGit(e.argv.slice(1)), stderr: '' } }) as never)
+  on('fs.read', async () => ({ value: '' }) as never)
+  on('command.register', async (_, e) => ({ value: { command: e.name } }) as never)
+  on('session.start', async () => ({ cwd: ROOT }) as never)
+  on('ui.open', async () => ({ value: { isPlaced: true } }) as never)
+
+  await $.session.start({ source: 'startup', cwd: ROOT } as never)
+  await $.command.run({ command: 'diff-review', args: '', presentation: { isFullscreen: true, columns: 300 } } as never)
+  const paneTarget = (bodyColumns: number) => ({
+    plugin: 'diff-review',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'diff-review',
+    props: { title: 'Review', isFocused: true, bodyColumns, placement: 'dock' } as never,
+  }) as const
+  const narrowPane = await $.ui.mount(paneTarget(62))
+  expect(await narrowPane.find({ type: 'Text', text: /needs at least 80 columns \(now 62\)/ })).toBeDefined()
+  expect(await narrowPane.find({ type: 'Button', text: 'Total.php' })).toBeUndefined()
+  await narrowPane.unmount()
+
+  const widePane = await $.ui.mount(paneTarget(200))
+  await widePane.press({ key: 'file-src/Total.php' })
+  const codeLine = await widePane.find({ type: 'Code', text: '$tax = 0.2;' })
+  expect((codeLine?.props as { wrap?: string } | undefined)?.wrap).toBe('wrap')
+  await widePane.unmount()
+})
+
+test('dragging the divider sets the width of the file list, within bounds', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on)
+  on('process.run', async (_, e) => ({ value: { ...answerGit(e.argv.slice(1)), stderr: '' } }) as never)
+  on('fs.read', async () => ({ value: '' }) as never)
+  on('command.register', async (_, e) => ({ value: { command: e.name } }) as never)
+  on('session.start', async () => ({ cwd: ROOT }) as never)
+  on('ui.open', async () => ({ value: { isPlaced: true } }) as never)
+
+  await $.session.start({ source: 'startup', cwd: ROOT } as never)
+  await $.command.run({ command: 'diff-review', args: '', presentation: { isFullscreen: true, columns: 300 } } as never)
+  const paneTarget = {
+    plugin: 'diff-review',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'diff-review',
+    props: { title: 'Review', isFocused: true, bodyColumns: 200, placement: 'dock' } as never,
+  } as const
+  const fileListWidthOf = async (mounted: { findAll: (query: { type: 'Box' }) => Promise<Array<{ props: unknown; text?: string }>> }) =>
+    (await mounted.findAll({ type: 'Box' }))
+      .map(box => box.props as { width?: number; borderStyle?: string })
+      .find(props => props.borderStyle === 'round' && typeof props.width === 'number' && props.width >= 24)?.width
+
+  let pane = await $.ui.mount(paneTarget)
+  expect(await fileListWidthOf(pane)).toBe(50)
+  await pane.pointer({ type: 'down', x: 0, y: 5, button: 'left', in: 'file-divider' } as never)
+  await pane.pointer({ type: 'up', x: 20, y: 5, button: 'left', in: 'file-divider' } as never)
+  await pane.unmount()
+  pane = await $.ui.mount(paneTarget)
+  expect(await fileListWidthOf(pane)).toBe(70)
+
+  await pane.pointer({ type: 'down', x: 0, y: 5, button: 'left', in: 'file-divider' } as never)
+  await pane.pointer({ type: 'up', x: -200, y: 5, button: 'left', in: 'file-divider' } as never)
+  await pane.unmount()
+  pane = await $.ui.mount(paneTarget)
+  expect(await fileListWidthOf(pane)).toBe(24)
   await pane.unmount()
 })

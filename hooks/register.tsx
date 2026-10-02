@@ -52,6 +52,8 @@ const isLoadingAtom = atom({ plugin: 'diff-review', key: 'isLoading' } as const,
 const repositoryRootAtom = atom({ plugin: 'diff-review', key: 'repositoryRoot' } as const, null)
 const markedPathsAtom = atom({ plugin: 'diff-review', key: 'markedPaths' } as const, [])
 const questionFieldNumberAtom = atom({ plugin: 'diff-review', key: 'questionFieldNumber' } as const, 0)
+const armedQuestionAtom = atom({ plugin: 'diff-review', key: 'armedQuestion' } as const, null)
+const requestedPaneColumnsAtom = atom({ plugin: 'diff-review', key: 'requestedPaneColumns' } as const, 0)
 const keyboardLayoutAtom = atom({ plugin: 'diff-review', key: 'keyboardLayout' } as const, 'unknown')
 const pullRequestAtom = atom({ plugin: 'diff-review', key: 'pullRequest' } as const, null)
 const viewedStateByPathAtom = atom({ plugin: 'diff-review', key: 'viewedStateByPath' } as const, {})
@@ -61,17 +63,27 @@ const PANE_ID = 'diff-review'
 // screen for the previous line, which disappears right after.
 const QUESTION_INPUT_KEY_PREFIX = 'question-'
 const QUESTION_FOCUS_RETRY_MS = 120
+// A session attached from another terminal (claude attach) or reached through Remote Control sends the person's
+// prompts unstamped or as the bridge's: they are the person's own all the same.
+const PERSON_PROMPT_ORIGINS = ['composer', 'unclassified', 'bridge']
 const CANCEL_QUESTION_KEY = 'cancel-question'
 const ASK_BUTTON_KEY_PREFIX = 'ask-'
 const DISMISS_THREAD_KEY_PREFIX = 'dismiss-'
 // The line numbers open a question too: a target as wide as the gutter instead of the small [+].
 const LINE_NUMBER_BUTTON_KEY_PREFIX = 'line-'
-const END_OF_LINE_ASK_BUTTON_KEY_PREFIX = 'ask-end-'
 const REPLY_INPUT_KEY_PREFIX = 'reply-'
 // The transcript and the prompt keep the left third, the review takes the rest.
 const PANE_SHARE_OF_TERMINAL = 2 / 3
 const TWO_COLUMNS_MIN_WIDTH = 120
-const FILE_LIST_WIDTH = 50
+// Under this width the gutter (ask button, line numbers, marker) leaves too little room to read code.
+const MIN_PANE_COLUMNS = 80
+const DEFAULT_FILE_LIST_WIDTH = 50
+const MIN_FILE_LIST_WIDTH = 24
+// The diff keeps at least this many columns when the file list is dragged wider.
+const MIN_DIFF_WIDTH = 40
+const FILE_LIST_WIDTH_STORE_KEY = 'fileListWidth'
+const DIVIDER_KEY = 'file-divider'
+const fileListWidthAtom = atom({ plugin: 'diff-review', key: 'fileListWidth' } as const, DEFAULT_FILE_LIST_WIDTH)
 const MAX_DRAWN_DIFF_ROWS = 1500
 const CONTEXT_RADIUS_ROWS = 6
 const BASE_REF_CANDIDATES = ['origin/main', 'origin/master', 'origin/develop', 'main', 'master']
@@ -112,9 +124,17 @@ const paneLayout = {
   visibleDiffRows: 1,
   diffRowCount: 0,
   isOverviewShown: false,
+  isScrollingPastEnd: false,
+  fileListWidth: DEFAULT_FILE_LIST_WIDTH,
+  bodyColumns: 0,
+  fileListWidthAtDragStart: DEFAULT_FILE_LIST_WIDTH,
 }
 const WHEEL_TICK_ROWS = 3
 const COMMIT_PANEL_MAX_COMMITS = 6
+
+function clampFileListWidth(width: number, bodyColumns: number): number {
+  return Math.max(MIN_FILE_LIST_WIDTH, Math.min(width, bodyColumns - MIN_DIFF_WIDTH))
+}
 
 function clampOffset(offset: number, itemCount: number, visibleCount: number): number {
   return Math.max(0, Math.min(offset, itemCount - visibleCount))
@@ -330,30 +350,45 @@ async function loadView($: EngineInterface): Promise<void> {
 
 // The field's autoFocus only counts when the pane takes the keyboard; a field opened later, by a click on a line, is
 // handed the keyboard explicitly, once the next drawing has it on screen.
+async function paneOpenArguments($: EngineInterface) {
+  const requestedPaneColumns = await read($, requestedPaneColumnsAtom)
+
+  return {
+    id: PANE_ID,
+    title: 'Review',
+    focus: true as const,
+    closeOnEscape: true as const,
+    ...(requestedPaneColumns > 0 ? { columns: requestedPaneColumns } : {}),
+  }
+}
+
 async function openQuestion($: EngineInterface, anchorKey: string): Promise<void> {
+  await update($, armedQuestionAtom, () => null)
   await update($, questionDraftAtom, () => '')
   await update($, hasQuestionHadKeyboardAtom, () => false)
   const questionFieldNumber = await update($, questionFieldNumberAtom, fieldNumber => fieldNumber + 1)
   await update($, anchorWithOpenInputAtom, () => anchorKey)
-  await focusQuestionField($, questionFieldNumber, true)
+  // A click on a line presses its button without handing the keyboard to the pane, and a field can only be focused
+  // inside a pane that holds it: opening the pane again with focus gives it the keyboard first.
+  // Without the width this explorer asked for, opening again would bring the pane back to the default share.
+  if ((await read($, requestedPaneColumnsAtom)) > 0) {
+    await $.ui.open(await paneOpenArguments($)).catch(() => undefined)
+  }
+  await focusQuestionField($, questionFieldNumber)
   // A click while another field held the keyboard moves the focus onto the clicked button once this press is handled,
   // taking it back from the new field: the keyboard is asked for again just after.
-  await $.clock.after(QUESTION_FOCUS_RETRY_MS, () => focusQuestionField($, questionFieldNumber, false))
+  await $.clock.after(QUESTION_FOCUS_RETRY_MS, () => focusQuestionField($, questionFieldNumber))
 }
 
-async function focusQuestionField($: EngineInterface, questionFieldNumber: number, isReportingRefusal: boolean): Promise<void> {
+// Refused when the prompt below holds the keyboard (a click on a line does not hand it to the pane): the field then
+// waits for the person's own click, nothing to report.
+async function focusQuestionField($: EngineInterface, questionFieldNumber: number): Promise<void> {
   const isStillWaitingForKeyboard =
     (await read($, questionFieldNumberAtom)) === questionFieldNumber &&
     (await read($, anchorWithOpenInputAtom)) !== null &&
     !(await read($, hasQuestionHadKeyboardAtom))
-  if (!isStillWaitingForKeyboard) {
-    return
-  }
-  const focusResult = await $.ui
-    .focus({ requestId: PANE_ID, key: `${QUESTION_INPUT_KEY_PREFIX}${questionFieldNumber}` })
-    .catch((error: unknown) => ({ deny: String(error) }))
-  if (focusResult.deny && isReportingRefusal) {
-    $.ui.toast(`diff-review: the question field did not get the keyboard (${focusResult.deny})`)
+  if (isStillWaitingForKeyboard) {
+    await $.ui.focus({ requestId: PANE_ID, key: `${QUESTION_INPUT_KEY_PREFIX}${questionFieldNumber}` }).catch(() => undefined)
   }
 }
 
@@ -572,43 +607,67 @@ async function submitQuestion(
 
 // A reply stays in the conversation the thread already lives in, so only the thread's anchor is restated. After a
 // /clear the conversation no longer holds the thread: its earlier exchanges are sent again.
-async function replyInThread($: EngineInterface, threadId: string, reply: string): Promise<void> {
-  const trimmedReply = reply.trim()
-  const thread = (await read($, threadsAtom)).map(normalizeThread).find(candidate => candidate.id === threadId)
-  if (trimmedReply === '' || thread === undefined) {
-    return
-  }
+function replyContextOf(thread: ReviewThread): string {
   const earlierExchanges = thread.isContextCleared
     ? [
         'The conversation was cleared since; the thread so far:',
         ...thread.exchanges.flatMap(exchange => [`Question: ${exchange.question}`, `Your answer: ${exchange.answer}`]),
       ]
     : [`It started with the question: "${thread.exchanges[0]?.question ?? ''}".`]
-  const replyContext = [
+
+  return [
     `The person follows up in the review thread about ${thread.anchorDescription}.`,
     ...earlierExchanges,
     'Their follow-up follows. The answer is drawn in that thread in the pane: keep it focused on it.',
   ].join('\n')
-  const exchange: ThreadExchange = { question: trimmedReply, answer: '', status: 'queued' }
+}
+
+async function appendExchange($: EngineInterface, threadId: string, question: string): Promise<void> {
+  const exchange: ThreadExchange = { question, answer: '', status: 'queued' }
   await update($, threadsAtom, threads =>
     threads.map(candidate =>
       candidate.id === threadId
-        ? { ...candidate, exchanges: [...candidate.exchanges, exchange], isContextCleared: false }
+        ? { ...normalizeThread(candidate), exchanges: [...normalizeThread(candidate).exchanges, exchange], isContextCleared: false }
         : candidate,
     ),
   )
+}
+
+async function replyInThread($: EngineInterface, threadId: string, reply: string): Promise<void> {
+  const trimmedReply = reply.trim()
+  const thread = (await read($, threadsAtom)).map(normalizeThread).find(candidate => candidate.id === threadId)
+  if (trimmedReply === '' || thread === undefined) {
+    return
+  }
+  const replyContext = replyContextOf(thread)
+  await appendExchange($, threadId, trimmedReply)
   await sendToConversation($, threadId, trimmedReply, replyContext)
 }
 
-async function askAboutRow($: EngineInterface, anchorKey: string, rowIndex: number, question: string): Promise<void> {
-  const trimmedQuestion = question.trim()
+async function armReplyForPrompt($: EngineInterface, threadId: string): Promise<void> {
+  const thread = (await read($, threadsAtom)).map(normalizeThread).find(candidate => candidate.id === threadId)
+  if (thread === undefined) {
+    return
+  }
+  await closeQuestion($)
+  await update($, armedQuestionAtom, () => ({
+    anchorKey: thread.anchorKey,
+    anchorDescription: thread.anchorDescription,
+    context: replyContextOf(thread),
+    threadId,
+  }))
+}
+
+type QuestionTarget = { anchorDescription: string; context: string }
+
+async function rowQuestionTarget($: EngineInterface, rowIndex: number): Promise<QuestionTarget | null> {
   const path = await read($, selectedFilePathAtom)
   const rows = await read($, diffRowsAtom)
   const row = rows[rowIndex]
-  if (trimmedQuestion === '' || !path || !row) {
-    return
+  if (!path || !row) {
+    return null
   }
-  const lineContext = [
+  const context = [
     `The person is reviewing ${await describeViewForPrompt($)} in a review pane and asks about one line: ${describeLineForPrompt(path, row)}.`,
     `Repository: ${await read($, repositoryRootAtom)}. The line and the diff around it:`,
     '```diff',
@@ -616,25 +675,54 @@ async function askAboutRow($: EngineInterface, anchorKey: string, rowIndex: numb
     '```',
     'Their question follows. The answer is drawn under that line in the pane: keep it focused on it.',
   ].join('\n')
-  await submitQuestion($, anchorKey, `${describeLineForPrompt(path, row)} in ${await describeViewForPrompt($)}`, trimmedQuestion, lineContext)
+
+  return { anchorDescription: `${describeLineForPrompt(path, row)} in ${await describeViewForPrompt($)}`, context }
 }
 
-async function askAboutOverviewBlock($: EngineInterface, anchorKey: string, blockIndex: number, question: string): Promise<void> {
-  const trimmedQuestion = question.trim()
+async function overviewQuestionTarget($: EngineInterface, blockIndex: number): Promise<QuestionTarget | null> {
   const pullRequest = await read($, pullRequestAtom)
   const block = pullRequest ? splitMarkdownBlocks(pullRequest.overviewMarkdown)[blockIndex] : undefined
-  if (trimmedQuestion === '' || !pullRequest || block === undefined) {
-    return
+  if (!pullRequest || block === undefined) {
+    return null
   }
-  const blockContext = [
+  const context = [
     `The person is reviewing pull request ${pullRequest.overviewHeadline} (${pullRequest.url}) in a review pane, and asks about this part of its description or conversation:`,
     '````markdown',
     block,
     '````',
     `Repository: ${await read($, repositoryRootAtom)}. Their question follows. The answer is drawn under that part in the pane: keep it focused on it.`,
   ].join('\n')
-  const anchorDescription = `this part of pull request ${pullRequest.overviewHeadline}: "${block.slice(0, 120)}"`
-  await submitQuestion($, anchorKey, anchorDescription, trimmedQuestion, blockContext)
+
+  return { anchorDescription: `this part of pull request ${pullRequest.overviewHeadline}: "${block.slice(0, 120)}"`, context }
+}
+
+async function askFromPane(
+  $: EngineInterface,
+  anchorKey: string,
+  findTarget: () => Promise<QuestionTarget | null>,
+  question: string,
+): Promise<void> {
+  const trimmedQuestion = question.trim()
+  const target = await findTarget()
+  if (trimmedQuestion === '' || target === null) {
+    return
+  }
+  await submitQuestion($, anchorKey, target.anchorDescription, trimmedQuestion, target.context)
+}
+
+// The prompt below has what a pane field lacks, voice dictation (Space held) first: the question is armed on its
+// spot, and the next prompt the person sends carries its context and gets its answer drawn there.
+async function armQuestionForPrompt(
+  $: EngineInterface,
+  anchorKey: string,
+  findTarget: () => Promise<QuestionTarget | null>,
+): Promise<void> {
+  const target = await findTarget()
+  if (target === null) {
+    return
+  }
+  await closeQuestion($)
+  await update($, armedQuestionAtom, () => ({ anchorKey, ...target }))
 }
 
 // The answer keeps arriving into a thread dismissed mid-turn: it is simply no longer drawn, and the transcript still holds it.
@@ -715,6 +803,10 @@ function renderFileStats(Text: Elements['terminal']['Text'], file: ChangedFile) 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await update($, threadsAtom, threads => threads.map(normalizeThread))
+    const savedFileListWidth = await $.store.get(FILE_LIST_WIDTH_STORE_KEY).catch(() => undefined)
+    if (typeof savedFileListWidth === 'number') {
+      await update($, fileListWidthAtom, () => savedFileListWidth)
+    }
     const keyboardLayout = await detectKeyboardLayout($)
     await update($, keyboardLayoutAtom, () => keyboardLayout)
     await $.command.register({ name: 'diff-review', description: 'Open the review explorer: uncommitted changes, the PR, or commit by commit' })
@@ -727,13 +819,9 @@ export const register: Register = on => {
     await update($, selectedFilePathAtom, () => null)
     await update($, isOverviewShownAtom, () => true)
     await update($, isLoadingAtom, () => true)
-    const opened = await $.ui.open({
-      id: PANE_ID,
-      title: 'Review',
-      focus: true,
-      closeOnEscape: true,
-      columns: Math.round(e.presentation.columns * PANE_SHARE_OF_TERMINAL),
-    })
+    const requestedPaneColumns = Math.round(e.presentation.columns * PANE_SHARE_OF_TERMINAL)
+    await update($, requestedPaneColumnsAtom, () => requestedPaneColumns)
+    const opened = await $.ui.open({ ...(await paneOpenArguments($)), columns: requestedPaneColumns })
     await refreshExplorer($)
 
     return { text: opened.isPlaced ? 'Review explorer opened.' : `Review explorer waiting: ${opened.reason}` }
@@ -758,7 +846,7 @@ export const register: Register = on => {
       pointer !== undefined &&
       pointer.row >= paneLayout.panelsTop &&
       (paneLayout.isTwoColumns
-        ? pointer.column < FILE_LIST_WIDTH
+        ? pointer.column < paneLayout.fileListWidth
         : pointer.row < paneLayout.panelsTop + paneLayout.fileListBoxHeight)
     const isWheelTick = pointer !== undefined
     if (isOverFileList) {
@@ -769,7 +857,7 @@ export const register: Register = on => {
       const rowsPerTick = paneLayout.isOverviewShown ? 1 : WHEEL_TICK_ROWS
       const pageRows = paneLayout.isOverviewShown ? 3 : paneLayout.visibleDiffRows
       const rowsToMove = isWheelTick ? e.by * rowsPerTick : Math.sign(e.by) * Math.min(Math.abs(e.by), pageRows)
-      const visibleForClamp = paneLayout.isOverviewShown ? 1 : paneLayout.visibleDiffRows
+      const visibleForClamp = paneLayout.isScrollingPastEnd ? 1 : paneLayout.visibleDiffRows
       await update($, diffOffsetAtom, offset => clampOffset(offset + rowsToMove, paneLayout.diffRowCount, visibleForClamp))
     }
 
@@ -819,6 +907,9 @@ export const register: Register = on => {
     if (e.id !== PANE_ID || e.origin.kind !== 'person') {
       return next(e)
     }
+    if ((await read($, armedQuestionAtom)) !== null) {
+      return { value: undefined }
+    }
     if ((await read($, anchorWithOpenInputAtom)) !== null) {
       await closeQuestion($)
       return { value: undefined }
@@ -832,6 +923,49 @@ export const register: Register = on => {
       await dismissThread($, focusedElementKey.slice(DISMISS_THREAD_KEY_PREFIX.length))
       await update($, focusedElementKeyAtom, () => null)
       return { value: undefined }
+    }
+
+    return next(e)
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    const armedQuestion = await read($, armedQuestionAtom)
+    const isTypedByThePerson = PERSON_PROMPT_ORIGINS.includes(String(e.origin.kind))
+    if (armedQuestion === null || !isTypedByThePerson || e.text.trim() === '' || e.text.trimStart().startsWith('/')) {
+      return next(e)
+    }
+    await update($, armedQuestionAtom, () => null)
+    if (armedQuestion.threadId) {
+      await appendExchange($, armedQuestion.threadId, e.text.trim())
+      await update($, threadIdAwaitingTurnAtom, () => armedQuestion.threadId ?? null)
+    } else {
+      const thread: ReviewThread = {
+        id: `${armedQuestion.anchorKey}-${await $.clock.now()}`,
+        anchorKey: armedQuestion.anchorKey,
+        anchorDescription: armedQuestion.anchorDescription,
+        exchanges: [{ question: e.text.trim(), answer: '', status: 'queued' }],
+        isContextCleared: false,
+      }
+      await update($, threadsAtom, threads => [...threads, thread])
+      await update($, threadIdAwaitingTurnAtom, () => thread.id)
+    }
+
+    $.ui.toast(`diff-review: question sent about ${armedQuestion.anchorDescription.slice(0, 80)}`)
+
+    return next({ ...e, context: [...(e.context ?? []), armedQuestion.context] })
+  })
+
+  on('ui.message', { element: DIVIDER_KEY }, async ($, e, next) => {
+    const message = e.data as { phase?: string; movedColumns?: number }
+    if (message.phase === 'start') {
+      paneLayout.fileListWidthAtDragStart = paneLayout.fileListWidth
+    } else if (message.phase === 'end' && typeof message.movedColumns === 'number') {
+      const fileListWidth = clampFileListWidth(
+        paneLayout.fileListWidthAtDragStart + message.movedColumns,
+        paneLayout.bodyColumns,
+      )
+      await update($, fileListWidthAtom, () => fileListWidth)
+      await $.store.set(FILE_LIST_WIDTH_STORE_KEY, fileListWidth).catch(() => undefined)
     }
 
     return next(e)
@@ -888,7 +1022,17 @@ export const register: Register = on => {
       const { Text } = $.ui.resolve(e)
       return <Text dimColor>The review explorer needs the terminal or Desktop.</Text>
     }
-    const { Box, Button, Code, Input, Markdown, Text } = $.ui.resolve(e)
+    const { Box, Button, Client, Code, Input, Markdown, Text } = $.ui.resolve(e)
+    if (e.props.bodyColumns < MIN_PANE_COLUMNS) {
+      return (
+        <Box flexDirection="column" padding={1}>
+          <Text color={THEME.commitSha} bold>
+            The review pane needs at least {MIN_PANE_COLUMNS} columns (now {e.props.bodyColumns}).
+          </Text>
+          <Text color={THEME.muted}>Widen it by dragging the divider, or widen the terminal.</Text>
+        </Box>
+      )
+    }
     const view = await read($, viewAtom)
     const baseRef = await read($, baseRefAtom)
     const commits = await read($, commitsAtom)
@@ -899,6 +1043,7 @@ export const register: Register = on => {
     const loadError = await read($, loadErrorAtom)
     const threads = (await read($, threadsAtom)).map(normalizeThread)
     const anchorWithOpenInput = await read($, anchorWithOpenInputAtom)
+    const armedQuestion = await read($, armedQuestionAtom)
     const questionFieldNumber = await read($, questionFieldNumberAtom)
     // Escape or a click outside gives the keyboard back to the prompt: an empty question that had the keyboard then
     // stops being drawn. One just opened by a click while the prompt still held the keyboard stays.
@@ -907,6 +1052,7 @@ export const register: Register = on => {
       !(await read($, hasQuestionHadKeyboardAtom)) ||
       (await read($, questionDraftAtom)).trim() !== ''
     const isTwoColumns = e.props.bodyColumns >= TWO_COLUMNS_MIN_WIDTH
+    const fileListWidth = clampFileListWidth(await read($, fileListWidthAtom), e.props.bodyColumns)
     const drawnRows = diffRows.slice(0, MAX_DRAWN_DIFF_ROWS)
     const selectedFile = files.find(file => file.path === selectedFilePath)
     const pullRequest = view === 'pr' ? await read($, pullRequestAtom) : null
@@ -958,13 +1104,23 @@ export const register: Register = on => {
     const visibleDiffRows = Math.max(1, diffBoxHeight - 2 - 1)
     // The overview scrolls by block, each one or several rows tall; the diff by row.
     const scrolledRowCount = isOverviewShown ? overviewBlocks.length : drawnRows.length
-    const diffOffset = clampOffset(await read($, diffOffsetAtom), scrolledRowCount, isOverviewShown ? 1 : visibleDiffRows)
+    // A thread, an open question or an armed one under the last rows would stay cut off at the bottom: the diff may
+    // then scroll past its end, until its last row reaches the top.
+    const fileAnchorPrefix = selectedFilePath ? `${view}|${selectedCommitSha ?? ''}|${selectedFilePath}|` : '\u0000'
+    const hasInlineContentInFile =
+      threads.some(thread => thread.anchorKey.startsWith(fileAnchorPrefix)) ||
+      (anchorWithOpenInput ?? '').startsWith(fileAnchorPrefix) ||
+      (armedQuestion?.anchorKey ?? '').startsWith(fileAnchorPrefix)
+    const isScrollingPastEnd = isOverviewShown || hasInlineContentInFile
+    const diffOffset = clampOffset(await read($, diffOffsetAtom), scrolledRowCount, isScrollingPastEnd ? 1 : visibleDiffRows)
     const shownDiffRows = drawnRows.slice(diffOffset, diffOffset + visibleDiffRows)
 
     Object.assign(paneLayout, {
       isTwoColumns,
       panelsTop,
       fileListBoxHeight,
+      fileListWidth,
+      bodyColumns: e.props.bodyColumns,
       visibleFileLines,
       fileLineCount: fileLines.length,
       fileLineIndexByPath: Object.fromEntries(
@@ -973,6 +1129,7 @@ export const register: Register = on => {
       visibleDiffRows,
       diffRowCount: scrolledRowCount,
       isOverviewShown,
+      isScrollingPastEnd,
     })
 
     const tabs = (
@@ -982,6 +1139,7 @@ export const register: Register = on => {
           return (
             <Box
               key={`tab-${candidateView}`}
+              flexShrink={0}
               borderStyle="round"
               borderColor={isActive ? THEME.accent : THEME.border}
               backgroundColor={isActive ? THEME.activeTabBackground : undefined}
@@ -998,7 +1156,7 @@ export const register: Register = on => {
             </Box>
           )
         })}
-        <Box flexGrow={1} marginLeft={1}>
+        <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden" height={1} marginLeft={1}>
           <Text color={THEME.muted} wrap="truncate-start">
             {(await read($, isLoadingAtom)) ? 'loading…  ' : ''}
             {(await read($, repositoryRootAtom)) ?? ''}
@@ -1006,7 +1164,7 @@ export const register: Register = on => {
           </Text>
         </Box>
         {pullRequest && (
-          <Box marginLeft={1}>
+          <Box marginLeft={1} flexShrink={0}>
             <Text color={THEME.accent} bold>
               PR #{pullRequest.number}
             </Text>
@@ -1015,10 +1173,10 @@ export const register: Register = on => {
             </Text>
           </Box>
         )}
-        <Box borderStyle="round" borderColor={THEME.border} paddingX={1} marginLeft={1}>
+        <Box borderStyle="round" borderColor={THEME.border} paddingX={1} marginLeft={1} flexShrink={0}>
           <Button key="refresh" plain label="refresh" onPress={() => refreshExplorer($)} />
         </Box>
-        <Box borderStyle="round" borderColor={THEME.border} paddingX={1} marginLeft={1}>
+        <Box borderStyle="round" borderColor={THEME.border} paddingX={1} marginLeft={1} flexShrink={0}>
           <Button key="close" plain label="close" onPress={() => $.ui.close({ id: PANE_ID })} />
         </Box>
       </Box>
@@ -1048,7 +1206,7 @@ export const register: Register = on => {
         </Box>
       ) : null
 
-    const renderThreadsAndQuestion = (anchorKey: string, submit: (question: string) => Promise<void>) => (
+    const renderThreadsAndQuestion = (anchorKey: string, findTarget: () => Promise<QuestionTarget | null>) => (
       <Box flexDirection="column" flexShrink={0}>
         {threads.filter(thread => thread.anchorKey === anchorKey).map(thread => (
           <Box flexDirection="column" flexShrink={0} marginLeft={16} marginY={1} borderStyle="round" borderColor={THEME.accent} paddingX={1}>
@@ -1085,6 +1243,14 @@ export const register: Register = on => {
                     onSubmit={value => replyInThread($, thread.id, value)}
                   />
                 </Box>
+                <Box flexShrink={0} marginLeft={1}>
+                  <Button
+                    key={`dictate-reply-${thread.id}`}
+                    variant="primary"
+                    label="↓ dictate in prompt"
+                    onPress={() => armReplyForPrompt($, thread.id)}
+                  />
+                </Box>
               </Box>
             )}
           </Box>
@@ -1096,11 +1262,29 @@ export const register: Register = on => {
                 key={`${QUESTION_INPUT_KEY_PREFIX}${questionFieldNumber}`}
                 autoFocus
                 onInput={value => update($, questionDraftAtom, () => value)}
-                placeholder="Your question about this, Enter to send"
-                onSubmit={value => submit(value)}
+                placeholder="Type your question, Enter to send (or ↓ to dictate it in the prompt)"
+                onSubmit={value => askFromPane($, anchorKey, findTarget, value)}
+              />
+            </Box>
+            <Box marginLeft={1}>
+              <Button
+                key="ask-from-prompt"
+                variant="primary"
+                label="↓ dictate in prompt"
+                onPress={() => armQuestionForPrompt($, anchorKey, findTarget)}
               />
             </Box>
             <Button key={CANCEL_QUESTION_KEY} label="× cancel" onPress={() => closeQuestion($)} />
+          </Box>
+        )}
+        {armedQuestion?.anchorKey === anchorKey && (
+          <Box flexDirection="row" flexShrink={0} marginLeft={16} marginY={1} borderStyle="round" borderColor={THEME.commitSha} paddingX={1}>
+            <Box flexGrow={1}>
+              <Text color={THEME.commitSha}>
+                Ask from the prompt below: click it, then type or hold Space to dictate, Enter to send.
+              </Text>
+            </Box>
+            <Button key="disarm-question" label="× cancel" onPress={() => update($, armedQuestionAtom, () => null)} />
           </Box>
         )}
       </Box>
@@ -1109,13 +1293,13 @@ export const register: Register = on => {
     const filePanel = (
       <Box
         flexDirection="column"
-        width={isTwoColumns ? FILE_LIST_WIDTH : undefined}
+        width={isTwoColumns ? fileListWidth : undefined}
         height={fileListBoxHeight}
         overflow="hidden"
         borderStyle="round"
         borderColor={THEME.border}
         paddingX={1}
-        marginRight={isTwoColumns ? 1 : 0}
+        marginRight={0}
       >
         <Box flexDirection="row">
           <Box flexGrow={1}>
@@ -1186,10 +1370,12 @@ export const register: Register = on => {
                   </Box>
                 )}
                 {pullRequest && (
-                  <Box width={6} flexShrink={0}>
+                  <Box key={`viewed-box-${file.path}`} width={6} flexShrink={0}>
                     {viewedStateByPath[file.path] ? (
                       <Button
                         key={`viewed-${file.path}`}
+                        plain
+                        hover={{ color: THEME.accent, bold: true }}
                         label={VIEWED_MARKS[viewedStateByPath[file.path] ?? 'UNVIEWED']}
                         onPress={() => toggleViewed($, file.path)}
                       />
@@ -1204,7 +1390,13 @@ export const register: Register = on => {
                   </Text>
                 </Box>
                 <Box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
-                  <Button key={`file-${file.path}`} plain label={fileNameOf(file.path)} onPress={() => selectFile($, file.path)} />
+                  <Button
+                    key={`file-${file.path}`}
+                    plain
+                    dimColor={viewedStateByPath[file.path] === 'VIEWED'}
+                    label={fileNameOf(file.path)}
+                    onPress={() => selectFile($, file.path)}
+                  />
                 </Box>
                 <Box flexShrink={0} marginLeft={1}>
                   {renderFileStats(Text, file)}
@@ -1292,7 +1484,7 @@ export const register: Register = on => {
                         <Markdown text={block} />
                       </Box>
                     </Box>
-                    {renderThreadsAndQuestion(anchorKey, question => askAboutOverviewBlock($, anchorKey, blockIndex, question))}
+                    {renderThreadsAndQuestion(anchorKey, () => overviewQuestionTarget($, blockIndex))}
                   </Box>
                 )
               })}
@@ -1343,8 +1535,8 @@ export const register: Register = on => {
           }
           return (
             <Box key={`row-${rowIndex}`} flexDirection="column" flexShrink={0}>
-              <Box flexDirection="row" height={1} overflow="hidden" backgroundColor={ROW_BACKGROUNDS[row.kind]}>
-                <Box width={4}>
+              <Box flexDirection="row" alignItems="flex-start" backgroundColor={ROW_BACKGROUNDS[row.kind]}>
+                <Box width={4} height={1} flexShrink={0}>
                   <Box display="none" hover={{ display: 'flex' }}>
                     <Button
                       key={`${ASK_BUTTON_KEY_PREFIX}${rowIndex}`}
@@ -1354,7 +1546,7 @@ export const register: Register = on => {
                     />
                   </Box>
                 </Box>
-                <Box flexShrink={0}>
+                <Box flexShrink={0} height={1}>
                   <Button
                     key={`${LINE_NUMBER_BUTTON_KEY_PREFIX}${rowIndex}`}
                     plain
@@ -1364,25 +1556,18 @@ export const register: Register = on => {
                     onPress={() => openQuestion($, anchorKey)}
                   />
                 </Box>
-                <Text color={ROW_COLORS[row.kind]}> {ROW_MARKS[row.kind]} </Text>
-                <Box flexShrink={1} height={1} overflow="hidden">
+                <Box flexShrink={0} height={1}>
+                  <Text color={ROW_COLORS[row.kind]}> {ROW_MARKS[row.kind]} </Text>
+                </Box>
+                <Box flexGrow={1} flexShrink={1} minWidth={0} flexDirection="column">
                   {row.text.trim() === '' ? (
                     <Text> </Text>
                   ) : (
-                    <Code source={row.text} path={selectedFilePath ?? undefined} wrap="truncate-end" />
+                    <Code source={row.text} path={selectedFilePath ?? undefined} wrap="wrap" />
                   )}
                 </Box>
-                <Box flexShrink={0} marginLeft={2} display="none" hover={{ display: 'flex' }}>
-                  <Button
-                    key={`${END_OF_LINE_ASK_BUTTON_KEY_PREFIX}${rowIndex}`}
-                    plain
-                    label="[+]"
-                    onPress={() => openQuestion($, anchorKey)}
-                  />
-                </Box>
-                <Box flexGrow={1} />
               </Box>
-              {renderThreadsAndQuestion(anchorKey, question => askAboutRow($, anchorKey, rowIndex, question))}
+              {renderThreadsAndQuestion(anchorKey, () => rowQuestionTarget($, rowIndex))}
             </Box>
           )
         })}
@@ -1401,6 +1586,15 @@ export const register: Register = on => {
         {commitPanel}
         <Box flexDirection={isTwoColumns ? 'row' : 'column'} height={panelsHeight}>
           {filePanel}
+          {isTwoColumns && (
+            <Client
+              key={DIVIDER_KEY}
+              module="./divider.tsx"
+              props={{ rows: panelsHeight, color: THEME.border, draggingColor: THEME.accent }}
+              width={1}
+              height={panelsHeight}
+            />
+          )}
           {diffPanel}
         </Box>
       </Box>

@@ -60,6 +60,9 @@ declare module 'claude-code' {
       repositoryRoot: string | null
       markedPaths: string[]
       questionFieldNumber: number
+      requestedPaneColumns: number
+      fileListWidth: number
+      armedQuestion: { anchorKey: string; anchorDescription: string; context: string; threadId?: string } | null
       pullRequest: PullRequestSummary | null
       viewedStateByPath: Record<string, ViewedState>
     }
