@@ -287,3 +287,49 @@ test('a resolved GitHub thread unfolds while the keyboard is on it', async ($, o
   expect(await pane.find({ type: 'Markdown', text: 'Old total was wrong' })).toBeDefined()
   await pane.unmount()
 })
+
+test('a GitHub thread goes to Claude with its comments, and the answer comes under its line', async ($, on) => {
+  const world = stubWorld(on, {
+    gh: ghCommand => {
+      if (ghCommand.startsWith('pr view')) {
+        return { exitCode: 0, stdout: JSON.stringify(PULL_REQUEST) }
+      }
+      if (ghCommand.includes('reviewThreads')) {
+        return { exitCode: 0, stdout: JSON.stringify(REVIEW_THREADS) }
+      }
+      return undefined
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-pr' })
+  await pane.press({ key: 'file-src/Total.php' })
+  await pane.press({ key: 'address-github-thread-RT_open' })
+  expect(world.submittedPrompts.at(-1)?.text).toBe('Address the review comment of @reviewer on src/Total.php, line 2.')
+  expect(await pane.find({ type: 'Text', text: /› Address the review comment of @reviewer/ })).toBeDefined()
+  await pane.unmount()
+})
+
+test('c on a GitHub thread reached with n has Claude address it', async ($, on) => {
+  const world = stubWorld(on, {
+    gh: ghCommand => {
+      if (ghCommand.startsWith('pr view')) {
+        return { exitCode: 0, stdout: JSON.stringify(PULL_REQUEST) }
+      }
+      if (ghCommand.includes('reviewThreads')) {
+        return { exitCode: 0, stdout: JSON.stringify(REVIEW_THREADS) }
+      }
+      return undefined
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-pr' })
+  await pane.press({ key: 'file-src/Total.php' })
+  await pane.press({ key: 'thread-next' })
+  await pane.press({ key: 'thread-next' })
+  expect((await pane.find({ key: 'ask-on-line' }))?.text).toMatch(/address comment/)
+  await pane.press({ key: 'ask-on-line' })
+  expect(world.submittedPrompts.at(-1)?.text).toBe('Address the review comment of @reviewer on src/Total.php, line 2.')
+  await pane.unmount()
+})

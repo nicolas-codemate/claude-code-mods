@@ -1,5 +1,5 @@
 import type { GitHubReviewThread } from '../../types'
-import { ROW_CLICK_TARGET_LENGTH } from '../constants'
+import { ADDRESS_GITHUB_THREAD_KEY_PREFIX, ROW_CLICK_TARGET_LENGTH } from '../constants'
 import type { ExplorerActions, ViewElements } from './types'
 
 const GITHUB_THREAD_INDENT = 16
@@ -61,6 +61,15 @@ export function renderGitHubThread(ui: ViewElements, thread: GitHubReviewThread,
             </Text>
           </Box>
         )}
+        <Box key={`github-thread-address-box-${thread.id}`} flexShrink={0} marginLeft={2}>
+          <Button
+            key={`${ADDRESS_GITHUB_THREAD_KEY_PREFIX}${thread.id}`}
+            plain
+            hover={{ color: ui.theme.accent }}
+            label="⚙ address with Claude"
+            onPress={() => input.actions.addressGitHubThread(thread.id)}
+          />
+        </Box>
         <Box key={`github-thread-resolve-box-${thread.id}`} flexShrink={0} marginLeft={2}>
           <Button
             key={`github-thread-resolve-${thread.id}`}

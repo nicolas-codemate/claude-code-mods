@@ -48,6 +48,22 @@ export const UNRESOLVE_REVIEW_THREAD_MUTATION = `mutation($threadId: ID!) {
   unresolveReviewThread(input: { threadId: $threadId }) { thread { isResolved } }
 }`
 
+export function addressRequestOf(thread: GitHubReviewThread, pullRequest: PullRequestSummary): { question: string; context: string } {
+  const firstComment = thread.comments[0]
+  const place = thread.line === null ? `${thread.path} (outdated, was line ${thread.originalLine ?? '?'})` : `${thread.path}, line ${thread.line}`
+
+  return {
+    question: `Address the review comment of @${firstComment?.author ?? 'ghost'} on ${place}.`,
+    context: [
+      `The review thread on pull request ${pullRequest.overviewHeadline} (${pullRequest.url}), ${place}:`,
+      '````markdown',
+      ...thread.comments.map(comment => `@${comment.author}: ${comment.body}`),
+      '````',
+      'Change the code so the thread can be resolved, or say why it should not be. Do not post anything on GitHub.',
+    ].join('\n'),
+  }
+}
+
 export type ReviewThreadsPage = { threads: GitHubReviewThread[]; nextCursor: string | null }
 
 export function parseReviewThreadsPage(

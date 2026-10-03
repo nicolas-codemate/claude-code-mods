@@ -26,6 +26,8 @@ export type DiffViewInput = {
   cursorRowIndex: number | null
   hasLineShortcuts: boolean
   canMarkViewed: boolean
+  // The keyboard went to a GitHub thread: asking then has Claude address it.
+  isOnGitHubThread: boolean
   keymap: Keymap
   isWholeFile: boolean
   diffOffset: number
@@ -329,7 +331,7 @@ export function renderLineShortcuts(ui: ViewElements, input: DiffViewInput) {
     { key: 'cursor-up', action: 'previousLine', label: '↑ line', onPress: () => input.actions.moveCursor(-1) },
     { key: 'hunk-next', action: 'nextHunk', label: '↓ hunk', onPress: () => input.actions.moveCursorToHunk(1) },
     { key: 'hunk-previous', action: 'previousHunk', label: '↑ hunk', onPress: () => input.actions.moveCursorToHunk(-1) },
-    { key: 'ask-on-line', action: 'askOnLine', label: 'ask', onPress: () => input.actions.askOnCursorLine() },
+    { key: 'ask-on-line', action: 'askOnLine', label: input.isOnGitHubThread ? 'address comment' : 'ask', onPress: () => input.actions.askOnCursorLine() },
     { key: 'reply-on-line', action: 'replyOnLine', label: 'reply', onPress: () => input.actions.replyOnCursorLine() },
   ]
   const path = input.selectedFile?.path

@@ -38,7 +38,8 @@ export function renderHelp(ui: ViewElements, input: HelpInput, height: number, a
         ))}
       </Box>
       <Text color={ui.theme.muted}>
-        Enter on the line under the cursor asks about it too; Escape closes a question, then this help, then the pane.
+        Enter on the cursor's line asks about it; on a GitHub thread reached with n/p, c has Claude address it. Escape
+        closes a question, then this help, then the pane.
       </Text>
       <Text color={ui.theme.muted}>Remap a key in /config, under diff-review (Key: …): one letter or digit, several comma separated.</Text>
       {input.problems.map(problem => (

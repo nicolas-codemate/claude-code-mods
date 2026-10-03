@@ -183,7 +183,7 @@ test('the help lists every shortcut and closes with its key or its button', asyn
   const pane = await mountPane($)
   await pane.press({ key: 'help' })
   expect(await pane.find({ type: 'Text', text: 'Keyboard shortcuts' })).toBeDefined()
-  expect(await pane.find({ type: 'Text', text: 'Ask Claude about the line (Enter too)' })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: 'Ask about the line (Enter too), address a GitHub thread' })).toBeDefined()
   await pane.press({ key: 'help' })
   expect(await pane.find({ type: 'Text', text: 'Keyboard shortcuts' })).toBeUndefined()
   await pane.press({ key: 'help' })

@@ -48,6 +48,7 @@ export type ExplorerActions = {
   openOnGitHub: (page: GitHubPage) => Promise<void>
   toggleGitHubThread: (threadId: string) => Promise<void>
   toggleGitHubThreadResolved: (threadId: string) => Promise<void>
+  addressGitHubThread: (threadId: string) => Promise<void>
   moveCursor: (offset: number) => Promise<void>
   moveCursorToHunk: (direction: 1 | -1) => Promise<void>
   askOnCursorLine: () => Promise<void>

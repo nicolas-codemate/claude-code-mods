@@ -63,7 +63,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
   { action: 'moreContext', configField: 'key_more_context', group: 'Lines', description: 'More context around the changes', defaultKeys: fixed('u') },
   { action: 'wholeFile', configField: 'key_whole_file', group: 'Lines', description: 'The whole file, changes in place', defaultKeys: fixed('l') },
   { action: 'toggleSplitView', configField: 'key_split_view', group: 'Lines', description: 'Side by side or unified (wide diff)', defaultKeys: fixed('t') },
-  { action: 'askOnLine', configField: 'key_ask_on_line', group: 'Lines', description: 'Ask Claude about the line (Enter too)', defaultKeys: fixed('c') },
+  { action: 'askOnLine', configField: 'key_ask_on_line', group: 'Lines', description: 'Ask about the line (Enter too), address a GitHub thread', defaultKeys: fixed('c') },
   { action: 'replyOnLine', configField: 'key_reply_on_line', group: 'Lines', description: 'Reply in the thread of the line', defaultKeys: fixed('r') },
   { action: 'previousThread', configField: 'key_previous_thread', group: 'Threads', description: 'Previous thread', defaultKeys: fixed('p') },
   { action: 'nextThread', configField: 'key_next_thread', group: 'Threads', description: 'Next thread', defaultKeys: fixed('n') },

@@ -50,6 +50,7 @@ import {
   parseUntrackedFiles,
 } from './git-parsing'
 import {
+  addressRequestOf,
   gitHubThreadNavigationEntries,
   isGitHubThreadOnRow,
   MARK_FILE_AS_VIEWED_MUTATION,
@@ -511,7 +512,7 @@ async function widenContext($: EngineInterface, path: string, contextLines: (cur
   if (cursorRowIndex === -1) {
     await focusFirstChange($)
   } else {
-    await $.ui.focus({ requestId: PANE_ID, key: `${LINE_NUMBER_BUTTON_KEY_PREFIX}${cursorRowIndex}` }).catch(() => undefined)
+    focusAfterNextDrawing($, `${LINE_NUMBER_BUTTON_KEY_PREFIX}${cursorRowIndex}`)
   }
 }
 
@@ -587,7 +588,9 @@ async function showOverview($: EngineInterface): Promise<void> {
   await closeQuestion($)
 }
 
-async function selectFile($: EngineInterface, path: string): Promise<void> {
+// The keyboard goes to the new file's first change, unless the caller puts it somewhere else on the same drawing: two
+// requests for one drawing leave the later one unanswered.
+async function selectFile($: EngineInterface, path: string, focus: 'first-change' | 'caller' = 'first-change'): Promise<void> {
   await update($, isOverviewShownAtom, () => false)
   await update($, selectedFilePathAtom, () => path)
   await update($, diffOffsetAtom, () => 0)
@@ -595,7 +598,9 @@ async function selectFile($: EngineInterface, path: string): Promise<void> {
   await scrollFileListTo($, path)
   await closeQuestion($)
   await loadSelectedFileDiff($)
-  await focusFirstChange($)
+  if (focus === 'first-change') {
+    await focusFirstChange($)
+  }
 }
 
 // With the keyboard on the cursor line's own button, Enter asks about it: a new file puts it on its first change.
@@ -603,15 +608,18 @@ async function selectFile($: EngineInterface, path: string): Promise<void> {
 async function focusFirstChange($: EngineInterface): Promise<void> {
   const diffRows = await read($, diffRowsAtom)
   const splitRows = lastDrawnLayout.isSplitView ? pairRowsSideBySide(diffRows) : null
-  const rowIndex = (await read($, isOverviewShownAtom)) ? null : firstChangeStop(diffRows, cursorStopsOf(diffRows, splitRows))
+  // The overview only draws in the PR view of a branch that has a PR, whatever the flag says elsewhere.
+  const isOverviewDrawn =
+    (await read($, isOverviewShownAtom)) && (await read($, viewAtom)) === 'pr' && (await read($, pullRequestAtom)) !== null
+  const rowIndex = isOverviewDrawn ? null : firstChangeStop(diffRows, cursorStopsOf(diffRows, splitRows))
   const selectedFilePath = await read($, selectedFilePathAtom)
   const key =
     rowIndex !== null
       ? `${LINE_NUMBER_BUTTON_KEY_PREFIX}${rowIndex}`
-      : (await read($, isOverviewShownAtom)) || selectedFilePath === null
+      : isOverviewDrawn || selectedFilePath === null
         ? PULL_REQUEST_OVERVIEW_KEY
         : `${FILE_BUTTON_KEY_PREFIX}${selectedFilePath}`
-  await $.ui.focus({ requestId: PANE_ID, key }).catch(() => undefined)
+  focusAfterNextDrawing($, key)
 }
 
 async function scrollFileListTo($: EngineInterface, path: string): Promise<void> {
@@ -720,6 +728,12 @@ async function paneOpenArguments($: EngineInterface) {
   }
 }
 
+// A key press is handled before the pane is drawn again, and the engine waits for an element still to be drawn: awaiting
+// the focus there would hold the press until the wait gives up. It settles once the next drawing is done.
+function focusAfterNextDrawing($: EngineInterface, key: string): void {
+  void $.ui.focus({ requestId: PANE_ID, key }).catch(() => undefined)
+}
+
 // Refused while the prompt below holds the keyboard: the field then waits for the person's own click.
 async function focusQuestionField($: EngineInterface, questionFieldNumber: number): Promise<void> {
   const isStillWaitingForKeyboard =
@@ -825,7 +839,7 @@ async function takeKeyboardBackToCursor($: EngineInterface): Promise<void> {
   }
   const cursorRowIndex = lastDrawnLayout.cursorRowIndex
   if (cursorRowIndex !== null) {
-    await $.ui.focus({ requestId: PANE_ID, key: `${LINE_NUMBER_BUTTON_KEY_PREFIX}${cursorRowIndex}` }).catch(() => undefined)
+    focusAfterNextDrawing($, `${LINE_NUMBER_BUTTON_KEY_PREFIX}${cursorRowIndex}`)
   }
 }
 
@@ -922,7 +936,7 @@ async function moveThread($: EngineInterface, offset: number): Promise<void> {
     return
   }
   if ((await read($, selectedFilePathAtom)) !== anchor.path || (await read($, isOverviewShownAtom))) {
-    await selectFile($, anchor.path)
+    await selectFile($, anchor.path, 'caller')
   }
   const view = await read($, viewAtom)
   const commitSha = await read($, selectedCommitShaAtom)
@@ -935,6 +949,34 @@ async function moveThread($: EngineInterface, offset: number): Promise<void> {
   )
   const scrolledIndex = lastDrawnLayout.isSplitView ? splitIndexOfRow(pairRowsSideBySide(diffRows), rowIndex) : rowIndex
   await update($, diffOffsetAtom, () => Math.max(0, scrolledIndex - 2))
+  if (rowIndex !== -1) {
+    await update($, cursorRowIndexAtom, () => rowIndex)
+  }
+  if (rowIndex !== -1) {
+    focusAfterNextDrawing($, `${LINE_NUMBER_BUTTON_KEY_PREFIX}${rowIndex}`)
+  }
+}
+
+// Claude gets the conversation of a review thread and changes the code to settle it; its answer is drawn under the
+// thread's line. An outdated thread has no line left: Claude answers in the conversation only.
+async function addressGitHubThread($: EngineInterface, threadId: string): Promise<void> {
+  const gitHubThread = (await read($, gitHubReviewThreadsAtom)).find(thread => thread.id === threadId)
+  const pullRequest = await read($, pullRequestAtom)
+  if (!gitHubThread || !pullRequest) {
+    return
+  }
+  const request = addressRequestOf(gitHubThread, pullRequest)
+  if ((await read($, selectedFilePathAtom)) !== gitHubThread.path || (await read($, isOverviewShownAtom))) {
+    await selectFile($, gitHubThread.path, 'caller')
+  }
+  const rowIndex = (await read($, diffRowsAtom)).findIndex(row => isGitHubThreadOnRow(gitHubThread, gitHubThread.path, row))
+  const target = rowIndex === -1 ? null : await findRowQuestionTarget($, rowIndex)
+  if (target === null) {
+    await $.prompt.submit({ text: `${request.question}\n\n${request.context}` })
+    return
+  }
+  const anchorKey = anchorKeyOf(await read($, viewAtom), await read($, selectedCommitShaAtom), gitHubThread.path, (await read($, diffRowsAtom))[rowIndex] as DiffRow)
+  await askFromPane($, anchorKey, { ...target, context: `${target.context}\n\n${request.context}` }, request.question)
 }
 
 async function readClaudeCodeTheme($: EngineInterface): Promise<void> {
@@ -967,7 +1009,7 @@ async function moveCursor($: EngineInterface, move: CursorMove): Promise<void> {
   await update($, cursorRowIndexAtom, () => target)
   await update($, diffOffsetAtom, offset => offsetShowingCursor(drawnIndexOf(target), offset, lastDrawnLayout.visibleDiffRows))
   // With the keyboard on the line's own button, Enter asks about it.
-  await $.ui.focus({ requestId: PANE_ID, key: `${LINE_NUMBER_BUTTON_KEY_PREFIX}${target}` }).catch(() => undefined)
+  focusAfterNextDrawing($, `${LINE_NUMBER_BUTTON_KEY_PREFIX}${target}`)
 }
 
 async function cursorAnchorKey($: EngineInterface): Promise<string | null> {
@@ -981,7 +1023,14 @@ async function cursorAnchorKey($: EngineInterface): Promise<string | null> {
   return anchorKeyOf(await read($, viewAtom), await read($, selectedCommitShaAtom), path, row)
 }
 
+// On a GitHub thread reached with the keyboard, the question is to settle that thread.
 async function askOnCursorLine($: EngineInterface): Promise<void> {
+  const currentThreadId = await read($, currentThreadIdAtom)
+  const currentGitHubThread = (await read($, gitHubReviewThreadsAtom)).find(thread => thread.id === currentThreadId)
+  if (currentGitHubThread && (await read($, viewAtom)) === 'pr') {
+    await addressGitHubThread($, currentGitHubThread.id)
+    return
+  }
   const anchorKey = await cursorAnchorKey($)
   if (anchorKey) {
     await openQuestion($, anchorKey)
@@ -999,7 +1048,7 @@ async function replyOnCursorLine($: EngineInterface): Promise<void> {
     await openQuestion($, anchorKey)
     return
   }
-  await $.ui.focus({ requestId: PANE_ID, key: `${REPLY_INPUT_KEY_PREFIX}${thread.id}` }).catch(() => undefined)
+  focusAfterNextDrawing($, `${REPLY_INPUT_KEY_PREFIX}${thread.id}`)
 }
 
 // --- Threads kept across sessions, per repository and branch ------------------------------------------------------
@@ -1167,7 +1216,7 @@ function explorerActions($: EngineInterface): ExplorerActions {
     replyOnCursorLine: () => replyOnCursorLine($),
     markViewedAndNext: () => markViewedAndNext($),
     focusFileFilter: async () => {
-      await $.ui.focus({ requestId: PANE_ID, key: FILE_FILTER_KEY }).catch(() => undefined)
+      focusAfterNextDrawing($, FILE_FILTER_KEY)
     },
     submitFileFilter: async filter => {
       await update($, fileFilterAtom, () => filter)
@@ -1178,6 +1227,7 @@ function explorerActions($: EngineInterface): ExplorerActions {
       await update($, isHelpShownAtom, isHelpShown => !isHelpShown)
     },
     toggleGitHubThreadResolved: threadId => toggleGitHubThreadResolved($, threadId),
+    addressGitHubThread: threadId => addressGitHubThread($, threadId),
     toggleGitHubThread: async threadId => {
       await update($, expandedGitHubThreadIdsAtom, threadIds =>
         threadIds.includes(threadId) ? threadIds.filter(id => id !== threadId) : [...threadIds, threadId],
