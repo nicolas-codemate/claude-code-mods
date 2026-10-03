@@ -1,0 +1,308 @@
+import type {
+  ChangedFile,
+  CommitGraphLine,
+  CommitSummary,
+  GitHubReviewThread,
+  DiffRow,
+  PullRequestSummary,
+  ReviewThread,
+  ReviewView,
+  ViewedState,
+} from '../../types'
+import {
+  FILE_FILTER_KEY,
+  QUESTION_INPUT_KEY_PREFIX,
+  REPLY_INPUT_KEY_PREFIX,
+  SPLIT_VIEW_MIN_DIFF_WIDTH,
+  TWO_COLUMNS_MIN_WIDTH,
+} from '../constants'
+import { visibleFilesOf } from '../file-filter'
+import { cursorStopsOf, firstChangeStop } from '../cursor'
+import { countViewedFiles, gitHubThreadNavigationEntries } from '../github-review'
+import type { Keymap, ShortcutAction } from '../keymap'
+import { buildFileLines, clampFileListWidth, computePaneGeometry } from '../layout'
+import type { PaneGeometry } from '../layout'
+import { splitMarkdownBlocks } from '../markdown'
+import { fileAnchorPrefixOf, threadsInReadingOrder } from '../questions'
+import { groupFilesByDirectory } from '../git-parsing'
+import { pairRowsSideBySide } from '../split-rows'
+import type { PaneInput } from './pane'
+import type { ExplorerActions, GitHubPage, QuestionState, ThreadNavigation } from './types'
+
+export type ExplorerSnapshot = {
+  view: ReviewView
+  repositoryRoot: string | null
+  repositoryWebUrl: string | null
+  branch: string | null
+  baseRef: string | null
+  isLoading: boolean
+  loadError: string | null
+  commits: CommitSummary[]
+  commitGraph: CommitGraphLine[]
+  gitHubReviewThreads: GitHubReviewThread[]
+  expandedGitHubThreadIds: string[]
+  selectedCommitSha: string | null
+  files: ChangedFile[]
+  selectedFilePath: string | null
+  isOverviewShown: boolean
+  diffRows: DiffRow[]
+  pullRequest: PullRequestSummary | null
+  viewedStateByPath: Record<string, ViewedState>
+  markedPaths: string[]
+  fileFilter: string
+  isWholeFileByPath: Record<string, boolean>
+  isNoiseShown: boolean
+  isSplitViewPreferred: boolean
+  keymap: Keymap
+  keymapProblems: string[]
+  isHelpShown: boolean
+  cursorRowIndex: number | null
+  focusedElementKey: string | null
+  fileListWidth: number
+  fileListOffset: number
+  diffOffset: number
+  threads: ReviewThread[]
+  anchorWithOpenInput: string | null
+  questionFieldNumber: number
+  questionDraft: string
+  hasQuestionHadKeyboard: boolean
+  armedAnchorKey: string | null
+  currentThreadId: string | null
+}
+
+export type PaneSurface = { bodyRows: number; bodyColumns: number; isPaneFocused: boolean }
+
+export type PaneModel = {
+  paneInput: PaneInput
+  geometry: PaneGeometry
+  fileLineIndexByPath: Record<string, number>
+  fileLineCount: number
+  scrolledRowCount: number
+  isOverviewShown: boolean
+  isSplitView: boolean
+  cursorRowIndex: number | null
+  isScrollingPastEnd: boolean
+}
+
+export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface, actions: ExplorerActions): PaneModel {
+  const { view, files, selectedFilePath, selectedCommitSha, threads } = snapshot
+  const pullRequest = view === 'pr' ? snapshot.pullRequest : null
+  const viewedStateByPath = pullRequest ? snapshot.viewedStateByPath : {}
+  const isOverviewShown = pullRequest !== null && snapshot.isOverviewShown
+  const overviewBlocks = pullRequest && isOverviewShown ? splitMarkdownBlocks(pullRequest.overviewMarkdown) : []
+  const hasUntrackedFiles = view === 'uncommitted' && files.some(file => file.isUntracked)
+  const hasStageActions = view === 'uncommitted' && files.length > 0
+
+  // A one-letter shortcut would fire on the letters typed into a question or a reply: none is bound meanwhile.
+  const focusedElementKey = snapshot.focusedElementKey ?? ''
+  const isTyping =
+    focusedElementKey.startsWith(QUESTION_INPUT_KEY_PREFIX) ||
+    focusedElementKey.startsWith(REPLY_INPUT_KEY_PREFIX) ||
+    focusedElementKey === FILE_FILTER_KEY
+  // Each shortcut a drawn button carries is noted, so the ones left over get a stand-in (see renderIdleShortcuts).
+  const claimedActions = new Set<ShortcutAction>(['previousFile', 'nextFile', 'previousView', 'nextView'])
+  const hotkeyOf = (action: ShortcutAction) => {
+    if (isTyping) {
+      return undefined
+    }
+    claimedActions.add(action)
+    return snapshot.keymap[action][0]
+  }
+
+  const questionState: QuestionState = {
+    anchorWithOpenInput: snapshot.anchorWithOpenInput,
+    // Escape or a click outside gives the keyboard back to the prompt: an empty question that had the keyboard then
+    // stops being drawn. One just opened by a click while the prompt still held the keyboard stays.
+    isQuestionFieldShown: surface.isPaneFocused || !snapshot.hasQuestionHadKeyboard || snapshot.questionDraft.trim() !== '',
+    questionFieldKey: `${QUESTION_INPUT_KEY_PREFIX}${snapshot.questionFieldNumber}`,
+    armedAnchorKey: snapshot.armedAnchorKey,
+  }
+  const fileAnchorPrefix = selectedFilePath ? fileAnchorPrefixOf(view, selectedCommitSha, selectedFilePath) : null
+  const gitHubThreads = pullRequest ? snapshot.gitHubReviewThreads : []
+  const gitHubThreadsOfFile = gitHubThreads.filter(thread => thread.path === selectedFilePath)
+  const hasInlineContentInFile =
+    gitHubThreadsOfFile.length > 0 ||
+    (fileAnchorPrefix !== null &&
+      [...threads.map(thread => thread.anchorKey), snapshot.anchorWithOpenInput, snapshot.armedAnchorKey].some(anchorKey =>
+        (anchorKey ?? '').startsWith(fileAnchorPrefix),
+      ))
+
+  const shown = visibleFilesOf(files, { filter: snapshot.fileFilter, isNoiseShown: snapshot.isNoiseShown })
+  const fileLines = buildFileLines(shown.files, pullRequest !== null)
+  const threadsOfScreen = threadsInReadingOrder([...threads, ...gitHubThreadNavigationEntries(gitHubThreads)], {
+    view,
+    commitSha: view === 'commits' ? selectedCommitSha : null,
+    orderedPaths: groupFilesByDirectory(shown.files).flatMap(group => group.files.map(file => file.path)),
+    hasOverview: pullRequest !== null,
+  })
+  const currentThreadIndex = threadsOfScreen.findIndex(thread => thread.id === snapshot.currentThreadId)
+  const threadNavigation: ThreadNavigation = {
+    position: currentThreadIndex === -1 ? null : currentThreadIndex,
+    count: threadsOfScreen.length,
+    currentGitHubThread: gitHubThreads.find(thread => thread.id === snapshot.currentThreadId) ?? null,
+  }
+  const diffWidth =
+    surface.bodyColumns >= TWO_COLUMNS_MIN_WIDTH
+      ? surface.bodyColumns - clampFileListWidth(snapshot.fileListWidth, surface.bodyColumns)
+      : surface.bodyColumns
+  const canSplitView = diffWidth >= SPLIT_VIEW_MIN_DIFF_WIDTH
+  const splitRows = canSplitView && snapshot.isSplitViewPreferred ? pairRowsSideBySide(snapshot.diffRows) : null
+  const cursorStops = cursorStopsOf(snapshot.diffRows, splitRows)
+  const cursorRowIndex =
+    snapshot.cursorRowIndex !== null && cursorStops.includes(snapshot.cursorRowIndex)
+      ? snapshot.cursorRowIndex
+      : firstChangeStop(snapshot.diffRows, cursorStops)
+  const hasLineShortcuts = !isOverviewShown && selectedFilePath !== null
+  const scrolledRowCount = isOverviewShown ? overviewBlocks.length : (splitRows ?? snapshot.diffRows).length
+  const isScrollingPastEnd = isOverviewShown || hasInlineContentInFile
+  const geometry = computePaneGeometry({
+    bodyRows: surface.bodyRows,
+    bodyColumns: surface.bodyColumns,
+    view,
+    hasLoadError: snapshot.loadError !== null,
+    commitLineCount: snapshot.commitGraph.length,
+    selectedCommitLineIndex: Math.max(
+      0,
+      snapshot.commitGraph.findIndex(line => !line.isBoundary && line.commit?.sha === selectedCommitSha),
+    ),
+    fileLineCount: fileLines.length,
+    hasStageActions,
+    hasNoiseNotice: shown.hiddenNoiseCount > 0 || snapshot.isNoiseShown,
+    requestedFileListWidth: snapshot.fileListWidth,
+    requestedFileListOffset: snapshot.fileListOffset,
+    scrolledRowCount,
+    isScrollingPastEnd,
+    requestedDiffOffset: snapshot.diffOffset,
+    hasLineShortcuts,
+  })
+  const location = [
+    snapshot.isLoading ? 'loading…' : null,
+    snapshot.repositoryRoot,
+    snapshot.branch,
+    view !== 'uncommitted' && snapshot.baseRef ? `base ${snapshot.baseRef.slice(0, 10)}` : null,
+  ]
+    .filter(part => part !== null && part !== '')
+    .join('  │  ')
+
+  const paneInput: PaneInput = {
+    bodyRows: surface.bodyRows,
+    geometry,
+    view,
+    location,
+    activeViewCount: view === 'commits' ? snapshot.commits.length : files.length,
+    help: snapshot.isHelpShown ? { keymap: snapshot.keymap, problems: snapshot.keymapProblems } : null,
+    loadError: snapshot.loadError,
+    pullRequest,
+    viewedCount: countViewedFiles(files.map(file => file.path), viewedStateByPath),
+    commitGraph: snapshot.commitGraph,
+    commitCount: snapshot.commits.length,
+    repositoryWebUrl: snapshot.repositoryWebUrl,
+    gitHubPage: gitHubPageOf(
+      snapshot,
+      pullRequest,
+      gitHubThreads.find(thread => thread.id === snapshot.currentThreadId),
+    ),
+    selectedCommitSha,
+    hotkeyOf,
+    idleShortcuts: isTyping ? null : { keymap: snapshot.keymap, claimedActions },
+    fileList: {
+      files,
+      shownFileCount: shown.files.length,
+      hiddenNoiseCount: shown.hiddenNoiseCount,
+      fileFilter: snapshot.fileFilter,
+      isNoiseShown: snapshot.isNoiseShown,
+      fileLines,
+      shownFileLines: fileLines.slice(geometry.fileListOffset, geometry.fileListOffset + geometry.visibleFileLines),
+      fileListOffset: geometry.fileListOffset,
+      visibleFileLines: geometry.visibleFileLines,
+      selectedFilePath,
+      isOverviewShown,
+      pullRequest,
+      viewedStateByPath,
+      hasUntrackedFiles,
+      hasStageActions,
+      markedPaths: view === 'uncommitted' ? snapshot.markedPaths : [],
+      keymap: snapshot.keymap,
+      isTyping,
+      hotkeyOf,
+      actions,
+    },
+    overview:
+      pullRequest && isOverviewShown
+        ? {
+            pullRequest,
+            blocks: overviewBlocks,
+            blockOffset: geometry.diffOffset,
+            visibleBlocks: geometry.visibleDiffRows,
+            threads,
+            questionState,
+            threadNavigation,
+            hotkeyOf,
+            actions,
+          }
+        : null,
+    diff: {
+      view,
+      selectedCommitSha,
+      selectedFile: files.find(file => file.path === selectedFilePath),
+      diffRows: snapshot.diffRows,
+      splitRows,
+      canSplitView,
+      cursorRowIndex,
+      hasLineShortcuts,
+      canMarkViewed: selectedFilePath !== null && viewedStateByPath[selectedFilePath] !== undefined,
+      keymap: snapshot.keymap,
+      isWholeFile: selectedFilePath !== null && snapshot.isWholeFileByPath[selectedFilePath] === true,
+      diffOffset: geometry.diffOffset,
+      visibleDiffRows: geometry.visibleDiffRows,
+      threads,
+      gitHubThreads: gitHubThreadsOfFile,
+      expandedGitHubThreadIds: snapshot.expandedGitHubThreadIds,
+      currentThreadId: snapshot.currentThreadId,
+      questionState,
+      threadNavigation,
+      hotkeyOf,
+      actions,
+    },
+    actions,
+  }
+
+  return {
+    paneInput,
+    geometry,
+    fileLineIndexByPath: Object.fromEntries(
+      fileLines.flatMap((fileLine, index) => (fileLine.kind === 'file' ? [[fileLine.file.path, index]] : [])),
+    ),
+    fileLineCount: fileLines.length,
+    scrolledRowCount,
+    isOverviewShown,
+    isSplitView: splitRows !== null,
+    cursorRowIndex,
+    isScrollingPastEnd,
+  }
+}
+
+// The page the GitHub shortcut opens: the review comment the keyboard went to, else the selected commit in the commits
+// view or the pull request in its view.
+function gitHubPageOf(
+  snapshot: ExplorerSnapshot,
+  pullRequest: PullRequestSummary | null,
+  currentGitHubThread: GitHubReviewThread | undefined,
+): GitHubPage | null {
+  const firstCommentUrl = currentGitHubThread?.comments[0]?.url
+  if (firstCommentUrl) {
+    return { url: firstCommentUrl, description: 'comment' }
+  }
+  const selectedCommit = snapshot.commits.find(commit => commit.sha === snapshot.selectedCommitSha)
+  if (snapshot.view === 'commits' && selectedCommit && snapshot.repositoryWebUrl) {
+    return {
+      url: `${snapshot.repositoryWebUrl}/commit/${selectedCommit.sha}`,
+      description: `commit ${selectedCommit.shortSha}`,
+    }
+  }
+  if (snapshot.view === 'pr' && pullRequest) {
+    return { url: pullRequest.url, description: `PR #${pullRequest.number}` }
+  }
+
+  return null
+}

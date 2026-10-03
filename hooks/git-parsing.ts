@@ -1,19 +1,32 @@
-import type { ChangedFile, CommitSummary, DiffRow, ReviewView } from '../types'
+import type { ChangedFile, CommitGraphLine, CommitSummary, DiffRow, ReviewView } from '../types'
 
 const LOG_FIELD_SEPARATOR = '\u001f'
-export const LOG_FORMAT = ['%H', '%h', '%s', '%an', '%ar'].join('%x1f')
+export const LOG_FORMAT = ['%H', '%h', '%s', '%an', '%ar', '%D'].join('%x1f')
 
+// git diff --numstat --summary: one tab-separated count line per file, then a " create mode" or " delete mode" line
+// for each file the change creates or deletes.
 export function parseNumstat(numstatOutput: string): ChangedFile[] {
-  return numstatOutput
-    .split('\n')
-    .filter(line => line.trim() !== '')
+  const lines = numstatOutput.split('\n')
+  const creationByPath = new Map<string, 'created' | 'deleted'>()
+  for (const line of lines) {
+    const summary = line.match(/^ (create|delete) mode \d+ (.+)$/)
+    if (summary?.[2]) {
+      creationByPath.set(summary[2], summary[1] === 'create' ? 'created' : 'deleted')
+    }
+  }
+
+  return lines
+    .filter(line => line.includes('\t'))
     .map(line => {
       const [added = '-', removed = '-', ...pathParts] = line.split('\t')
+      const path = pathParts.join('\t')
+      const creation = creationByPath.get(path)
       return {
-        path: pathParts.join('\t'),
+        path,
         addedLines: added === '-' ? null : Number(added),
         removedLines: removed === '-' ? null : Number(removed),
         isUntracked: false,
+        ...(creation ? { creation } : {}),
       }
     })
 }
@@ -25,14 +38,41 @@ export function parseUntrackedFiles(lsFilesOutput: string): ChangedFile[] {
     .map(path => ({ path, addedLines: null, removedLines: null, isUntracked: true }))
 }
 
-export function parseCommitLog(logOutput: string): CommitSummary[] {
+// git log --graph draws the lanes before the first field; --boundary adds the base commit, its lane marked with an o.
+export function parseCommitGraph(logOutput: string): CommitGraphLine[] {
   return logOutput
     .split('\n')
     .filter(line => line.trim() !== '')
     .map(line => {
-      const [sha = '', shortSha = '', subject = '', author = '', relativeDate = ''] = line.split(LOG_FIELD_SEPARATOR)
-      return { sha, shortSha, subject, author, relativeDate }
+      if (!line.includes(LOG_FIELD_SEPARATOR)) {
+        return { graph: line.trimEnd(), commit: null, isBoundary: false }
+      }
+      const [graphAndSha = '', shortSha = '', subject = '', author = '', relativeDate = '', decoration = ''] =
+        line.split(LOG_FIELD_SEPARATOR)
+      const shaMatch = graphAndSha.match(/^(.*\s)?(\S+)$/)
+      const graph = shaMatch?.[1] ?? ''
+      const refs = decoration
+        .split(',')
+        .map(ref => ref.trim().replace(/^HEAD -> /, ''))
+        .filter(ref => ref !== '' && ref !== 'HEAD')
+
+      return {
+        graph: graph.trimEnd(),
+        commit: { sha: shaMatch?.[2] ?? graphAndSha, shortSha, subject, author, relativeDate, refs },
+        isBoundary: graph.trimEnd().endsWith('o'),
+      }
     })
+}
+
+export function commitsOfGraph(graph: CommitGraphLine[]): CommitSummary[] {
+  return graph.flatMap(line => (line.commit && !line.isBoundary ? [line.commit] : []))
+}
+
+// The web page of the repository behind a remote, from its SSH (git@host:owner/name.git) or HTTPS spelling.
+export function repositoryWebUrlOf(remoteUrl: string): string | null {
+  const match = remoteUrl.trim().match(/^(?:https:\/\/(?:[^@/]+@)?|ssh:\/\/git@|git@)([^/:]+)[/:](.+?)(?:\.git)?\/?$/)
+
+  return match ? `https://${match[1]}/${match[2]}` : null
 }
 
 // Only the hunks are kept: the header lines git prints before the first @@ (diff --git, index, ---, +++) carry nothing to review.
@@ -70,7 +110,6 @@ export function parseUnifiedDiff(diffOutput: string): DiffRow[] {
   return rows
 }
 
-// git diff arguments comparing what each view shows: the working tree against HEAD, the branch against its base, one commit against its parent.
 export function diffRangeArguments(view: ReviewView, baseRef: string | null, commitSha: string | null): string[] | null {
   if (view === 'uncommitted') {
     return ['HEAD']
@@ -82,27 +121,6 @@ export function diffRangeArguments(view: ReviewView, baseRef: string | null, com
   return commitSha ? [`${commitSha}~1`, commitSha] : null
 }
 
-export function anchorKeyOf(view: ReviewView, commitSha: string | null, path: string, row: DiffRow): string {
-  return [view, commitSha ?? '', path, row.kind, row.oldNumber ?? '', row.newNumber ?? ''].join('|')
-}
-
-export function describeLineForPrompt(path: string, row: DiffRow): string {
-  if (row.kind === 'removed') {
-    return `${path}, removed line (was line ${row.oldNumber})`
-  }
-
-  return `${path}, line ${row.newNumber} (${row.kind === 'added' ? 'added' : 'unchanged context'})`
-}
-
-export function surroundingRows(rows: DiffRow[], rowIndex: number, radius: number): DiffRow[] {
-  return rows.slice(Math.max(0, rowIndex - radius), rowIndex + radius + 1)
-}
-
-export function formatRowsAsDiff(rows: DiffRow[]): string {
-  const marks = { hunk: '@@', context: ' ', added: '+', removed: '-' } as const
-
-  return rows.map(row => (row.kind === 'hunk' ? `@@ ${row.text}` : `${marks[row.kind]} ${row.text}`)).join('\n')
-}
 
 export type FileGroup = { directory: string; files: ChangedFile[] }
 
@@ -124,29 +142,4 @@ export function groupFilesByDirectory(files: ChangedFile[]): FileGroup[] {
 
 export function fileNameOf(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1)
-}
-
-const FILE_TYPE_BADGES: ReadonlyArray<{ extensions: string[]; badge: string; color: string }> = [
-  { extensions: ['php'], badge: 'php', color: '#8892bf' },
-  { extensions: ['ts', 'tsx', 'mts', 'cts'], badge: 'ts', color: '#3d8fd6' },
-  { extensions: ['js', 'jsx', 'mjs', 'cjs'], badge: 'js', color: '#e8d44d' },
-  { extensions: ['json'], badge: '{}', color: '#cbcb41' },
-  { extensions: ['md', 'mdx'], badge: 'md', color: '#5fa8d3' },
-  { extensions: ['sh', 'bash', 'zsh'], badge: '$_', color: '#89e051' },
-  { extensions: ['yml', 'yaml'], badge: 'yml', color: '#e06c75' },
-  { extensions: ['css', 'scss', 'sass'], badge: '#', color: '#c678dd' },
-  { extensions: ['html', 'twig', 'vue', 'svelte'], badge: '<>', color: '#e5804f' },
-  { extensions: ['py'], badge: 'py', color: '#4b8bbe' },
-  { extensions: ['go'], badge: 'go', color: '#00add8' },
-  { extensions: ['xml', 'xlf', 'xliff'], badge: '<>', color: '#c0965c' },
-  { extensions: ['sql'], badge: 'sql', color: '#d7a65f' },
-  { extensions: ['lock'], badge: 'lck', color: '#7f848e' },
-]
-
-export function fileTypeBadgeOf(path: string): { badge: string; color: string } {
-  const fileName = fileNameOf(path)
-  const extension = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.') + 1).toLowerCase() : ''
-  const known = FILE_TYPE_BADGES.find(entry => entry.extensions.includes(extension))
-
-  return known ? { badge: known.badge, color: known.color } : { badge: '··', color: '#7f848e' }
 }

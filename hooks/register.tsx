@@ -1,151 +1,183 @@
 import { atom, read, update } from 'claude-code'
-import type { Elements, EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
-import type { ChangedFile, DiffRow, KeyboardLayout, ReviewThread, ReviewView, ThreadExchange, ViewedState } from '../types'
+import type { ChangedFile, DiffRow, GitHubReviewThread, KeyboardLayout, ReviewView, ViewedState } from '../types'
 import {
-  countViewedFiles,
-  MARK_FILE_AS_VIEWED_MUTATION,
-  parseEmojiCharacters,
-  parsePullRequest,
-  PULL_REQUEST_VIEW_FIELDS,
-  splitMarkdownBlocks,
-  parseViewedStatesPage,
-  UNMARK_FILE_AS_VIEWED_MUTATION,
-  VIEWED_MARKS,
-  VIEWED_STATES_QUERY,
-} from './github-review'
+  ASK_BUTTON_KEY_PREFIX,
+  BASE_REF_CANDIDATES,
+  CANCEL_QUESTION_KEY,
+  CONTEXT_RADIUS_ROWS,
+  DEFAULT_DIFF_CONTEXT_LINES,
+  DIFF_CONTEXT_STEP_LINES,
+  DEFAULT_FILE_LIST_WIDTH,
+  DISMISS_THREAD_KEY_PREFIX,
+  DIVIDER_KEY,
+  FILE_FILTER_KEY,
+  EMOJI_CACHE_DURATION_MS,
+  EMOJI_STORE_KEY,
+  BROWSER_OPENERS,
+  FILE_BUTTON_KEY_PREFIX,
+  FILE_LIST_WIDTH_STORE_KEY,
+  SPLIT_VIEW_MIN_DIFF_WIDTH,
+  SPLIT_VIEW_STORE_KEY,
+  GH_TIMEOUT_MS,
+  GIT_TIMEOUT_MS,
+  LINE_NUMBER_BUTTON_KEY_PREFIX,
+  MAX_SAVED_THREADS_PER_BRANCH,
+  MIN_PANE_COLUMNS,
+  PANE_ID,
+  PANE_SHARE_OF_TERMINAL,
+  PANE_TITLE,
+  PERSON_PROMPT_ORIGINS,
+  PULL_REQUEST_OVERVIEW_KEY,
+  QUESTION_FOCUS_RETRY_MS,
+  QUESTION_INPUT_KEY_PREFIX,
+  REPLY_INPUT_KEY_PREFIX,
+  THREADS_STORE_KEY_PREFIX,
+  VIEW_ORDER,
+  WHOLE_FILE_CONTEXT_LINES,
+  WHEEL_TICK_ROWS,
+} from './constants'
 import {
-  anchorKeyOf,
-  describeLineForPrompt,
   diffRangeArguments,
-  fileNameOf,
-  fileTypeBadgeOf,
-  formatRowsAsDiff,
   groupFilesByDirectory,
   LOG_FORMAT,
-  parseCommitLog,
+  commitsOfGraph,
+  parseCommitGraph,
+  repositoryWebUrlOf,
   parseNumstat,
   parseUnifiedDiff,
   parseUntrackedFiles,
-  surroundingRows,
 } from './git-parsing'
+import {
+  gitHubThreadNavigationEntries,
+  isGitHubThreadOnRow,
+  MARK_FILE_AS_VIEWED_MUTATION,
+  parsePullRequest,
+  parseReviewThreadsPage,
+  parseViewedStatesPage,
+  PULL_REQUEST_VIEW_FIELDS,
+  RESOLVE_REVIEW_THREAD_MUTATION,
+  REVIEW_THREADS_QUERY,
+  UNRESOLVE_REVIEW_THREAD_MUTATION,
+  UNMARK_FILE_AS_VIEWED_MUTATION,
+  VIEWED_STATES_QUERY,
+} from './github-review'
+import { cursorAtHunk, cursorStopsOf, firstChangeStop, movedCursor, offsetShowingCursor } from './cursor'
+import { visibleFilesOf } from './file-filter'
+import { KEYBOARD_LAYOUT_SOURCES, keyboardLayoutOf } from './keyboard'
+import { resolveKeymap } from './keymap'
+import { clampFileListWidth, clampOffset } from './layout'
+import { parseEmojiCharacters, splitMarkdownBlocks } from './markdown'
+import {
+  isLastExchangeDone,
+  newThread,
+  overviewQuestionTarget,
+  parseAnchorKey,
+  queuedExchange,
+  replyContextOf,
+  restoredThreads,
+  rowQuestionTarget,
+  threadsInReadingOrder,
+  withLastExchange,
+} from './questions'
+import { anchorKeyOf } from './questions'
+import type { QuestionTarget } from './questions'
+import { pairRowsSideBySide, splitIndexOfRow } from './split-rows'
+import { buildPaneModel } from './view/model'
+import type { ExplorerSnapshot } from './view/model'
+import { renderNarrowPane, renderPane } from './view/pane'
+import { themeOf } from './view/theme'
+import type { ExplorerActions, ViewElements } from './view/types'
 
+// --- Session state ----------------------------------------------------------------------------------------------
+// The scan that validates a hooks module reads an atom only in the file that declares it: they all live here.
+
+// What the explorer shows.
 const viewAtom = atom({ plugin: 'diff-review', key: 'view' } as const, 'uncommitted')
+const repositoryRootAtom = atom({ plugin: 'diff-review', key: 'repositoryRoot' } as const, null)
+const repositoryWebUrlAtom = atom({ plugin: 'diff-review', key: 'repositoryWebUrl' } as const, null)
+const branchAtom = atom({ plugin: 'diff-review', key: 'branch' } as const, null)
 const baseRefAtom = atom({ plugin: 'diff-review', key: 'baseRef' } as const, null)
 const commitsAtom = atom({ plugin: 'diff-review', key: 'commits' } as const, [])
+const commitGraphAtom = atom({ plugin: 'diff-review', key: 'commitGraph' } as const, [])
+const gitHubReviewThreadsAtom = atom({ plugin: 'diff-review', key: 'gitHubReviewThreads' } as const, [])
+const expandedGitHubThreadIdsAtom = atom({ plugin: 'diff-review', key: 'expandedGitHubThreadIds' } as const, [])
 const selectedCommitShaAtom = atom({ plugin: 'diff-review', key: 'selectedCommitSha' } as const, null)
 const filesAtom = atom({ plugin: 'diff-review', key: 'files' } as const, [])
 const selectedFilePathAtom = atom({ plugin: 'diff-review', key: 'selectedFilePath' } as const, null)
+const isOverviewShownAtom = atom({ plugin: 'diff-review', key: 'isOverviewShown' } as const, true)
 const diffRowsAtom = atom({ plugin: 'diff-review', key: 'diffRows' } as const, [])
 const loadErrorAtom = atom({ plugin: 'diff-review', key: 'loadError' } as const, null)
-const threadsAtom = atom({ plugin: 'diff-review', key: 'threads' } as const, [])
-const anchorWithOpenInputAtom = atom({ plugin: 'diff-review', key: 'anchorWithOpenInput' } as const, null)
-const threadIdByTurnIdAtom = atom({ plugin: 'diff-review', key: 'threadIdByTurnId' } as const, {})
-const threadIdAwaitingTurnAtom = atom({ plugin: 'diff-review', key: 'threadIdAwaitingTurn' } as const, null)
-const questionDraftAtom = atom({ plugin: 'diff-review', key: 'questionDraft' } as const, '')
-const hasQuestionHadKeyboardAtom = atom({ plugin: 'diff-review', key: 'hasQuestionHadKeyboard' } as const, false)
-const focusedElementKeyAtom = atom({ plugin: 'diff-review', key: 'focusedElementKey' } as const, null)
-const fileListOffsetAtom = atom({ plugin: 'diff-review', key: 'fileListOffset' } as const, 0)
-const diffOffsetAtom = atom({ plugin: 'diff-review', key: 'diffOffset' } as const, 0)
-const isOverviewShownAtom = atom({ plugin: 'diff-review', key: 'isOverviewShown' } as const, true)
 const isLoadingAtom = atom({ plugin: 'diff-review', key: 'isLoading' } as const, false)
-const repositoryRootAtom = atom({ plugin: 'diff-review', key: 'repositoryRoot' } as const, null)
-const markedPathsAtom = atom({ plugin: 'diff-review', key: 'markedPaths' } as const, [])
-const questionFieldNumberAtom = atom({ plugin: 'diff-review', key: 'questionFieldNumber' } as const, 0)
-const armedQuestionAtom = atom({ plugin: 'diff-review', key: 'armedQuestion' } as const, null)
-const requestedPaneColumnsAtom = atom({ plugin: 'diff-review', key: 'requestedPaneColumns' } as const, 0)
-const keyboardLayoutAtom = atom({ plugin: 'diff-review', key: 'keyboardLayout' } as const, 'unknown')
+
+// The pull request of the branch, and GitHub's viewed box per file.
 const pullRequestAtom = atom({ plugin: 'diff-review', key: 'pullRequest' } as const, null)
 const viewedStateByPathAtom = atom({ plugin: 'diff-review', key: 'viewedStateByPath' } as const, {})
 
-const PANE_ID = 'diff-review'
-// Each opened question gets a field of its own key: reusing one key would hand the keyboard to the field still on
-// screen for the previous line, which disappears right after.
-const QUESTION_INPUT_KEY_PREFIX = 'question-'
-const QUESTION_FOCUS_RETRY_MS = 120
-// A session attached from another terminal (claude attach) or reached through Remote Control sends the person's
-// prompts unstamped or as the bridge's: they are the person's own all the same.
-const PERSON_PROMPT_ORIGINS = ['composer', 'unclassified', 'bridge']
-const CANCEL_QUESTION_KEY = 'cancel-question'
-const ASK_BUTTON_KEY_PREFIX = 'ask-'
-const DISMISS_THREAD_KEY_PREFIX = 'dismiss-'
-// The line numbers open a question too: a target as wide as the gutter instead of the small [+].
-const LINE_NUMBER_BUTTON_KEY_PREFIX = 'line-'
-const REPLY_INPUT_KEY_PREFIX = 'reply-'
-// The transcript and the prompt keep the left third, the review takes the rest.
-const PANE_SHARE_OF_TERMINAL = 2 / 3
-const TWO_COLUMNS_MIN_WIDTH = 120
-// Under this width the gutter (ask button, line numbers, marker) leaves too little room to read code.
-const MIN_PANE_COLUMNS = 80
-const DEFAULT_FILE_LIST_WIDTH = 50
-const MIN_FILE_LIST_WIDTH = 24
-// The diff keeps at least this many columns when the file list is dragged wider.
-const MIN_DIFF_WIDTH = 40
-const FILE_LIST_WIDTH_STORE_KEY = 'fileListWidth'
-const DIVIDER_KEY = 'file-divider'
+// Layout and scrolling.
+const requestedPaneColumnsAtom = atom({ plugin: 'diff-review', key: 'requestedPaneColumns' } as const, 0)
 const fileListWidthAtom = atom({ plugin: 'diff-review', key: 'fileListWidth' } as const, DEFAULT_FILE_LIST_WIDTH)
-const MAX_DRAWN_DIFF_ROWS = 1500
-const CONTEXT_RADIUS_ROWS = 6
-const BASE_REF_CANDIDATES = ['origin/main', 'origin/master', 'origin/develop', 'main', 'master']
+const fileListOffsetAtom = atom({ plugin: 'diff-review', key: 'fileListOffset' } as const, 0)
+const diffOffsetAtom = atom({ plugin: 'diff-review', key: 'diffOffset' } as const, 0)
 
-const VIEW_LABELS: Record<ReviewView, string> = { uncommitted: 'Uncommitted', pr: 'PR', commits: 'Commits' }
-const VIEW_HOTKEYS: Record<ReviewView, string> = { uncommitted: '1', pr: '2', commits: '3' }
-const THEME = {
-  paneBackground: '#16181d',
-  border: '#3b4048',
-  accent: '#61afef',
-  activeTabBackground: '#1f2a38',
-  selectedBackground: '#243042',
-  fileHeaderBackground: '#21252b',
-  hunkBackground: '#1b2533',
-  hunk: '#56b6c2',
-  heading: '#e6e6e6',
-  text: '#c8ccd4',
-  muted: '#7f848e',
-  directory: '#d19a66',
-  commitSha: '#e5c07b',
-  lineNumber: '#5c6370',
-  added: '#98c379',
-  removed: '#e06c75',
-} as const
-const ROW_MARKS = { hunk: '@@', context: ' ', added: '+', removed: '-' } as const
-const ROW_COLORS = { hunk: THEME.hunk, context: THEME.muted, added: THEME.added, removed: THEME.removed } as const
-const ROW_BACKGROUNDS = { hunk: undefined, context: undefined, added: '#1a2e1f', removed: '#3a1d21' } as const
+// Keyboard.
+const keyboardLayoutAtom = atom({ plugin: 'diff-review', key: 'keyboardLayout' } as const, 'unknown')
+const focusedElementKeyAtom = atom({ plugin: 'diff-review', key: 'focusedElementKey' } as const, null)
 
+// The file list's filter, and whether lockfiles and generated files are listed.
+const fileFilterAtom = atom({ plugin: 'diff-review', key: 'fileFilter' } as const, '')
+const contextLinesByPathAtom = atom({ plugin: 'diff-review', key: 'contextLinesByPath' } as const, {})
+const isNoiseShownAtom = atom({ plugin: 'diff-review', key: 'isNoiseShown' } as const, false)
+const cursorRowIndexAtom = atom({ plugin: 'diff-review', key: 'cursorRowIndex' } as const, null)
+const claudeCodeThemeAtom = atom({ plugin: 'diff-review', key: 'claudeCodeTheme' } as const, null)
+const isHelpShownAtom = atom({ plugin: 'diff-review', key: 'isHelpShown' } as const, false)
+const isSplitViewPreferredAtom = atom({ plugin: 'diff-review', key: 'isSplitViewPreferred' } as const, false)
 
-// The geometry of the last drawing, kept so a wheel tick can tell the file list from the diff and clamp its scrolling.
-const paneLayout = {
+// New files marked for git add.
+const markedPathsAtom = atom({ plugin: 'diff-review', key: 'markedPaths' } as const, [])
+
+// Questions and their threads.
+const threadsAtom = atom({ plugin: 'diff-review', key: 'threads' } as const, [])
+const anchorWithOpenInputAtom = atom({ plugin: 'diff-review', key: 'anchorWithOpenInput' } as const, null)
+const questionFieldNumberAtom = atom({ plugin: 'diff-review', key: 'questionFieldNumber' } as const, 0)
+const questionDraftAtom = atom({ plugin: 'diff-review', key: 'questionDraft' } as const, '')
+const hasQuestionHadKeyboardAtom = atom({ plugin: 'diff-review', key: 'hasQuestionHadKeyboard' } as const, false)
+const armedQuestionAtom = atom({ plugin: 'diff-review', key: 'armedQuestion' } as const, null)
+const threadIdAwaitingTurnAtom = atom({ plugin: 'diff-review', key: 'threadIdAwaitingTurn' } as const, null)
+const currentThreadIdAtom = atom({ plugin: 'diff-review', key: 'currentThreadId' } as const, null)
+const threadIdByTurnIdAtom = atom({ plugin: 'diff-review', key: 'threadIdByTurnId' } as const, {})
+
+type CommandResult = { isSuccess: boolean; output: string }
+
+// The geometry of the last drawing, kept so a wheel tick can tell the file list from the diff, clamp the scrolling and
+// resize the file list from where a drag of the divider started.
+const lastDrawnLayout = {
   isTwoColumns: true,
   panelsTop: 0,
+  bodyColumns: 0,
+  fileListWidth: 0,
   fileListBoxHeight: 0,
   visibleFileLines: 1,
   fileLineCount: 0,
   fileLineIndexByPath: {} as Record<string, number>,
   visibleDiffRows: 1,
-  diffRowCount: 0,
+  scrolledRowCount: 0,
   isOverviewShown: false,
+  isSplitView: false,
+  cursorRowIndex: null as number | null,
   isScrollingPastEnd: false,
-  fileListWidth: DEFAULT_FILE_LIST_WIDTH,
-  bodyColumns: 0,
-  fileListWidthAtDragStart: DEFAULT_FILE_LIST_WIDTH,
-}
-const WHEEL_TICK_ROWS = 3
-const COMMIT_PANEL_MAX_COMMITS = 6
-
-function clampFileListWidth(width: number, bodyColumns: number): number {
-  return Math.max(MIN_FILE_LIST_WIDTH, Math.min(width, bodyColumns - MIN_DIFF_WIDTH))
+  fileListWidthAtDragStart: 0,
 }
 
-function clampOffset(offset: number, itemCount: number, visibleCount: number): number {
-  return Math.max(0, Math.min(offset, itemCount - visibleCount))
-}
+// --- Commands on the host -------------------------------------------------------------------------------------------
 
-async function runGit($: EngineInterface, gitArguments: string[]): Promise<{ isSuccess: boolean; output: string }> {
+async function runGit($: EngineInterface, gitArguments: string[]): Promise<CommandResult> {
   const repositoryRoot = await read($, repositoryRootAtom)
   try {
     const { exitCode, stdout, stderr } = await $.process.run(
       ['git', ...(repositoryRoot ? ['-C', repositoryRoot] : []), ...gitArguments],
-      { timeoutMs: 15000 },
+      { timeoutMs: GIT_TIMEOUT_MS },
     )
 
     return { isSuccess: exitCode === 0, output: exitCode === 0 ? stdout : stderr }
@@ -154,12 +186,30 @@ async function runGit($: EngineInterface, gitArguments: string[]): Promise<{ isS
   }
 }
 
-async function runGh($: EngineInterface, ghArguments: string[]): Promise<{ isSuccess: boolean; output: string }> {
+// xdg-open on Linux, open on macOS: whichever the host has.
+async function openInBrowser($: EngineInterface, url: string): Promise<CommandResult> {
+  let lastResult: CommandResult = { isSuccess: false, output: 'no browser opener found' }
+  for (const opener of BROWSER_OPENERS) {
+    try {
+      const { exitCode, stdout, stderr } = await $.process.run([opener, url], { timeoutMs: GIT_TIMEOUT_MS })
+      lastResult = { isSuccess: exitCode === 0, output: exitCode === 0 ? stdout : stderr }
+    } catch (error) {
+      lastResult = { isSuccess: false, output: String(error) }
+    }
+    if (lastResult.isSuccess) {
+      break
+    }
+  }
+
+  return lastResult
+}
+
+async function runGh($: EngineInterface, ghArguments: string[]): Promise<CommandResult> {
   const repositoryRoot = await read($, repositoryRootAtom)
   try {
     const { exitCode, stdout, stderr } = await $.process.run(['gh', ...ghArguments], {
       ...(repositoryRoot ? { cwd: repositoryRoot } : {}),
-      timeoutMs: 20000,
+      timeoutMs: GH_TIMEOUT_MS,
     })
 
     return { isSuccess: exitCode === 0, output: exitCode === 0 ? stdout : stderr }
@@ -168,8 +218,27 @@ async function runGh($: EngineInterface, ghArguments: string[]): Promise<{ isSuc
   }
 }
 
-const EMOJI_STORE_KEY = 'githubEmojiCharacters'
-const EMOJI_CACHE_DURATION_MS = 7 * 24 * 3600 * 1000
+function shortOutput(result: CommandResult): string {
+  return result.output.trim().slice(0, 120)
+}
+
+async function detectKeyboardLayout($: EngineInterface): Promise<KeyboardLayout> {
+  for (const layoutSource of KEYBOARD_LAYOUT_SOURCES) {
+    try {
+      const { exitCode, stdout } = await $.process.run(layoutSource.argv, { timeoutMs: 3000 })
+      const keyboardLayout = exitCode === 0 ? keyboardLayoutOf(stdout, layoutSource.layoutPattern) : null
+      if (keyboardLayout) {
+        return keyboardLayout
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return 'unknown'
+}
+
+// --- GitHub ---------------------------------------------------------------------------------------------------------
 
 async function loadEmojiCharacters($: EngineInterface): Promise<Record<string, string>> {
   const cached = (await $.store.get(EMOJI_STORE_KEY).catch(() => undefined)) as
@@ -190,16 +259,16 @@ async function loadEmojiCharacters($: EngineInterface): Promise<Record<string, s
 }
 
 // GitHub is asked only when the person opens the explorer, refreshes it or switches to the PR view, never on every edit.
-async function loadPullRequestReview($: EngineInterface): Promise<void> {
+async function loadPullRequest($: EngineInterface): Promise<void> {
   const pullRequestView = await runGh($, ['pr', 'view', '--json', PULL_REQUEST_VIEW_FIELDS])
-  const pullRequest = pullRequestView.isSuccess
-    ? parsePullRequest(pullRequestView.output, await loadEmojiCharacters($))
-    : null
+  const pullRequest = pullRequestView.isSuccess ? parsePullRequest(pullRequestView.output, await loadEmojiCharacters($)) : null
   await update($, pullRequestAtom, () => pullRequest)
   if (pullRequest === null) {
     await update($, viewedStateByPathAtom, () => ({}))
+    await update($, gitHubReviewThreadsAtom, () => [])
     return
   }
+  await loadGitHubReviewThreads($, pullRequest.id)
   const viewedStateByPath: Record<string, ViewedState> = {}
   let cursor: string | null = null
   do {
@@ -213,7 +282,7 @@ async function loadPullRequestReview($: EngineInterface): Promise<void> {
       ...(cursor ? ['-f', `cursor=${cursor}`] : []),
     ])
     if (!page.isSuccess) {
-      $.ui.toast(`diff-review: could not read the viewed state from GitHub (${page.output.trim().slice(0, 120)})`)
+      $.ui.toast(`diff-review: could not read the viewed state from GitHub (${shortOutput(page)})`)
       break
     }
     const parsedPage = parseViewedStatesPage(page.output)
@@ -221,6 +290,58 @@ async function loadPullRequestReview($: EngineInterface): Promise<void> {
     cursor = parsedPage.nextCursor
   } while (cursor !== null)
   await update($, viewedStateByPathAtom, () => viewedStateByPath)
+}
+
+async function loadGitHubReviewThreads($: EngineInterface, pullRequestId: string): Promise<void> {
+  const emojiCharacterByShortcode = await loadEmojiCharacters($)
+  const threads: GitHubReviewThread[] = []
+  let cursor: string | null = null
+  do {
+    const page = await runGh($, [
+      'api',
+      'graphql',
+      '-f',
+      `query=${REVIEW_THREADS_QUERY}`,
+      '-F',
+      `pullRequestId=${pullRequestId}`,
+      ...(cursor ? ['-f', `cursor=${cursor}`] : []),
+    ])
+    if (!page.isSuccess) {
+      $.ui.toast(`diff-review: could not read the review comments from GitHub (${shortOutput(page)})`)
+      break
+    }
+    const parsedPage = parseReviewThreadsPage(page.output, emojiCharacterByShortcode)
+    threads.push(...parsedPage.threads)
+    cursor = parsedPage.nextCursor
+  } while (cursor !== null)
+  await update($, gitHubReviewThreadsAtom, () => threads)
+}
+
+// The thread folds or unfolds at once, as GitHub draws it; GitHub refusing puts it back as it was.
+async function toggleGitHubThreadResolved($: EngineInterface, threadId: string): Promise<void> {
+  const thread = (await read($, gitHubReviewThreadsAtom)).find(candidate => candidate.id === threadId)
+  if (!thread) {
+    return
+  }
+  const setResolved = async (isResolved: boolean) => {
+    await update($, gitHubReviewThreadsAtom, threads =>
+      threads.map(candidate => (candidate.id === threadId ? { ...candidate, isResolved } : candidate)),
+    )
+  }
+  await setResolved(!thread.isResolved)
+  await update($, expandedGitHubThreadIdsAtom, threadIds => threadIds.filter(id => id !== threadId))
+  const mutation = await runGh($, [
+    'api',
+    'graphql',
+    '-f',
+    `query=${thread.isResolved ? UNRESOLVE_REVIEW_THREAD_MUTATION : RESOLVE_REVIEW_THREAD_MUTATION}`,
+    '-F',
+    `threadId=${threadId}`,
+  ])
+  if (!mutation.isSuccess) {
+    await setResolved(thread.isResolved)
+    $.ui.toast(`diff-review: GitHub refused to ${thread.isResolved ? 'unresolve' : 'resolve'} the thread (${shortOutput(mutation)})`)
+  }
 }
 
 async function toggleViewed($: EngineInterface, path: string): Promise<void> {
@@ -248,6 +369,32 @@ async function toggleViewed($: EngineInterface, path: string): Promise<void> {
   }
 }
 
+// Reviewing a PR file by file: once one is viewed, the next one still to view comes up, in the order of the list.
+async function markViewedAndNext($: EngineInterface): Promise<void> {
+  const path = await read($, selectedFilePathAtom)
+  const viewedStateByPath = await read($, viewedStateByPathAtom)
+  if (path === null || viewedStateByPath[path] === undefined) {
+    return
+  }
+  const wasViewed = viewedStateByPath[path] === 'VIEWED'
+  await toggleViewed($, path)
+  if (wasViewed) {
+    return
+  }
+  const orderedPaths = groupFilesByDirectory(await shownFilesOf($, await read($, filesAtom))).flatMap(group =>
+    group.files.map(file => file.path),
+  )
+  const currentIndex = orderedPaths.indexOf(path)
+  const nextPath = [...orderedPaths.slice(currentIndex + 1), ...orderedPaths.slice(0, currentIndex)].find(
+    candidate => viewedStateByPath[candidate] !== undefined && viewedStateByPath[candidate] !== 'VIEWED',
+  )
+  if (nextPath) {
+    await selectFile($, nextPath)
+  }
+}
+
+// --- Loading what a view shows --------------------------------------------------------------------------------------
+
 // A PR may target another branch than the repository's default one (a release branch such as 2026-09): its own
 // target comes first, or the PR view would list the commits of that branch too.
 async function findBaseRef($: EngineInterface): Promise<string | null> {
@@ -268,6 +415,24 @@ async function findBaseRef($: EngineInterface): Promise<string | null> {
   return null
 }
 
+async function readUntrackedFileRows($: EngineInterface, path: string): Promise<DiffRow[]> {
+  let content = ''
+  try {
+    const repositoryRoot = await read($, repositoryRootAtom)
+    content = await $.fs.read(repositoryRoot ? `${repositoryRoot}/${path}` : path)
+  } catch (error) {
+    await update($, loadErrorAtom, () => `Cannot read ${path}: ${String(error)}`)
+  }
+
+  return [
+    { kind: 'hunk', oldNumber: null, newNumber: null, text: 'new file, untracked' },
+    ...content
+      .replace(/\n$/, '')
+      .split('\n')
+      .map((text, index) => ({ kind: 'added' as const, oldNumber: null, newNumber: index + 1, text })),
+  ]
+}
+
 async function loadSelectedFileDiff($: EngineInterface): Promise<void> {
   const path = await read($, selectedFilePathAtom)
   const file = (await read($, filesAtom)).find(changedFile => changedFile.path === path)
@@ -276,18 +441,7 @@ async function loadSelectedFileDiff($: EngineInterface): Promise<void> {
     return
   }
   if (file.isUntracked) {
-    let content = ''
-    try {
-      const repositoryRoot = await read($, repositoryRootAtom)
-      content = await $.fs.read(repositoryRoot ? `${repositoryRoot}/${path}` : path)
-    } catch (error) {
-      await update($, loadErrorAtom, () => `Cannot read ${path}: ${String(error)}`)
-    }
-    const lines = content.replace(/\n$/, '').split('\n')
-    const rows: DiffRow[] = [
-      { kind: 'hunk', oldNumber: null, newNumber: null, text: 'new file, untracked' },
-      ...lines.map((text, index) => ({ kind: 'added' as const, oldNumber: null, newNumber: index + 1, text })),
-    ]
+    const rows = await readUntrackedFileRows($, path)
     await update($, diffRowsAtom, () => rows)
     return
   }
@@ -296,39 +450,31 @@ async function loadSelectedFileDiff($: EngineInterface): Promise<void> {
     await update($, diffRowsAtom, () => [])
     return
   }
-  const diff = await runGit($, ['diff', '--no-color', '--no-renames', '-U3', ...range, '--', path])
+  const contextLines = (await read($, contextLinesByPathAtom))[path] ?? DEFAULT_DIFF_CONTEXT_LINES
+  const diff = await runGit($, ['diff', '--no-color', '--no-renames', `-U${contextLines}`, ...range, '--', path])
   await update($, diffRowsAtom, () => (diff.isSuccess ? parseUnifiedDiff(diff.output) : []))
   if (!diff.isSuccess) {
     await update($, loadErrorAtom, () => diff.output.trim())
   }
 }
 
-async function loadView($: EngineInterface): Promise<void> {
-  await update($, loadErrorAtom, () => null)
-  const topLevel = await runGit($, ['rev-parse', '--show-toplevel'])
-  if (!topLevel.isSuccess) {
-    await update($, loadErrorAtom, () => 'Not a git repository.')
-    return
+async function loadBranchCommits($: EngineInterface, baseRef: string | null): Promise<void> {
+  const log = baseRef ? await runGit($, ['log', '--graph', '--boundary', `--format=${LOG_FORMAT}`, `${baseRef}..HEAD`]) : null
+  const commitGraph = log?.isSuccess ? parseCommitGraph(log.output) : []
+  const commits = commitsOfGraph(commitGraph)
+  await update($, commitGraphAtom, () => commitGraph)
+  await update($, commitsAtom, () => commits)
+  const selectedCommitSha = await read($, selectedCommitShaAtom)
+  if (!commits.some(commit => commit.sha === selectedCommitSha)) {
+    await update($, selectedCommitShaAtom, () => commits[0]?.sha ?? null)
   }
-  await update($, repositoryRootAtom, () => topLevel.output.trim())
-  const view = await read($, viewAtom)
-  const baseRef = await findBaseRef($)
-  await update($, baseRefAtom, () => baseRef)
+}
 
-  if (view === 'commits') {
-    const log = baseRef ? await runGit($, ['log', `--format=${LOG_FORMAT}`, `${baseRef}..HEAD`]) : null
-    const commits = log?.isSuccess ? parseCommitLog(log.output) : []
-    await update($, commitsAtom, () => commits)
-    const selectedCommitSha = await read($, selectedCommitShaAtom)
-    if (!commits.some(commit => commit.sha === selectedCommitSha)) {
-      await update($, selectedCommitShaAtom, () => commits[0]?.sha ?? null)
-    }
-  }
-
+async function loadChangedFiles($: EngineInterface, view: ReviewView, baseRef: string | null): Promise<ChangedFile[]> {
   const range = diffRangeArguments(view, baseRef, await read($, selectedCommitShaAtom))
   let files: ChangedFile[] = []
   if (range) {
-    const numstat = await runGit($, ['diff', '--numstat', '--no-renames', ...range])
+    const numstat = await runGit($, ['diff', '--numstat', '--summary', '--no-renames', ...range])
     files = numstat.isSuccess ? parseNumstat(numstat.output) : []
     if (!numstat.isSuccess) {
       await update($, loadErrorAtom, () => numstat.output.trim())
@@ -340,64 +486,72 @@ async function loadView($: EngineInterface): Promise<void> {
     const untracked = await runGit($, ['ls-files', '--others', '--exclude-standard'])
     files = [...files, ...(untracked.isSuccess ? parseUntrackedFiles(untracked.output) : [])]
   }
+
+  return files
+}
+
+async function shownFilesOf($: EngineInterface, files: ChangedFile[]): Promise<ChangedFile[]> {
+  return visibleFilesOf(files, { filter: await read($, fileFilterAtom), isNoiseShown: await read($, isNoiseShownAtom) }).files
+}
+
+async function widenContext($: EngineInterface, path: string, contextLines: (current: number) => number): Promise<void> {
+  await update($, contextLinesByPathAtom, contextLinesByPath => ({
+    ...contextLinesByPath,
+    [path]: contextLines(contextLinesByPath[path] ?? DEFAULT_DIFF_CONTEXT_LINES),
+  }))
+  const cursorRow = (await read($, diffRowsAtom))[(await read($, cursorRowIndexAtom)) ?? -1]
+  await loadSelectedFileDiff($)
+  // More context shifts every row: the cursor follows its line.
+  const diffRows = await read($, diffRowsAtom)
+  const cursorRowIndex = cursorRow
+    ? diffRows.findIndex(row => row.kind === cursorRow.kind && row.oldNumber === cursorRow.oldNumber && row.newNumber === cursorRow.newNumber)
+    : -1
+  await update($, cursorRowIndexAtom, () => (cursorRowIndex === -1 ? null : cursorRowIndex))
+  // The button that held the keyboard was redrawn under another key: the keyboard follows the cursor's line.
+  if (cursorRowIndex === -1) {
+    await focusFirstChange($)
+  } else {
+    await $.ui.focus({ requestId: PANE_ID, key: `${LINE_NUMBER_BUTTON_KEY_PREFIX}${cursorRowIndex}` }).catch(() => undefined)
+  }
+}
+
+async function loadView($: EngineInterface): Promise<void> {
+  await update($, loadErrorAtom, () => null)
+  const topLevel = await runGit($, ['rev-parse', '--show-toplevel'])
+  if (!topLevel.isSuccess) {
+    await update($, loadErrorAtom, () => 'Not a git repository.')
+    return
+  }
+  await update($, repositoryRootAtom, () => topLevel.output.trim())
+  const remote = await runGit($, ['remote', 'get-url', 'origin'])
+  await update($, repositoryWebUrlAtom, () => (remote.isSuccess ? repositoryWebUrlOf(remote.output) : null))
+  const branch = await runGit($, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  await update($, branchAtom, () => (branch.isSuccess ? branch.output.trim() : null))
+  const view = await read($, viewAtom)
+  const baseRef = await findBaseRef($)
+  await update($, baseRefAtom, () => baseRef)
+  if (view === 'commits') {
+    await loadBranchCommits($, baseRef)
+  }
+  const files = await loadChangedFiles($, view, baseRef)
   await update($, filesAtom, () => files)
   const selectedFilePath = await read($, selectedFilePathAtom)
-  if (!files.some(file => file.path === selectedFilePath)) {
-    await update($, selectedFilePathAtom, () => groupFilesByDirectory(files)[0]?.files[0]?.path ?? null)
+  const shownFiles = await shownFilesOf($, files)
+  if (!shownFiles.some(file => file.path === selectedFilePath)) {
+    await update($, selectedFilePathAtom, () => groupFilesByDirectory(shownFiles)[0]?.files[0]?.path ?? null)
   }
   await loadSelectedFileDiff($)
 }
 
-// The field's autoFocus only counts when the pane takes the keyboard; a field opened later, by a click on a line, is
-// handed the keyboard explicitly, once the next drawing has it on screen.
-async function paneOpenArguments($: EngineInterface) {
-  const requestedPaneColumns = await read($, requestedPaneColumnsAtom)
-
-  return {
-    id: PANE_ID,
-    title: 'Review',
-    focus: true as const,
-    closeOnEscape: true as const,
-    ...(requestedPaneColumns > 0 ? { columns: requestedPaneColumns } : {}),
-  }
+async function refreshExplorer($: EngineInterface): Promise<void> {
+  await update($, isLoadingAtom, () => true)
+  await loadPullRequest($)
+  await loadView($)
+  await restoreSavedThreads($)
+  await update($, isLoadingAtom, () => false)
 }
 
-async function openQuestion($: EngineInterface, anchorKey: string): Promise<void> {
-  await update($, armedQuestionAtom, () => null)
-  await update($, questionDraftAtom, () => '')
-  await update($, hasQuestionHadKeyboardAtom, () => false)
-  const questionFieldNumber = await update($, questionFieldNumberAtom, fieldNumber => fieldNumber + 1)
-  await update($, anchorWithOpenInputAtom, () => anchorKey)
-  // A click on a line presses its button without handing the keyboard to the pane, and a field can only be focused
-  // inside a pane that holds it: opening the pane again with focus gives it the keyboard first.
-  // Without the width this explorer asked for, opening again would bring the pane back to the default share.
-  if ((await read($, requestedPaneColumnsAtom)) > 0) {
-    await $.ui.open(await paneOpenArguments($)).catch(() => undefined)
-  }
-  await focusQuestionField($, questionFieldNumber)
-  // A click while another field held the keyboard moves the focus onto the clicked button once this press is handled,
-  // taking it back from the new field: the keyboard is asked for again just after.
-  await $.clock.after(QUESTION_FOCUS_RETRY_MS, () => focusQuestionField($, questionFieldNumber))
-}
-
-// Refused when the prompt below holds the keyboard (a click on a line does not hand it to the pane): the field then
-// waits for the person's own click, nothing to report.
-async function focusQuestionField($: EngineInterface, questionFieldNumber: number): Promise<void> {
-  const isStillWaitingForKeyboard =
-    (await read($, questionFieldNumberAtom)) === questionFieldNumber &&
-    (await read($, anchorWithOpenInputAtom)) !== null &&
-    !(await read($, hasQuestionHadKeyboardAtom))
-  if (isStillWaitingForKeyboard) {
-    await $.ui.focus({ requestId: PANE_ID, key: `${QUESTION_INPUT_KEY_PREFIX}${questionFieldNumber}` }).catch(() => undefined)
-  }
-}
-
-async function closeQuestion($: EngineInterface): Promise<void> {
-  await update($, focusedElementKeyAtom, focusedElementKey => (focusedElementKey?.startsWith(QUESTION_INPUT_KEY_PREFIX) ? null : focusedElementKey))
-  await update($, questionDraftAtom, () => '')
-  await update($, hasQuestionHadKeyboardAtom, () => false)
-  await update($, anchorWithOpenInputAtom, () => null)
-}
+// --- Navigation -----------------------------------------------------------------------------------------------------
 
 async function switchView($: EngineInterface, view: ReviewView): Promise<void> {
   await update($, viewAtom, () => view)
@@ -408,128 +562,17 @@ async function switchView($: EngineInterface, view: ReviewView): Promise<void> {
   await closeQuestion($)
   await loadView($)
   if (view === 'pr') {
-    await loadPullRequestReview($)
+    await loadPullRequest($)
   }
 }
 
-// Up, left, down and right sit on z q s d on an AZERTY keyboard and on w a s d on a QWERTY one. A layout that could
-// not be read keeps both bound.
-const NAVIGATION_HOTKEYS: Record<KeyboardLayout, Record<'previousFile' | 'nextFile' | 'previousView' | 'nextView', string[]>> = {
-  azerty: { previousFile: ['z'], nextFile: ['s'], previousView: ['q'], nextView: ['d'] },
-  qwerty: { previousFile: ['w'], nextFile: ['s'], previousView: ['a'], nextView: ['d'] },
-  unknown: { previousFile: ['z', 'w'], nextFile: ['s'], previousView: ['q', 'a'], nextView: ['d'] },
-}
-const AZERTY_LAYOUT_CODES = ['fr', 'be']
-
-async function detectKeyboardLayout($: EngineInterface): Promise<KeyboardLayout> {
-  const layoutSources: Array<{ argv: string[]; layoutPattern: RegExp }> = [
-    { argv: ['gsettings', 'get', 'org.gnome.desktop.input-sources', 'sources'], layoutPattern: /\('xkb', '([a-z]+)/ },
-    { argv: ['setxkbmap', '-query'], layoutPattern: /layout:\s*([a-z]+)/ },
-  ]
-  for (const layoutSource of layoutSources) {
-    try {
-      const { exitCode, stdout } = await $.process.run(layoutSource.argv, { timeoutMs: 3000 })
-      const layoutCode = exitCode === 0 ? stdout.match(layoutSource.layoutPattern)?.[1] : undefined
-      if (layoutCode) {
-        return AZERTY_LAYOUT_CODES.includes(layoutCode) ? 'azerty' : 'qwerty'
-      }
-    } catch {
-      continue
-    }
-  }
-
-  return 'unknown'
-}
-const OVERVIEW_ENTRY = '\u0000overview'
-const VIEW_ORDER: readonly ReviewView[] = ['uncommitted', 'pr', 'commits']
-
-// In the PR view the overview stands first, before the files.
-async function selectAdjacentFile($: EngineInterface, offset: number): Promise<void> {
-  const hasOverview = (await read($, viewAtom)) === 'pr' && (await read($, pullRequestAtom)) !== null
-  const filePaths = groupFilesByDirectory(await read($, filesAtom)).flatMap(group => group.files.map(file => file.path))
-  const orderedEntries = hasOverview ? [OVERVIEW_ENTRY, ...filePaths] : filePaths
-  const currentEntry =
-    hasOverview && (await read($, isOverviewShownAtom)) ? OVERVIEW_ENTRY : ((await read($, selectedFilePathAtom)) ?? '')
-  const targetEntry =
-    orderedEntries[Math.min(orderedEntries.length - 1, Math.max(0, orderedEntries.indexOf(currentEntry) + offset))]
-  if (targetEntry === OVERVIEW_ENTRY) {
-    await showOverview($)
-  } else if (targetEntry !== undefined) {
-    await selectFile($, targetEntry)
-  }
-}
-
-async function switchAdjacentView($: EngineInterface, offset: number): Promise<void> {
-  const currentIndex = VIEW_ORDER.indexOf(await read($, viewAtom))
+async function moveView($: EngineInterface, offset: number): Promise<void> {
+  const currentView = await read($, viewAtom)
+  const currentIndex = VIEW_ORDER.indexOf(currentView)
   const targetView = VIEW_ORDER[Math.min(VIEW_ORDER.length - 1, Math.max(0, currentIndex + offset))]
-  if (targetView !== undefined && targetView !== (await read($, viewAtom))) {
+  if (targetView !== undefined && targetView !== currentView) {
     await switchView($, targetView)
   }
-}
-
-async function untrackedPathsOf($: EngineInterface): Promise<string[]> {
-  return (await read($, filesAtom)).filter(file => file.isUntracked).map(file => file.path)
-}
-
-async function toggleMarkedPath($: EngineInterface, path: string): Promise<void> {
-  if (!(await untrackedPathsOf($)).includes(path)) {
-    return
-  }
-  await update($, markedPathsAtom, markedPaths =>
-    markedPaths.includes(path) ? markedPaths.filter(markedPath => markedPath !== path) : [...markedPaths, path],
-  )
-}
-
-async function toggleCurrentFileMark($: EngineInterface): Promise<void> {
-  const selectedFilePath = await read($, selectedFilePathAtom)
-  if (selectedFilePath && !(await read($, isOverviewShownAtom))) {
-    await toggleMarkedPath($, selectedFilePath)
-  }
-}
-
-async function markAllUntrackedFiles($: EngineInterface): Promise<void> {
-  const untrackedPaths = await untrackedPathsOf($)
-  await update($, markedPathsAtom, markedPaths => (markedPaths.length === untrackedPaths.length ? [] : untrackedPaths))
-}
-
-// Stages the marked new files, or the current one when it is new and nothing is marked.
-async function stageMarkedFiles($: EngineInterface): Promise<void> {
-  const untrackedPaths = await untrackedPathsOf($)
-  const markedPaths = (await read($, markedPathsAtom)).filter(path => untrackedPaths.includes(path))
-  const selectedFilePath = await read($, selectedFilePathAtom)
-  const pathsToStage =
-    markedPaths.length > 0 ? markedPaths : selectedFilePath && untrackedPaths.includes(selectedFilePath) ? [selectedFilePath] : []
-  if (pathsToStage.length === 0) {
-    $.ui.toast('diff-review: no new file marked or selected to add')
-    return
-  }
-  const gitAdd = await runGit($, ['add', '--', ...pathsToStage])
-  if (!gitAdd.isSuccess) {
-    $.ui.toast(`diff-review: git add failed (${gitAdd.output.trim().slice(0, 120)})`)
-    return
-  }
-  await update($, markedPathsAtom, () => [])
-  $.ui.toast(`diff-review: ${pathsToStage.length} file${pathsToStage.length > 1 ? 's' : ''} added to the index`)
-  await loadView($)
-}
-
-// Everything the Uncommitted view lists goes to the index: modified, deleted and new files alike.
-async function stageAllChanges($: EngineInterface): Promise<void> {
-  const gitAdd = await runGit($, ['add', '--all'])
-  if (!gitAdd.isSuccess) {
-    $.ui.toast(`diff-review: git add --all failed (${gitAdd.output.trim().slice(0, 120)})`)
-    return
-  }
-  await update($, markedPathsAtom, () => [])
-  $.ui.toast('diff-review: every change added to the index')
-  await loadView($)
-}
-
-async function refreshExplorer($: EngineInterface): Promise<void> {
-  await update($, isLoadingAtom, () => true)
-  await loadPullRequestReview($)
-  await loadView($)
-  await update($, isLoadingAtom, () => false)
 }
 
 async function selectCommit($: EngineInterface, commitSha: string): Promise<void> {
@@ -548,17 +591,173 @@ async function selectFile($: EngineInterface, path: string): Promise<void> {
   await update($, isOverviewShownAtom, () => false)
   await update($, selectedFilePathAtom, () => path)
   await update($, diffOffsetAtom, () => 0)
-  const fileLineIndex = paneLayout.fileLineIndexByPath[path]
-  if (fileLineIndex !== undefined) {
-    await update($, fileListOffsetAtom, offset => {
-      if (fileLineIndex < offset) {
-        return fileLineIndex
-      }
-      return fileLineIndex >= offset + paneLayout.visibleFileLines ? fileLineIndex - paneLayout.visibleFileLines + 1 : offset
-    })
-  }
+  await update($, cursorRowIndexAtom, () => null)
+  await scrollFileListTo($, path)
   await closeQuestion($)
   await loadSelectedFileDiff($)
+  await focusFirstChange($)
+}
+
+// With the keyboard on the cursor line's own button, Enter asks about it: a new file puts it on its first change.
+// The PR overview has no line: the keyboard then goes to the entry selected in the file list.
+async function focusFirstChange($: EngineInterface): Promise<void> {
+  const diffRows = await read($, diffRowsAtom)
+  const splitRows = lastDrawnLayout.isSplitView ? pairRowsSideBySide(diffRows) : null
+  const rowIndex = (await read($, isOverviewShownAtom)) ? null : firstChangeStop(diffRows, cursorStopsOf(diffRows, splitRows))
+  const selectedFilePath = await read($, selectedFilePathAtom)
+  const key =
+    rowIndex !== null
+      ? `${LINE_NUMBER_BUTTON_KEY_PREFIX}${rowIndex}`
+      : (await read($, isOverviewShownAtom)) || selectedFilePath === null
+        ? PULL_REQUEST_OVERVIEW_KEY
+        : `${FILE_BUTTON_KEY_PREFIX}${selectedFilePath}`
+  await $.ui.focus({ requestId: PANE_ID, key }).catch(() => undefined)
+}
+
+async function scrollFileListTo($: EngineInterface, path: string): Promise<void> {
+  const fileLineIndex = lastDrawnLayout.fileLineIndexByPath[path]
+  if (fileLineIndex === undefined) {
+    return
+  }
+  const visibleFileLines = lastDrawnLayout.visibleFileLines
+  await update($, fileListOffsetAtom, offset => {
+    if (fileLineIndex < offset) {
+      return fileLineIndex
+    }
+    return fileLineIndex >= offset + visibleFileLines ? fileLineIndex - visibleFileLines + 1 : offset
+  })
+}
+
+// In the PR view the overview stands first, before the files.
+async function moveFileSelection($: EngineInterface, offset: number): Promise<void> {
+  const overviewEntry = '\u0000overview'
+  const hasOverview = (await read($, viewAtom)) === 'pr' && (await read($, pullRequestAtom)) !== null
+  const shownFiles = await shownFilesOf($, await read($, filesAtom))
+  const filePaths = groupFilesByDirectory(shownFiles).flatMap(group => group.files.map(file => file.path))
+  const orderedEntries = hasOverview ? [overviewEntry, ...filePaths] : filePaths
+  const currentEntry =
+    hasOverview && (await read($, isOverviewShownAtom)) ? overviewEntry : ((await read($, selectedFilePathAtom)) ?? '')
+  const targetEntry =
+    orderedEntries[Math.min(orderedEntries.length - 1, Math.max(0, orderedEntries.indexOf(currentEntry) + offset))]
+  if (targetEntry === overviewEntry) {
+    await showOverview($)
+  } else if (targetEntry !== undefined) {
+    await selectFile($, targetEntry)
+  }
+}
+
+// --- Staging new files ----------------------------------------------------------------------------------------------
+
+async function untrackedPathsOf($: EngineInterface): Promise<string[]> {
+  return (await read($, filesAtom)).filter(file => file.isUntracked).map(file => file.path)
+}
+
+async function toggleMarked($: EngineInterface, path: string): Promise<void> {
+  if (!(await untrackedPathsOf($)).includes(path)) {
+    return
+  }
+  await update($, markedPathsAtom, markedPaths =>
+    markedPaths.includes(path) ? markedPaths.filter(markedPath => markedPath !== path) : [...markedPaths, path],
+  )
+}
+
+async function toggleCurrentFileMark($: EngineInterface): Promise<void> {
+  const selectedFilePath = await read($, selectedFilePathAtom)
+  if (selectedFilePath && !(await read($, isOverviewShownAtom))) {
+    await toggleMarked($, selectedFilePath)
+  }
+}
+
+async function markAllNewFiles($: EngineInterface): Promise<void> {
+  const untrackedPaths = await untrackedPathsOf($)
+  await update($, markedPathsAtom, markedPaths => (markedPaths.length === untrackedPaths.length ? [] : untrackedPaths))
+}
+
+// Stages the marked new files, or the current one when it is new and nothing is marked.
+async function stageMarkedFiles($: EngineInterface): Promise<void> {
+  const untrackedPaths = await untrackedPathsOf($)
+  const markedPaths = (await read($, markedPathsAtom)).filter(path => untrackedPaths.includes(path))
+  const selectedFilePath = await read($, selectedFilePathAtom)
+  const isSelectedFileNew = selectedFilePath !== null && untrackedPaths.includes(selectedFilePath)
+  const pathsToStage = markedPaths.length > 0 ? markedPaths : isSelectedFileNew ? [selectedFilePath] : []
+  if (pathsToStage.length === 0) {
+    $.ui.toast('diff-review: no new file marked or selected to add')
+    return
+  }
+  const gitAdd = await runGit($, ['add', '--', ...pathsToStage])
+  if (!gitAdd.isSuccess) {
+    $.ui.toast(`diff-review: git add failed (${shortOutput(gitAdd)})`)
+    return
+  }
+  await update($, markedPathsAtom, () => [])
+  $.ui.toast(`diff-review: ${pathsToStage.length} file${pathsToStage.length > 1 ? 's' : ''} added to the index`)
+  await loadView($)
+}
+
+// Everything the Uncommitted view lists goes to the index: modified, deleted and new files alike.
+async function stageAllChanges($: EngineInterface): Promise<void> {
+  const gitAdd = await runGit($, ['add', '--all'])
+  if (!gitAdd.isSuccess) {
+    $.ui.toast(`diff-review: git add --all failed (${shortOutput(gitAdd)})`)
+    return
+  }
+  await update($, markedPathsAtom, () => [])
+  $.ui.toast('diff-review: every change added to the index')
+  await loadView($)
+}
+
+// --- The pane and its keyboard --------------------------------------------------------------------------------------
+
+async function paneOpenArguments($: EngineInterface) {
+  const requestedPaneColumns = await read($, requestedPaneColumnsAtom)
+
+  return {
+    id: PANE_ID,
+    title: PANE_TITLE,
+    focus: true as const,
+    closeOnEscape: true as const,
+    ...(requestedPaneColumns > 0 ? { columns: requestedPaneColumns } : {}),
+  }
+}
+
+// Refused while the prompt below holds the keyboard: the field then waits for the person's own click.
+async function focusQuestionField($: EngineInterface, questionFieldNumber: number): Promise<void> {
+  const isStillWaitingForKeyboard =
+    (await read($, questionFieldNumberAtom)) === questionFieldNumber &&
+    (await read($, anchorWithOpenInputAtom)) !== null &&
+    !(await read($, hasQuestionHadKeyboardAtom))
+  if (isStillWaitingForKeyboard) {
+    await $.ui.focus({ requestId: PANE_ID, key: `${QUESTION_INPUT_KEY_PREFIX}${questionFieldNumber}` }).catch(() => undefined)
+  }
+}
+
+// --- Questions ------------------------------------------------------------------------------------------------------
+
+// Each opened question gets a field of its own key: reusing one would hand the keyboard to the field of the previous
+// line, still on screen for a moment and gone right after.
+async function openQuestion($: EngineInterface, anchorKey: string): Promise<void> {
+  await update($, armedQuestionAtom, () => null)
+  await update($, questionDraftAtom, () => '')
+  await update($, hasQuestionHadKeyboardAtom, () => false)
+  const questionFieldNumber = await update($, questionFieldNumberAtom, fieldNumber => fieldNumber + 1)
+  await update($, anchorWithOpenInputAtom, () => anchorKey)
+  // A click on a line does not hand the keyboard to the pane, and a field can only be focused inside a pane that holds
+  // it: opening the pane again with focus gives it the keyboard first. Without the width this explorer asked for,
+  // opening again would bring the pane back to the default share, so it is only done once that width is known.
+  if ((await read($, requestedPaneColumnsAtom)) > 0) {
+    await $.ui.open(await paneOpenArguments($)).catch(() => undefined)
+  }
+  await focusQuestionField($, questionFieldNumber)
+  // A click while another field held the keyboard moves the focus onto the clicked button once this press is handled,
+  // taking it back from the new field: the keyboard is asked for again just after.
+  await $.clock.after(QUESTION_FOCUS_RETRY_MS, () => focusQuestionField($, questionFieldNumber))
+}
+
+async function closeQuestion($: EngineInterface): Promise<void> {
+  await update($, focusedElementKeyAtom, key => (key?.startsWith(QUESTION_INPUT_KEY_PREFIX) ? null : key))
+  await update($, questionDraftAtom, () => '')
+  await update($, hasQuestionHadKeyboardAtom, () => false)
+  await update($, anchorWithOpenInputAtom, () => null)
 }
 
 async function describeViewForPrompt($: EngineInterface): Promise<string> {
@@ -575,6 +774,37 @@ async function describeViewForPrompt($: EngineInterface): Promise<string> {
   return `commit ${commit?.shortSha ?? '?'} "${commit?.subject ?? ''}"`
 }
 
+async function findRowQuestionTarget($: EngineInterface, rowIndex: number): Promise<QuestionTarget | null> {
+  const path = await read($, selectedFilePathAtom)
+  if (!path) {
+    return null
+  }
+
+  return rowQuestionTarget({
+    viewDescription: await describeViewForPrompt($),
+    repositoryRoot: await read($, repositoryRootAtom),
+    path,
+    rows: await read($, diffRowsAtom),
+    rowIndex,
+    contextRadius: CONTEXT_RADIUS_ROWS,
+  })
+}
+
+async function findOverviewQuestionTarget($: EngineInterface, blockIndex: number): Promise<QuestionTarget | null> {
+  const pullRequest = await read($, pullRequestAtom)
+  const block = pullRequest ? splitMarkdownBlocks(pullRequest.overviewMarkdown)[blockIndex] : undefined
+  if (!pullRequest || block === undefined) {
+    return null
+  }
+
+  return overviewQuestionTarget({
+    pullRequestHeadline: pullRequest.overviewHeadline,
+    pullRequestUrl: pullRequest.url,
+    repositoryRoot: await read($, repositoryRootAtom),
+    block,
+  })
+}
+
 async function sendToConversation($: EngineInterface, threadId: string, question: string, context: string): Promise<void> {
   await update($, threadIdAwaitingTurnAtom, () => threadId)
   // The location and its surroundings go in as a row only the model reads, so the transcript shows the question alone.
@@ -584,58 +814,55 @@ async function sendToConversation($: EngineInterface, threadId: string, question
     $.ui.toast(`diff-review: the context of the question was not sent (${String(error)})`)
   }
   await $.prompt.submit({ text: question })
+  // The field that held the keyboard is gone once the question leaves: the keyboard would fall back to the prompt, so
+  // the pane takes it again, on the line the cursor is on, for the shortcuts to keep working.
+  await $.clock.after(QUESTION_FOCUS_RETRY_MS, () => takeKeyboardBackToCursor($))
 }
 
-async function submitQuestion(
-  $: EngineInterface,
-  anchorKey: string,
-  anchorDescription: string,
-  question: string,
-  context: string,
-): Promise<void> {
-  const thread: ReviewThread = {
-    id: `${anchorKey}-${await $.clock.now()}`,
-    anchorKey,
-    anchorDescription,
-    exchanges: [{ question, answer: '', status: 'queued' }],
-    isContextCleared: false,
+async function takeKeyboardBackToCursor($: EngineInterface): Promise<void> {
+  if ((await read($, requestedPaneColumnsAtom)) > 0) {
+    await $.ui.open(await paneOpenArguments($)).catch(() => undefined)
   }
-  await update($, threadsAtom, threads => [...threads, thread])
-  await closeQuestion($)
-  await sendToConversation($, thread.id, question, context)
+  const cursorRowIndex = lastDrawnLayout.cursorRowIndex
+  if (cursorRowIndex !== null) {
+    await $.ui.focus({ requestId: PANE_ID, key: `${LINE_NUMBER_BUTTON_KEY_PREFIX}${cursorRowIndex}` }).catch(() => undefined)
+  }
 }
 
-// A reply stays in the conversation the thread already lives in, so only the thread's anchor is restated. After a
-// /clear the conversation no longer holds the thread: its earlier exchanges are sent again.
-function replyContextOf(thread: ReviewThread): string {
-  const earlierExchanges = thread.isContextCleared
-    ? [
-        'The conversation was cleared since; the thread so far:',
-        ...thread.exchanges.flatMap(exchange => [`Question: ${exchange.question}`, `Your answer: ${exchange.answer}`]),
-      ]
-    : [`It started with the question: "${thread.exchanges[0]?.question ?? ''}".`]
+async function askFromPane($: EngineInterface, anchorKey: string, target: QuestionTarget | null, question: string): Promise<void> {
+  const trimmedQuestion = question.trim()
+  if (trimmedQuestion === '' || target === null) {
+    return
+  }
+  const thread = newThread(`${anchorKey}-${await $.clock.now()}`, anchorKey, target.anchorDescription, trimmedQuestion)
+  await update($, threadsAtom, threads => [...threads, thread])
+  await saveThreads($)
+  await closeQuestion($)
+  await sendToConversation($, thread.id, trimmedQuestion, target.context)
+}
 
-  return [
-    `The person follows up in the review thread about ${thread.anchorDescription}.`,
-    ...earlierExchanges,
-    'Their follow-up follows. The answer is drawn in that thread in the pane: keep it focused on it.',
-  ].join('\n')
+// The prompt below has what a pane field lacks, voice dictation (Space held) first: the question is armed on its
+// spot, and the next prompt the person sends carries its context and gets its answer drawn there.
+async function armQuestionForPrompt($: EngineInterface, anchorKey: string, target: QuestionTarget | null): Promise<void> {
+  if (target === null) {
+    return
+  }
+  await closeQuestion($)
+  await update($, armedQuestionAtom, () => ({ anchorKey, ...target }))
 }
 
 async function appendExchange($: EngineInterface, threadId: string, question: string): Promise<void> {
-  const exchange: ThreadExchange = { question, answer: '', status: 'queued' }
   await update($, threadsAtom, threads =>
-    threads.map(candidate =>
-      candidate.id === threadId
-        ? { ...normalizeThread(candidate), exchanges: [...normalizeThread(candidate).exchanges, exchange], isContextCleared: false }
-        : candidate,
+    threads.map(thread =>
+      thread.id === threadId ? { ...thread, exchanges: [...thread.exchanges, queuedExchange(question)], isContextCleared: false } : thread,
     ),
   )
+  await saveThreads($)
 }
 
 async function replyInThread($: EngineInterface, threadId: string, reply: string): Promise<void> {
   const trimmedReply = reply.trim()
-  const thread = (await read($, threadsAtom)).map(normalizeThread).find(candidate => candidate.id === threadId)
+  const thread = (await read($, threadsAtom)).find(candidate => candidate.id === threadId)
   if (trimmedReply === '' || thread === undefined) {
     return
   }
@@ -645,7 +872,7 @@ async function replyInThread($: EngineInterface, threadId: string, reply: string
 }
 
 async function armReplyForPrompt($: EngineInterface, threadId: string): Promise<void> {
-  const thread = (await read($, threadsAtom)).map(normalizeThread).find(candidate => candidate.id === threadId)
+  const thread = (await read($, threadsAtom)).find(candidate => candidate.id === threadId)
   if (thread === undefined) {
     return
   }
@@ -658,99 +885,158 @@ async function armReplyForPrompt($: EngineInterface, threadId: string): Promise<
   }))
 }
 
-type QuestionTarget = { anchorDescription: string; context: string }
+async function threadsOfScreen($: EngineInterface) {
+  const view = await read($, viewAtom)
 
-async function rowQuestionTarget($: EngineInterface, rowIndex: number): Promise<QuestionTarget | null> {
+  const gitHubThreads = view === 'pr' ? gitHubThreadNavigationEntries(await read($, gitHubReviewThreadsAtom)) : []
+
+  return threadsInReadingOrder([...(await read($, threadsAtom)), ...gitHubThreads], {
+    view,
+    commitSha: view === 'commits' ? await read($, selectedCommitShaAtom) : null,
+    orderedPaths: groupFilesByDirectory(await shownFilesOf($, await read($, filesAtom))).flatMap(group =>
+      group.files.map(file => file.path),
+    ),
+    hasOverview: view === 'pr' && (await read($, pullRequestAtom)) !== null,
+  })
+}
+
+// The keyboard walks the threads of what is on screen in reading order, wrapping around at both ends.
+async function moveThread($: EngineInterface, offset: number): Promise<void> {
+  const orderedThreads = await threadsOfScreen($)
+  if (orderedThreads.length === 0) {
+    return
+  }
+  const currentThreadId = await read($, currentThreadIdAtom)
+  const currentIndex = orderedThreads.findIndex(thread => thread.id === currentThreadId)
+  const targetIndex =
+    currentIndex === -1 ? (offset > 0 ? 0 : orderedThreads.length - 1) : (currentIndex + offset + orderedThreads.length) % orderedThreads.length
+  const target = orderedThreads[targetIndex]
+  const anchor = target ? parseAnchorKey(target.anchorKey) : null
+  if (!target || !anchor) {
+    return
+  }
+  await update($, currentThreadIdAtom, () => target.id)
+  if (anchor.kind === 'overview') {
+    await showOverview($)
+    await update($, diffOffsetAtom, () => anchor.blockIndex)
+    return
+  }
+  if ((await read($, selectedFilePathAtom)) !== anchor.path || (await read($, isOverviewShownAtom))) {
+    await selectFile($, anchor.path)
+  }
+  const view = await read($, viewAtom)
+  const commitSha = await read($, selectedCommitShaAtom)
+  const diffRows = await read($, diffRowsAtom)
+  const gitHubThread = (await read($, gitHubReviewThreadsAtom)).find(thread => thread.id === target.id)
+  const rowIndex = diffRows.findIndex(row =>
+    gitHubThread
+      ? isGitHubThreadOnRow(gitHubThread, anchor.path, row)
+      : anchorKeyOf(view, commitSha, anchor.path, row) === target.anchorKey,
+  )
+  const scrolledIndex = lastDrawnLayout.isSplitView ? splitIndexOfRow(pairRowsSideBySide(diffRows), rowIndex) : rowIndex
+  await update($, diffOffsetAtom, () => Math.max(0, scrolledIndex - 2))
+}
+
+async function readClaudeCodeTheme($: EngineInterface): Promise<void> {
+  const rows = await $.config.list().catch(() => [])
+  const themeRow = rows.find(row => row.key === 'theme')
+  await update($, claudeCodeThemeAtom, () => (typeof themeRow?.value === 'string' ? themeRow.value : null))
+}
+
+// --- Line cursor ----------------------------------------------------------------------------------------------------
+
+type CursorMove = (stops: number[], diffRows: DiffRow[]) => (cursorRowIndex: number, isInView: (rowIndex: number) => boolean) => number
+
+// The cursor starts where the last drawing showed it; a cursor scrolled out of sight by the wheel comes back to the
+// first line in view instead of dragging the diff back to where it was.
+async function moveCursor($: EngineInterface, move: CursorMove): Promise<void> {
+  const cursorRowIndex = lastDrawnLayout.cursorRowIndex
+  if ((await read($, isOverviewShownAtom)) || cursorRowIndex === null) {
+    return
+  }
+  const diffRows = await read($, diffRowsAtom)
+  const splitRows = lastDrawnLayout.isSplitView ? pairRowsSideBySide(diffRows) : null
+  const drawnIndexOf = (rowIndex: number) => (splitRows ? splitIndexOfRow(splitRows, rowIndex) : rowIndex)
+  const diffOffset = await read($, diffOffsetAtom)
+  const isInView = (rowIndex: number) => {
+    const drawnIndex = drawnIndexOf(rowIndex)
+    return drawnIndex >= diffOffset && drawnIndex < diffOffset + lastDrawnLayout.visibleDiffRows
+  }
+  const stops = cursorStopsOf(diffRows, splitRows)
+  const target = move(stops, diffRows)(cursorRowIndex, isInView)
+  await update($, cursorRowIndexAtom, () => target)
+  await update($, diffOffsetAtom, offset => offsetShowingCursor(drawnIndexOf(target), offset, lastDrawnLayout.visibleDiffRows))
+  // With the keyboard on the line's own button, Enter asks about it.
+  await $.ui.focus({ requestId: PANE_ID, key: `${LINE_NUMBER_BUTTON_KEY_PREFIX}${target}` }).catch(() => undefined)
+}
+
+async function cursorAnchorKey($: EngineInterface): Promise<string | null> {
+  const cursorRowIndex = lastDrawnLayout.cursorRowIndex
   const path = await read($, selectedFilePathAtom)
-  const rows = await read($, diffRowsAtom)
-  const row = rows[rowIndex]
-  if (!path || !row) {
+  const row = cursorRowIndex === null ? undefined : (await read($, diffRowsAtom))[cursorRowIndex]
+  if (!row || !path || (await read($, isOverviewShownAtom))) {
     return null
   }
-  const context = [
-    `The person is reviewing ${await describeViewForPrompt($)} in a review pane and asks about one line: ${describeLineForPrompt(path, row)}.`,
-    `Repository: ${await read($, repositoryRootAtom)}. The line and the diff around it:`,
-    '```diff',
-    formatRowsAsDiff(surroundingRows(rows, rowIndex, CONTEXT_RADIUS_ROWS)),
-    '```',
-    'Their question follows. The answer is drawn under that line in the pane: keep it focused on it.',
-  ].join('\n')
 
-  return { anchorDescription: `${describeLineForPrompt(path, row)} in ${await describeViewForPrompt($)}`, context }
+  return anchorKeyOf(await read($, viewAtom), await read($, selectedCommitShaAtom), path, row)
 }
 
-async function overviewQuestionTarget($: EngineInterface, blockIndex: number): Promise<QuestionTarget | null> {
-  const pullRequest = await read($, pullRequestAtom)
-  const block = pullRequest ? splitMarkdownBlocks(pullRequest.overviewMarkdown)[blockIndex] : undefined
-  if (!pullRequest || block === undefined) {
-    return null
+async function askOnCursorLine($: EngineInterface): Promise<void> {
+  const anchorKey = await cursorAnchorKey($)
+  if (anchorKey) {
+    await openQuestion($, anchorKey)
   }
-  const context = [
-    `The person is reviewing pull request ${pullRequest.overviewHeadline} (${pullRequest.url}) in a review pane, and asks about this part of its description or conversation:`,
-    '````markdown',
-    block,
-    '````',
-    `Repository: ${await read($, repositoryRootAtom)}. Their question follows. The answer is drawn under that part in the pane: keep it focused on it.`,
-  ].join('\n')
-
-  return { anchorDescription: `this part of pull request ${pullRequest.overviewHeadline}: "${block.slice(0, 120)}"`, context }
 }
 
-async function askFromPane(
-  $: EngineInterface,
-  anchorKey: string,
-  findTarget: () => Promise<QuestionTarget | null>,
-  question: string,
-): Promise<void> {
-  const trimmedQuestion = question.trim()
-  const target = await findTarget()
-  if (trimmedQuestion === '' || target === null) {
+// A line that already has a finished thread gets the reply field of its latest one; any other gets a new question.
+async function replyOnCursorLine($: EngineInterface): Promise<void> {
+  const anchorKey = await cursorAnchorKey($)
+  if (!anchorKey) {
     return
   }
-  await submitQuestion($, anchorKey, target.anchorDescription, trimmedQuestion, target.context)
-}
-
-// The prompt below has what a pane field lacks, voice dictation (Space held) first: the question is armed on its
-// spot, and the next prompt the person sends carries its context and gets its answer drawn there.
-async function armQuestionForPrompt(
-  $: EngineInterface,
-  anchorKey: string,
-  findTarget: () => Promise<QuestionTarget | null>,
-): Promise<void> {
-  const target = await findTarget()
-  if (target === null) {
+  const thread = (await read($, threadsAtom)).filter(candidate => candidate.anchorKey === anchorKey && isLastExchangeDone(candidate)).at(-1)
+  if (!thread) {
+    await openQuestion($, anchorKey)
     return
   }
-  await closeQuestion($)
-  await update($, armedQuestionAtom, () => ({ anchorKey, ...target }))
+  await $.ui.focus({ requestId: PANE_ID, key: `${REPLY_INPUT_KEY_PREFIX}${thread.id}` }).catch(() => undefined)
+}
+
+// --- Threads kept across sessions, per repository and branch ------------------------------------------------------
+
+async function savedThreadsKey($: EngineInterface): Promise<string | null> {
+  const repositoryRoot = await read($, repositoryRootAtom)
+  const branch = await read($, branchAtom)
+
+  return repositoryRoot && branch ? `${THREADS_STORE_KEY_PREFIX}|${repositoryRoot}|${branch}` : null
+}
+
+async function saveThreads($: EngineInterface): Promise<void> {
+  const key = await savedThreadsKey($)
+  if (key === null) {
+    return
+  }
+  const threads = await read($, threadsAtom)
+  await $.store.set(key, threads.slice(-MAX_SAVED_THREADS_PER_BRANCH)).catch(() => undefined)
+}
+
+async function restoreSavedThreads($: EngineInterface): Promise<void> {
+  const key = await savedThreadsKey($)
+  if (key === null) {
+    return
+  }
+  const saved = await $.store.get(key).catch(() => undefined)
+  const shownThreadIds = new Set((await read($, threadsAtom)).map(thread => thread.id))
+  const restored = restoredThreads(saved, shownThreadIds)
+  if (restored.length > 0) {
+    await update($, threadsAtom, threads => [...restored, ...threads])
+  }
 }
 
 // The answer keeps arriving into a thread dismissed mid-turn: it is simply no longer drawn, and the transcript still holds it.
 async function dismissThread($: EngineInterface, threadId: string): Promise<void> {
   await update($, threadsAtom, threads => threads.filter(thread => thread.id !== threadId))
-}
-
-// Threads made before they held several exchanges carry a single question and answer: the session keeps them across
-// reloads, so they are brought to the current shape when read.
-function normalizeThread(thread: ReviewThread): ReviewThread {
-  if (Array.isArray(thread.exchanges)) {
-    return thread
-  }
-  const legacyThread = thread as unknown as { question?: string; answer?: string; status?: ThreadExchange['status'] }
-
-  return {
-    ...thread,
-    anchorDescription: thread.anchorDescription ?? 'an earlier question in the review pane',
-    exchanges: [{ question: legacyThread.question ?? '', answer: legacyThread.answer ?? '', status: legacyThread.status ?? 'done' }],
-    isContextCleared: thread.isContextCleared ?? false,
-  }
-}
-
-function withLastExchange(thread: ReviewThread, change: (exchange: ThreadExchange) => ThreadExchange): ReviewThread {
-  const normalizedThread = normalizeThread(thread)
-  const lastIndex = normalizedThread.exchanges.length - 1
-
-  return { ...normalizedThread, exchanges: normalizedThread.exchanges.map((exchange, index) => (index === lastIndex ? change(exchange) : exchange)) }
+  await saveThreads($)
 }
 
 async function appendToThreadOfTurn($: EngineInterface, turnId: string, text: string): Promise<void> {
@@ -760,58 +1046,182 @@ async function appendToThreadOfTurn($: EngineInterface, turnId: string, text: st
   }
   await update($, threadsAtom, threads =>
     threads.map(thread =>
-      thread.id === threadId ? withLastExchange(thread, exchange => ({ ...exchange, answer: exchange.answer + text, status: 'answering' })) : thread,
+      thread.id === threadId
+        ? withLastExchange(thread, exchange => ({ ...exchange, answer: exchange.answer + text, status: 'answering' }))
+        : thread,
     ),
   )
 }
 
-function renderNavigationHint(
-  elements: Pick<Elements['terminal'], 'Box' | 'Button'>,
-  arrow: string,
-  hotkeys: readonly string[],
-  move: () => Promise<void>,
-  isTyping: boolean,
-) {
-  const { Box, Button } = elements
+// --- What the drawing reads and can ask for -------------------------------------------------------------------------
 
-  return (
-    <Box flexDirection="row" marginRight={2}>
-      {hotkeys.map(hotkey => (
-        <Box marginRight={1}>
-          <Button key={`navigate-${hotkey}`} plain hotkey={isTyping ? undefined : hotkey} label={isTyping ? `${hotkey}: ${arrow}` : arrow} onPress={move} />
-        </Box>
-      ))}
-    </Box>
-  )
+async function readExplorerSnapshot($: EngineInterface, options: PluginOptions): Promise<ExplorerSnapshot> {
+  const { keymap, problems } = resolveKeymap(options, await read($, keyboardLayoutAtom))
+
+  return {
+    view: await read($, viewAtom),
+    repositoryRoot: await read($, repositoryRootAtom),
+    repositoryWebUrl: await read($, repositoryWebUrlAtom),
+    branch: await read($, branchAtom),
+    baseRef: await read($, baseRefAtom),
+    isLoading: await read($, isLoadingAtom),
+    loadError: await read($, loadErrorAtom),
+    commits: await read($, commitsAtom),
+    commitGraph: await read($, commitGraphAtom),
+    gitHubReviewThreads: await read($, gitHubReviewThreadsAtom),
+    expandedGitHubThreadIds: await read($, expandedGitHubThreadIdsAtom),
+    selectedCommitSha: await read($, selectedCommitShaAtom),
+    files: await read($, filesAtom),
+    selectedFilePath: await read($, selectedFilePathAtom),
+    isOverviewShown: await read($, isOverviewShownAtom),
+    diffRows: await read($, diffRowsAtom),
+    pullRequest: await read($, pullRequestAtom),
+    viewedStateByPath: await read($, viewedStateByPathAtom),
+    markedPaths: await read($, markedPathsAtom),
+    fileFilter: await read($, fileFilterAtom),
+    isWholeFileByPath: Object.fromEntries(
+      Object.entries(await read($, contextLinesByPathAtom)).map(([path, lines]) => [path, lines >= WHOLE_FILE_CONTEXT_LINES]),
+    ),
+    isNoiseShown: await read($, isNoiseShownAtom),
+    isSplitViewPreferred: await read($, isSplitViewPreferredAtom),
+    keymap,
+    keymapProblems: problems,
+    isHelpShown: await read($, isHelpShownAtom),
+    cursorRowIndex: await read($, cursorRowIndexAtom),
+    focusedElementKey: await read($, focusedElementKeyAtom),
+    fileListWidth: await read($, fileListWidthAtom),
+    fileListOffset: await read($, fileListOffsetAtom),
+    diffOffset: await read($, diffOffsetAtom),
+    threads: await read($, threadsAtom),
+    anchorWithOpenInput: await read($, anchorWithOpenInputAtom),
+    questionFieldNumber: await read($, questionFieldNumberAtom),
+    questionDraft: await read($, questionDraftAtom),
+    hasQuestionHadKeyboard: await read($, hasQuestionHadKeyboardAtom),
+    armedAnchorKey: (await read($, armedQuestionAtom))?.anchorKey ?? null,
+    currentThreadId: await read($, currentThreadIdAtom),
+  }
 }
 
-function renderFileStats(Text: Elements['terminal']['Text'], file: ChangedFile) {
-  if (file.isUntracked) {
-    return <Text color={THEME.added}>new</Text>
+function explorerActions($: EngineInterface): ExplorerActions {
+  return {
+    switchView: view => switchView($, view),
+    moveView: offset => moveView($, offset),
+    refresh: () => refreshExplorer($),
+    close: () => $.ui.close({ id: PANE_ID }),
+    selectCommit: commitSha => selectCommit($, commitSha),
+    showOverview: () => showOverview($),
+    selectFile: path => selectFile($, path),
+    moveFileSelection: offset => moveFileSelection($, offset),
+    toggleViewed: path => toggleViewed($, path),
+    toggleMarked: path => toggleMarked($, path),
+    toggleCurrentFileMark: () => toggleCurrentFileMark($),
+    markAllNewFiles: () => markAllNewFiles($),
+    stageMarkedFiles: () => stageMarkedFiles($),
+    stageAllChanges: () => stageAllChanges($),
+    updateFileFilter: async filter => {
+      await update($, fileFilterAtom, () => filter)
+      await update($, fileListOffsetAtom, () => 0)
+    },
+    expandContext: path => widenContext($, path, current => current + DIFF_CONTEXT_STEP_LINES),
+    showWholeFile: path => widenContext($, path, () => WHOLE_FILE_CONTEXT_LINES),
+    explainIdleShortcut: async description => {
+      $.ui.toast(`diff-review: "${description}" does nothing here`)
+    },
+    explainSplitViewWidth: async () => {
+      $.ui.toast(`diff-review: side by side needs a diff of ${SPLIT_VIEW_MIN_DIFF_WIDTH} columns; widen the pane (ctrl+x then left) or drag the divider`)
+    },
+    toggleSplitView: async () => {
+      const isSplitViewPreferred = !(await read($, isSplitViewPreferredAtom))
+      await update($, isSplitViewPreferredAtom, () => isSplitViewPreferred)
+      await update($, diffOffsetAtom, () => 0)
+      await $.store.set(SPLIT_VIEW_STORE_KEY, isSplitViewPreferred).catch(() => undefined)
+    },
+    toggleNoiseShown: async () => {
+      await update($, isNoiseShownAtom, isNoiseShown => !isNoiseShown)
+    },
+    openQuestion: anchorKey => openQuestion($, anchorKey),
+    closeQuestion: () => closeQuestion($),
+    updateQuestionDraft: async text => {
+      await update($, questionDraftAtom, () => text)
+    },
+    askAboutRow: async (anchorKey, rowIndex, question) =>
+      askFromPane($, anchorKey, await findRowQuestionTarget($, rowIndex), question),
+    armRowQuestion: async (anchorKey, rowIndex) => armQuestionForPrompt($, anchorKey, await findRowQuestionTarget($, rowIndex)),
+    askAboutOverviewBlock: async (anchorKey, blockIndex, question) =>
+      askFromPane($, anchorKey, await findOverviewQuestionTarget($, blockIndex), question),
+    armOverviewQuestion: async (anchorKey, blockIndex) =>
+      armQuestionForPrompt($, anchorKey, await findOverviewQuestionTarget($, blockIndex)),
+    disarmQuestion: async () => {
+      await update($, armedQuestionAtom, () => null)
+    },
+    dismissThread: threadId => dismissThread($, threadId),
+    replyInThread: (threadId, reply) => replyInThread($, threadId, reply),
+    armReply: threadId => armReplyForPrompt($, threadId),
+    moveThread: offset => moveThread($, offset),
+    moveCursor: offset => moveCursor($, stops => (cursorRowIndex, isInView) =>
+      isInView(cursorRowIndex) ? movedCursor(stops, cursorRowIndex, offset) : (stops.find(isInView) ?? cursorRowIndex),
+    ),
+    moveCursorToHunk: direction =>
+      moveCursor($, (stops, diffRows) => cursorRowIndex => cursorAtHunk(diffRows, stops, cursorRowIndex, direction)),
+    askOnCursorLine: () => askOnCursorLine($),
+    replyOnCursorLine: () => replyOnCursorLine($),
+    markViewedAndNext: () => markViewedAndNext($),
+    focusFileFilter: async () => {
+      await $.ui.focus({ requestId: PANE_ID, key: FILE_FILTER_KEY }).catch(() => undefined)
+    },
+    submitFileFilter: async filter => {
+      await update($, fileFilterAtom, () => filter)
+      await update($, fileListOffsetAtom, () => 0)
+      await focusFirstChange($)
+    },
+    toggleHelp: async () => {
+      await update($, isHelpShownAtom, isHelpShown => !isHelpShown)
+    },
+    toggleGitHubThreadResolved: threadId => toggleGitHubThreadResolved($, threadId),
+    toggleGitHubThread: async threadId => {
+      await update($, expandedGitHubThreadIdsAtom, threadIds =>
+        threadIds.includes(threadId) ? threadIds.filter(id => id !== threadId) : [...threadIds, threadId],
+      )
+    },
+    openOnGitHub: async page => {
+      const opened = await openInBrowser($, page.url)
+      if (!opened.isSuccess) {
+        $.ui.toast(`diff-review: could not open ${page.url} (${shortOutput(opened)})`)
+      }
+    },
   }
-  if (file.addedLines === null) {
-    return <Text color={THEME.muted}>binary</Text>
-  }
-
-  return (
-    <Text>
-      <Text color={THEME.added}>+{file.addedLines}</Text> <Text color={THEME.removed}>-{file.removedLines ?? 0}</Text>
-    </Text>
-  )
 }
 
-export const register: Register = on => {
+// --- Hooks ----------------------------------------------------------------------------------------------------------
+
+export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
-    await update($, threadsAtom, threads => threads.map(normalizeThread))
+    await readClaudeCodeTheme($)
     const savedFileListWidth = await $.store.get(FILE_LIST_WIDTH_STORE_KEY).catch(() => undefined)
     if (typeof savedFileListWidth === 'number') {
       await update($, fileListWidthAtom, () => savedFileListWidth)
     }
+    const savedSplitViewPreference = await $.store.get(SPLIT_VIEW_STORE_KEY).catch(() => undefined)
+    if (typeof savedSplitViewPreference === 'boolean') {
+      await update($, isSplitViewPreferredAtom, () => savedSplitViewPreference)
+    }
     const keyboardLayout = await detectKeyboardLayout($)
     await update($, keyboardLayoutAtom, () => keyboardLayout)
-    await $.command.register({ name: 'diff-review', description: 'Open the review explorer: uncommitted changes, the PR, or commit by commit' })
+    await $.command.register({
+      name: 'diff-review',
+      description: 'Open the review explorer: uncommitted changes, the PR, or commit by commit',
+    })
 
     return next(e)
+  })
+
+  on('config.set', async ($, e, next) => {
+    const result = await next(e)
+    if (e.key === 'theme') {
+      await readClaudeCodeTheme($)
+    }
+
+    return result
   })
 
   on('command.run', { command: 'diff-review' }, async ($, e) => {
@@ -823,6 +1233,7 @@ export const register: Register = on => {
     await update($, requestedPaneColumnsAtom, () => requestedPaneColumns)
     const opened = await $.ui.open({ ...(await paneOpenArguments($)), columns: requestedPaneColumns })
     await refreshExplorer($)
+    await focusFirstChange($)
 
     return { text: opened.isPlaced ? 'Review explorer opened.' : `Review explorer waiting: ${opened.reason}` }
   })
@@ -838,42 +1249,35 @@ export const register: Register = on => {
     return result
   })
 
-  // The pane is drawn to its exact height so the engine never scrolls it: the wheel moves the file list when the pointer
-  // is over it and the diff everywhere else, page keys move the diff, and the tabs stay put.
+  // The wheel moves the file list when the pointer is over it and the diff everywhere else; page keys move the diff.
   on('ui.scroll', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
+    const layout = lastDrawnLayout
     const pointer = e.pointer
     const isOverFileList =
       pointer !== undefined &&
-      pointer.row >= paneLayout.panelsTop &&
-      (paneLayout.isTwoColumns
-        ? pointer.column < paneLayout.fileListWidth
-        : pointer.row < paneLayout.panelsTop + paneLayout.fileListBoxHeight)
-    const isWheelTick = pointer !== undefined
+      pointer.row >= layout.panelsTop &&
+      (layout.isTwoColumns ? pointer.column < layout.fileListWidth : pointer.row < layout.panelsTop + layout.fileListBoxHeight)
     if (isOverFileList) {
       await update($, fileListOffsetAtom, offset =>
-        clampOffset(offset + e.by * WHEEL_TICK_ROWS, paneLayout.fileLineCount, paneLayout.visibleFileLines),
+        clampOffset(offset + e.by * WHEEL_TICK_ROWS, layout.fileLineCount, layout.visibleFileLines),
       )
-    } else {
-      const rowsPerTick = paneLayout.isOverviewShown ? 1 : WHEEL_TICK_ROWS
-      const pageRows = paneLayout.isOverviewShown ? 3 : paneLayout.visibleDiffRows
-      const rowsToMove = isWheelTick ? e.by * rowsPerTick : Math.sign(e.by) * Math.min(Math.abs(e.by), pageRows)
-      const visibleForClamp = paneLayout.isScrollingPastEnd ? 1 : paneLayout.visibleDiffRows
-      await update($, diffOffsetAtom, offset => clampOffset(offset + rowsToMove, paneLayout.diffRowCount, visibleForClamp))
+      return {}
     }
+    const rowsPerTick = layout.isOverviewShown ? 1 : WHEEL_TICK_ROWS
+    const pageRows = layout.isOverviewShown ? 3 : layout.visibleDiffRows
+    const rowsToMove = pointer !== undefined ? e.by * rowsPerTick : Math.sign(e.by) * Math.min(Math.abs(e.by), pageRows)
+    const visibleForClamp = layout.isScrollingPastEnd ? 1 : layout.visibleDiffRows
+    await update($, diffOffsetAtom, offset => clampOffset(offset + rowsToMove, layout.scrolledRowCount, visibleForClamp))
 
     return {}
   })
 
-  // Moving to another element of the pane, by Tab or a click, closes a question left empty. Landing on a [+],
-  // the question itself or its close button is part of opening or closing it, and closes nothing.
   on('ui.focus', { component: 'Pane', requestId: PANE_ID }, async ($, e, next) => {
     const element = e.element ?? ''
-    const isMovingOntoLineButton = element.startsWith(ASK_BUTTON_KEY_PREFIX) || element.startsWith(LINE_NUMBER_BUTTON_KEY_PREFIX)
-    if (
-      isMovingOntoLineButton &&
-      (await read($, anchorWithOpenInputAtom)) !== null &&
-      !(await read($, hasQuestionHadKeyboardAtom))
-    ) {
+    const isLineButton = element.startsWith(ASK_BUTTON_KEY_PREFIX) || element.startsWith(LINE_NUMBER_BUTTON_KEY_PREFIX)
+    const isQuestionWaitingForKeyboard =
+      (await read($, anchorWithOpenInputAtom)) !== null && !(await read($, hasQuestionHadKeyboardAtom))
+    if (isLineButton && isQuestionWaitingForKeyboard) {
       // The question just opened from that button waits for the keyboard: the focus goes to its field instead.
       const questionFieldKey = `${QUESTION_INPUT_KEY_PREFIX}${await read($, questionFieldNumberAtom)}`
       const redirected = await next({ ...e, element: questionFieldKey })
@@ -887,22 +1291,23 @@ export const register: Register = on => {
     await update($, focusedElementKeyAtom, () => e.element ?? null)
     if (element.startsWith(QUESTION_INPUT_KEY_PREFIX)) {
       await update($, hasQuestionHadKeyboardAtom, () => true)
-    } else if (
-      !element.startsWith(ASK_BUTTON_KEY_PREFIX) &&
-      !element.startsWith(LINE_NUMBER_BUTTON_KEY_PREFIX) &&
-      element !== CANCEL_QUESTION_KEY &&
-      !element.startsWith(DISMISS_THREAD_KEY_PREFIX) &&
-      (await read($, anchorWithOpenInputAtom)) !== null &&
-      (await read($, questionDraftAtom)).trim() === ''
-    ) {
+      return next(e)
+    }
+    // Moving to another element, by Tab or a click, closes a question left empty; landing on a [+], the question's own
+    // buttons or a thread's close button is part of opening or closing it.
+    const isPartOfQuestion =
+      isLineButton || element === CANCEL_QUESTION_KEY || element.startsWith(DISMISS_THREAD_KEY_PREFIX)
+    const isQuestionLeftEmpty =
+      (await read($, anchorWithOpenInputAtom)) !== null && (await read($, questionDraftAtom)).trim() === ''
+    if (!isPartOfQuestion && isQuestionLeftEmpty) {
       await closeQuestion($)
     }
 
     return next(e)
   })
 
-  // Escape first closes what is open on a line: the question being written, or the thread whose close button has
-  // the focus. Only with nothing of that kind left does it close the pane.
+  // Escape first closes what is open on a line: the question being written, or the thread whose close button has the
+  // focus. Only with nothing of that kind left does it close the pane.
   on('ui.close', async ($, e, next) => {
     if (e.id !== PANE_ID || e.origin.kind !== 'person') {
       return next(e)
@@ -910,12 +1315,16 @@ export const register: Register = on => {
     if ((await read($, armedQuestionAtom)) !== null) {
       return { value: undefined }
     }
+    if (await read($, isHelpShownAtom)) {
+      await update($, isHelpShownAtom, () => false)
+      return { value: undefined }
+    }
     if ((await read($, anchorWithOpenInputAtom)) !== null) {
       await closeQuestion($)
       return { value: undefined }
     }
     const focusedElementKey = (await read($, focusedElementKeyAtom)) ?? ''
-    if (focusedElementKey.startsWith(REPLY_INPUT_KEY_PREFIX)) {
+    if (focusedElementKey.startsWith(REPLY_INPUT_KEY_PREFIX) || focusedElementKey === FILE_FILTER_KEY) {
       await update($, focusedElementKeyAtom, () => null)
       return { value: undefined }
     }
@@ -928,28 +1337,24 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // A question armed for the prompt takes the next message the person sends there, with its context.
   on('prompt.submit', async ($, e, next) => {
     const armedQuestion = await read($, armedQuestionAtom)
-    const isTypedByThePerson = PERSON_PROMPT_ORIGINS.includes(String(e.origin.kind))
-    if (armedQuestion === null || !isTypedByThePerson || e.text.trim() === '' || e.text.trimStart().startsWith('/')) {
+    const isThePersonsMessage = PERSON_PROMPT_ORIGINS.includes(String(e.origin.kind))
+    const question = e.text.trim()
+    if (armedQuestion === null || !isThePersonsMessage || question === '' || question.startsWith('/')) {
       return next(e)
     }
     await update($, armedQuestionAtom, () => null)
     if (armedQuestion.threadId) {
-      await appendExchange($, armedQuestion.threadId, e.text.trim())
+      await appendExchange($, armedQuestion.threadId, question)
       await update($, threadIdAwaitingTurnAtom, () => armedQuestion.threadId ?? null)
     } else {
-      const thread: ReviewThread = {
-        id: `${armedQuestion.anchorKey}-${await $.clock.now()}`,
-        anchorKey: armedQuestion.anchorKey,
-        anchorDescription: armedQuestion.anchorDescription,
-        exchanges: [{ question: e.text.trim(), answer: '', status: 'queued' }],
-        isContextCleared: false,
-      }
+      const thread = newThread(`${armedQuestion.anchorKey}-${await $.clock.now()}`, armedQuestion.anchorKey, armedQuestion.anchorDescription, question)
       await update($, threadsAtom, threads => [...threads, thread])
+      await saveThreads($)
       await update($, threadIdAwaitingTurnAtom, () => thread.id)
     }
-
     $.ui.toast(`diff-review: question sent about ${armedQuestion.anchorDescription.slice(0, 80)}`)
 
     return next({ ...e, context: [...(e.context ?? []), armedQuestion.context] })
@@ -958,11 +1363,11 @@ export const register: Register = on => {
   on('ui.message', { element: DIVIDER_KEY }, async ($, e, next) => {
     const message = e.data as { phase?: string; movedColumns?: number }
     if (message.phase === 'start') {
-      paneLayout.fileListWidthAtDragStart = paneLayout.fileListWidth
+      lastDrawnLayout.fileListWidthAtDragStart = lastDrawnLayout.fileListWidth
     } else if (message.phase === 'end' && typeof message.movedColumns === 'number') {
       const fileListWidth = clampFileListWidth(
-        paneLayout.fileListWidthAtDragStart + message.movedColumns,
-        paneLayout.bodyColumns,
+        lastDrawnLayout.fileListWidthAtDragStart + message.movedColumns,
+        lastDrawnLayout.bodyColumns,
       )
       await update($, fileListWidthAtom, () => fileListWidth)
       await $.store.set(FILE_LIST_WIDTH_STORE_KEY, fileListWidth).catch(() => undefined)
@@ -974,6 +1379,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') {
       await update($, threadsAtom, threads => threads.map(thread => ({ ...thread, isContextCleared: true })))
+      await saveThreads($)
     }
 
     return next(e)
@@ -1012,6 +1418,7 @@ export const register: Register = on => {
             : thread,
         ),
       )
+      await saveThreads($)
     }
 
     return next(e)
@@ -1022,582 +1429,39 @@ export const register: Register = on => {
       const { Text } = $.ui.resolve(e)
       return <Text dimColor>The review explorer needs the terminal or Desktop.</Text>
     }
-    const { Box, Button, Client, Code, Input, Markdown, Text } = $.ui.resolve(e)
-    if (e.props.bodyColumns < MIN_PANE_COLUMNS) {
-      return (
-        <Box flexDirection="column" padding={1}>
-          <Text color={THEME.commitSha} bold>
-            The review pane needs at least {MIN_PANE_COLUMNS} columns (now {e.props.bodyColumns}).
-          </Text>
-          <Text color={THEME.muted}>Widen it by dragging the divider, or widen the terminal.</Text>
-        </Box>
-      )
+    const ui: ViewElements = {
+      ...$.ui.resolve(e),
+      theme: themeOf(options.theme, await read($, claudeCodeThemeAtom)),
     }
-    const view = await read($, viewAtom)
-    const baseRef = await read($, baseRefAtom)
-    const commits = await read($, commitsAtom)
-    const selectedCommitSha = await read($, selectedCommitShaAtom)
-    const files = await read($, filesAtom)
-    const selectedFilePath = await read($, selectedFilePathAtom)
-    const diffRows = await read($, diffRowsAtom)
-    const loadError = await read($, loadErrorAtom)
-    const threads = (await read($, threadsAtom)).map(normalizeThread)
-    const anchorWithOpenInput = await read($, anchorWithOpenInputAtom)
-    const armedQuestion = await read($, armedQuestionAtom)
-    const questionFieldNumber = await read($, questionFieldNumberAtom)
-    // Escape or a click outside gives the keyboard back to the prompt: an empty question that had the keyboard then
-    // stops being drawn. One just opened by a click while the prompt still held the keyboard stays.
-    const isQuestionShown =
-      e.props.isFocused ||
-      !(await read($, hasQuestionHadKeyboardAtom)) ||
-      (await read($, questionDraftAtom)).trim() !== ''
-    const isTwoColumns = e.props.bodyColumns >= TWO_COLUMNS_MIN_WIDTH
-    const fileListWidth = clampFileListWidth(await read($, fileListWidthAtom), e.props.bodyColumns)
-    const drawnRows = diffRows.slice(0, MAX_DRAWN_DIFF_ROWS)
-    const selectedFile = files.find(file => file.path === selectedFilePath)
-    const pullRequest = view === 'pr' ? await read($, pullRequestAtom) : null
-    const viewedStateByPath = pullRequest ? await read($, viewedStateByPathAtom) : {}
-    const navigationHotkeys = NAVIGATION_HOTKEYS[await read($, keyboardLayoutAtom)]
-    // A one-letter shortcut would fire on the letters typed into a question or a reply: none is bound meanwhile.
-    const focusedElementKey = (await read($, focusedElementKeyAtom)) ?? ''
-    const isTyping =
-      focusedElementKey.startsWith(QUESTION_INPUT_KEY_PREFIX) || focusedElementKey.startsWith(REPLY_INPUT_KEY_PREFIX)
-    const hotkeyUnlessTyping = (hotkey: string) => (isTyping ? undefined : hotkey)
-    const viewedCount = countViewedFiles(files.map(file => file.path), viewedStateByPath)
-    const isOverviewShown = pullRequest !== null && (await read($, isOverviewShownAtom))
-    const overviewBlocks = isOverviewShown ? splitMarkdownBlocks(pullRequest?.overviewMarkdown ?? '') : []
-
-    const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 40
-    const selectedCommitIndex = Math.max(0, commits.findIndex(commit => commit.sha === selectedCommitSha))
-    const firstShownCommitIndex = clampOffset(selectedCommitIndex - 2, commits.length, COMMIT_PANEL_MAX_COMMITS)
-    const shownCommits = commits.slice(firstShownCommitIndex, firstShownCommitIndex + COMMIT_PANEL_MAX_COMMITS)
-    const commitPanelRows = view === 'commits' ? 2 + 1 + Math.max(1, shownCommits.length) + 1 : 0
-    const tabsRows = 3
-    const panelsTop = tabsRows + (loadError ? 1 : 0) + commitPanelRows
-    const panelsHeight = Math.max(8, bodyRows - panelsTop)
-
-    type FileLine =
-      | { kind: 'overview' }
-      | { kind: 'spacer' }
-      | { kind: 'directory'; directory: string }
-      | { kind: 'file'; file: ChangedFile }
-    const fileLines: FileLine[] = [
-      ...(pullRequest ? [{ kind: 'overview' as const }] : []),
-      ...groupFilesByDirectory(files).flatMap(group => [
-      { kind: 'spacer' as const },
-      { kind: 'directory' as const, directory: group.directory },
-        ...group.files.map(file => ({ kind: 'file' as const, file })),
-      ]),
-    ]
-    const markedPaths = view === 'uncommitted' ? await read($, markedPathsAtom) : []
-    const hasUntrackedFiles = view === 'uncommitted' && files.some(file => file.isUntracked)
-    const hasStageActions = view === 'uncommitted' && files.length > 0
-    const fileListChromeRows = 2 + 1 + 2 + (hasStageActions ? 1 : 0)
-    const fileListBoxHeight = isTwoColumns
-      ? panelsHeight
-      : Math.min(fileLines.length + fileListChromeRows, Math.max(fileListChromeRows + 3, Math.floor(panelsHeight / 3)))
-    const visibleFileLines = Math.max(1, fileListBoxHeight - fileListChromeRows)
-    const fileListOffset = clampOffset(await read($, fileListOffsetAtom), fileLines.length, visibleFileLines)
-    const shownFileLines = fileLines.slice(fileListOffset, fileListOffset + visibleFileLines)
-
-    const diffBoxHeight = isTwoColumns ? panelsHeight : Math.max(4, panelsHeight - fileListBoxHeight)
-    const visibleDiffRows = Math.max(1, diffBoxHeight - 2 - 1)
-    // The overview scrolls by block, each one or several rows tall; the diff by row.
-    const scrolledRowCount = isOverviewShown ? overviewBlocks.length : drawnRows.length
-    // A thread, an open question or an armed one under the last rows would stay cut off at the bottom: the diff may
-    // then scroll past its end, until its last row reaches the top.
-    const fileAnchorPrefix = selectedFilePath ? `${view}|${selectedCommitSha ?? ''}|${selectedFilePath}|` : '\u0000'
-    const hasInlineContentInFile =
-      threads.some(thread => thread.anchorKey.startsWith(fileAnchorPrefix)) ||
-      (anchorWithOpenInput ?? '').startsWith(fileAnchorPrefix) ||
-      (armedQuestion?.anchorKey ?? '').startsWith(fileAnchorPrefix)
-    const isScrollingPastEnd = isOverviewShown || hasInlineContentInFile
-    const diffOffset = clampOffset(await read($, diffOffsetAtom), scrolledRowCount, isScrollingPastEnd ? 1 : visibleDiffRows)
-    const shownDiffRows = drawnRows.slice(diffOffset, diffOffset + visibleDiffRows)
-
-    Object.assign(paneLayout, {
-      isTwoColumns,
-      panelsTop,
-      fileListBoxHeight,
-      fileListWidth,
+    if (e.props.bodyColumns < MIN_PANE_COLUMNS) {
+      return renderNarrowPane(ui, e.props.bodyColumns)
+    }
+    const model = buildPaneModel(
+      await readExplorerSnapshot($, options),
+      {
+        bodyRows: e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 40,
+        bodyColumns: e.props.bodyColumns,
+        isPaneFocused: e.props.isFocused,
+      },
+      explorerActions($),
+    )
+    Object.assign(lastDrawnLayout, {
+      isTwoColumns: model.geometry.isTwoColumns,
+      panelsTop: model.geometry.panelsTop,
       bodyColumns: e.props.bodyColumns,
-      visibleFileLines,
-      fileLineCount: fileLines.length,
-      fileLineIndexByPath: Object.fromEntries(
-        fileLines.flatMap((fileLine, index) => (fileLine.kind === 'file' ? [[fileLine.file.path, index]] : [])),
-      ),
-      visibleDiffRows,
-      diffRowCount: scrolledRowCount,
-      isOverviewShown,
-      isScrollingPastEnd,
+      fileListWidth: model.geometry.fileListWidth,
+      fileListBoxHeight: model.geometry.fileListBoxHeight,
+      visibleFileLines: model.geometry.visibleFileLines,
+      fileLineCount: model.fileLineCount,
+      fileLineIndexByPath: model.fileLineIndexByPath,
+      visibleDiffRows: model.geometry.visibleDiffRows,
+      scrolledRowCount: model.scrolledRowCount,
+      isOverviewShown: model.isOverviewShown,
+      isSplitView: model.isSplitView,
+      cursorRowIndex: model.cursorRowIndex,
+      isScrollingPastEnd: model.isScrollingPastEnd,
     })
 
-    const tabs = (
-      <Box flexDirection="row" alignItems="center">
-        {(['uncommitted', 'pr', 'commits'] as const).map(candidateView => {
-          const isActive = candidateView === view
-          return (
-            <Box
-              key={`tab-${candidateView}`}
-              flexShrink={0}
-              borderStyle="round"
-              borderColor={isActive ? THEME.accent : THEME.border}
-              backgroundColor={isActive ? THEME.activeTabBackground : undefined}
-              paddingX={1}
-              marginRight={1}
-            >
-              <Button
-                key={`view-${candidateView}`}
-                plain
-                hotkey={hotkeyUnlessTyping(VIEW_HOTKEYS[candidateView])}
-                label={VIEW_LABELS[candidateView]}
-                onPress={() => switchView($, candidateView)}
-              />
-            </Box>
-          )
-        })}
-        <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden" height={1} marginLeft={1}>
-          <Text color={THEME.muted} wrap="truncate-start">
-            {(await read($, isLoadingAtom)) ? 'loading…  ' : ''}
-            {(await read($, repositoryRootAtom)) ?? ''}
-            {view !== 'uncommitted' && baseRef ? `  ·  base ${baseRef.slice(0, 10)}` : ''}
-          </Text>
-        </Box>
-        {pullRequest && (
-          <Box marginLeft={1} flexShrink={0}>
-            <Text color={THEME.accent} bold>
-              PR #{pullRequest.number}
-            </Text>
-            <Text color={viewedCount.viewed === viewedCount.total ? THEME.added : THEME.muted}>
-              {'  '}viewed {viewedCount.viewed}/{viewedCount.total}
-            </Text>
-          </Box>
-        )}
-        <Box borderStyle="round" borderColor={THEME.border} paddingX={1} marginLeft={1} flexShrink={0}>
-          <Button key="refresh" plain label="refresh" onPress={() => refreshExplorer($)} />
-        </Box>
-        <Box borderStyle="round" borderColor={THEME.border} paddingX={1} marginLeft={1} flexShrink={0}>
-          <Button key="close" plain label="close" onPress={() => $.ui.close({ id: PANE_ID })} />
-        </Box>
-      </Box>
-    )
-
-    const commitPanel =
-      view === 'commits' ? (
-        <Box flexDirection="column" borderStyle="round" borderColor={THEME.border} paddingX={1} marginBottom={1}>
-          <Text bold color={THEME.heading}>
-            Branch commits <Text color={THEME.muted}>{commits.length}</Text>
-          </Text>
-          {commits.length === 0 && <Text color={THEME.muted}>No commit since the base.</Text>}
-          {shownCommits.map(commit => {
-            const isSelected = commit.sha === selectedCommitSha
-            return (
-              <Box flexDirection="row" backgroundColor={isSelected ? THEME.selectedBackground : undefined}>
-                <Text color={isSelected ? THEME.accent : THEME.muted}>{isSelected ? '▌' : ' '}</Text>
-                <Text color={THEME.commitSha}>{commit.shortSha} </Text>
-                <Button key={`commit-${commit.sha}`} plain label={commit.subject} onPress={() => selectCommit($, commit.sha)} />
-                <Text color={THEME.muted}>
-                  {'  '}
-                  {commit.author}, {commit.relativeDate}
-                </Text>
-              </Box>
-            )
-          })}
-        </Box>
-      ) : null
-
-    const renderThreadsAndQuestion = (anchorKey: string, findTarget: () => Promise<QuestionTarget | null>) => (
-      <Box flexDirection="column" flexShrink={0}>
-        {threads.filter(thread => thread.anchorKey === anchorKey).map(thread => (
-          <Box flexDirection="column" flexShrink={0} marginLeft={16} marginY={1} borderStyle="round" borderColor={THEME.accent} paddingX={1}>
-            <Box flexDirection="row" justifyContent="flex-end">
-              <Button
-                key={`${DISMISS_THREAD_KEY_PREFIX}${thread.id}`}
-                label="× close"
-                onPress={() => dismissThread($, thread.id)}
-              />
-            </Box>
-            {thread.exchanges.map((exchange, exchangeIndex) => (
-              <Box flexDirection="column" flexShrink={0} marginTop={exchangeIndex === 0 ? 0 : 1}>
-                <Text color={THEME.accent} bold>
-                  {'> '}
-                  {exchange.question}
-                </Text>
-                {exchange.answer === '' ? (
-                  <Text color={THEME.muted}>{exchange.status === 'queued' ? 'queued…' : 'Claude is thinking…'}</Text>
-                ) : (
-                  <Markdown text={exchange.answer} />
-                )}
-              </Box>
-            ))}
-            {thread.isContextCleared && (
-              <Text color={THEME.muted}>Conversation cleared since: a reply sends this thread again.</Text>
-            )}
-            {thread.exchanges[thread.exchanges.length - 1]?.status === 'done' && (
-              <Box flexDirection="row" flexShrink={0} marginTop={1}>
-                <Text color={THEME.muted}>↳ </Text>
-                <Box flexGrow={1}>
-                  <Input
-                    key={`${REPLY_INPUT_KEY_PREFIX}${thread.id}`}
-                    placeholder="reply…"
-                    onSubmit={value => replyInThread($, thread.id, value)}
-                  />
-                </Box>
-                <Box flexShrink={0} marginLeft={1}>
-                  <Button
-                    key={`dictate-reply-${thread.id}`}
-                    variant="primary"
-                    label="↓ dictate in prompt"
-                    onPress={() => armReplyForPrompt($, thread.id)}
-                  />
-                </Box>
-              </Box>
-            )}
-          </Box>
-        ))}
-        {anchorWithOpenInput === anchorKey && isQuestionShown && (
-          <Box flexDirection="row" flexShrink={0} marginLeft={16} marginY={1} borderStyle="round" borderColor={THEME.accent} paddingX={1}>
-            <Box flexGrow={1}>
-              <Input
-                key={`${QUESTION_INPUT_KEY_PREFIX}${questionFieldNumber}`}
-                autoFocus
-                onInput={value => update($, questionDraftAtom, () => value)}
-                placeholder="Type your question, Enter to send (or ↓ to dictate it in the prompt)"
-                onSubmit={value => askFromPane($, anchorKey, findTarget, value)}
-              />
-            </Box>
-            <Box marginLeft={1}>
-              <Button
-                key="ask-from-prompt"
-                variant="primary"
-                label="↓ dictate in prompt"
-                onPress={() => armQuestionForPrompt($, anchorKey, findTarget)}
-              />
-            </Box>
-            <Button key={CANCEL_QUESTION_KEY} label="× cancel" onPress={() => closeQuestion($)} />
-          </Box>
-        )}
-        {armedQuestion?.anchorKey === anchorKey && (
-          <Box flexDirection="row" flexShrink={0} marginLeft={16} marginY={1} borderStyle="round" borderColor={THEME.commitSha} paddingX={1}>
-            <Box flexGrow={1}>
-              <Text color={THEME.commitSha}>
-                Ask from the prompt below: click it, then type or hold Space to dictate, Enter to send.
-              </Text>
-            </Box>
-            <Button key="disarm-question" label="× cancel" onPress={() => update($, armedQuestionAtom, () => null)} />
-          </Box>
-        )}
-      </Box>
-    )
-
-    const filePanel = (
-      <Box
-        flexDirection="column"
-        width={isTwoColumns ? fileListWidth : undefined}
-        height={fileListBoxHeight}
-        overflow="hidden"
-        borderStyle="round"
-        borderColor={THEME.border}
-        paddingX={1}
-        marginRight={0}
-      >
-        <Box flexDirection="row">
-          <Box flexGrow={1}>
-            <Text bold color={THEME.heading}>
-              Files <Text color={THEME.muted}>{files.length}</Text>
-            </Text>
-          </Box>
-          <Text color={THEME.muted}>
-            {fileListOffset > 0 ? '▲' : ' '}
-            {fileListOffset + visibleFileLines < fileLines.length ? '▼' : ' '}
-          </Text>
-        </Box>
-        <Box flexDirection="column" height={visibleFileLines} overflow="hidden">
-          {files.length === 0 && <Text color={THEME.muted}>Nothing to review in this view.</Text>}
-          {shownFileLines.map(fileLine => {
-            if (fileLine.kind === 'overview') {
-              return (
-                <Box flexDirection="row" height={1} backgroundColor={isOverviewShown ? THEME.selectedBackground : undefined}>
-                  <Box width={2} flexShrink={0}>
-                    <Text color={isOverviewShown ? THEME.accent : THEME.muted}>{isOverviewShown ? '▌' : ' '}</Text>
-                  </Box>
-                  <Box width={4} flexShrink={0}>
-                    <Text color={THEME.accent} bold>
-                      ☰
-                    </Text>
-                  </Box>
-                  <Box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
-                    <Button key="pr-overview" plain label="Overview" onPress={() => showOverview($)} />
-                  </Box>
-                  <Box flexShrink={0} marginLeft={1}>
-                    <Text>
-                      <Text color={THEME.added}>+{pullRequest?.additions ?? 0}</Text>{' '}
-                      <Text color={THEME.removed}>-{pullRequest?.deletions ?? 0}</Text>
-                    </Text>
-                  </Box>
-                </Box>
-              )
-            }
-            if (fileLine.kind === 'spacer') {
-              return <Text> </Text>
-            }
-            if (fileLine.kind === 'directory') {
-              return (
-                <Text color={THEME.directory} wrap="truncate-start">
-                  ▾ {fileLine.directory === '' ? './' : `${fileLine.directory}/`}
-                </Text>
-              )
-            }
-            const file = fileLine.file
-            const isSelected = !isOverviewShown && file.path === selectedFilePath
-            const typeBadge = fileTypeBadgeOf(file.path)
-            return (
-              <Box flexDirection="row" height={1} backgroundColor={isSelected ? THEME.selectedBackground : undefined}>
-                <Box width={2} flexShrink={0}>
-                  <Text color={isSelected ? THEME.accent : THEME.muted}>{isSelected ? '▌' : ' '}</Text>
-                </Box>
-                {hasUntrackedFiles && (
-                  <Box width={6} flexShrink={0}>
-                    {file.isUntracked ? (
-                      <Button
-                        key={`mark-${file.path}`}
-                        label={markedPaths.includes(file.path) ? 'x' : ' '}
-                        onPress={() => toggleMarkedPath($, file.path)}
-                      />
-                    ) : (
-                      <Text color={THEME.muted}>  ·</Text>
-                    )}
-                  </Box>
-                )}
-                {pullRequest && (
-                  <Box key={`viewed-box-${file.path}`} width={6} flexShrink={0}>
-                    {viewedStateByPath[file.path] ? (
-                      <Button
-                        key={`viewed-${file.path}`}
-                        plain
-                        hover={{ color: THEME.accent, bold: true }}
-                        label={VIEWED_MARKS[viewedStateByPath[file.path] ?? 'UNVIEWED']}
-                        onPress={() => toggleViewed($, file.path)}
-                      />
-                    ) : (
-                      <Text color={THEME.muted}>  ·</Text>
-                    )}
-                  </Box>
-                )}
-                <Box width={4} flexShrink={0}>
-                  <Text color={typeBadge.color} bold>
-                    {typeBadge.badge}
-                  </Text>
-                </Box>
-                <Box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
-                  <Button
-                    key={`file-${file.path}`}
-                    plain
-                    dimColor={viewedStateByPath[file.path] === 'VIEWED'}
-                    label={fileNameOf(file.path)}
-                    onPress={() => selectFile($, file.path)}
-                  />
-                </Box>
-                <Box flexShrink={0} marginLeft={1}>
-                  {renderFileStats(Text, file)}
-                </Box>
-              </Box>
-            )
-          })}
-        </Box>
-        <Box flexDirection="row" marginTop={1} height={1} overflow="hidden">
-          {renderNavigationHint({ Box, Button }, '↑', navigationHotkeys.previousFile, () => selectAdjacentFile($, -1), isTyping)}
-          {renderNavigationHint({ Box, Button }, '↓', navigationHotkeys.nextFile, () => selectAdjacentFile($, 1), isTyping)}
-          {renderNavigationHint({ Box, Button }, '←', navigationHotkeys.previousView, () => switchAdjacentView($, -1), isTyping)}
-          {renderNavigationHint({ Box, Button }, '→', navigationHotkeys.nextView, () => switchAdjacentView($, 1), isTyping)}
-        </Box>
-        {hasStageActions && (
-          <Box flexDirection="row" height={1} overflow="hidden">
-            {hasUntrackedFiles && (
-              <Box flexDirection="row">
-                <Box marginRight={2}>
-                  <Button key="mark-current" plain hotkey={hotkeyUnlessTyping('v')} label="mark" onPress={() => toggleCurrentFileMark($)} />
-                </Box>
-                <Box marginRight={2}>
-                  <Button key="mark-all" plain hotkey={hotkeyUnlessTyping('n')} label="all new" onPress={() => markAllUntrackedFiles($)} />
-                </Box>
-                <Box marginRight={2}>
-                  <Button
-                    key="stage"
-                    plain
-                    hotkey={hotkeyUnlessTyping('g')}
-                    label={`git add${markedPaths.length > 0 ? ` (${markedPaths.length})` : ''}`}
-                    onPress={() => stageMarkedFiles($)}
-                  />
-                </Box>
-              </Box>
-            )}
-            <Button key="stage-all" plain hotkey={hotkeyUnlessTyping('e')} label="add all" onPress={() => stageAllChanges($)} />
-          </Box>
-        )}
-      </Box>
-    )
-
-    const diffPanel = (
-      <Box flexDirection="column" flexGrow={1} height={diffBoxHeight} overflow="hidden" borderStyle="round" borderColor={THEME.border}>
-        {isOverviewShown && pullRequest ? (
-          <Box flexDirection="column">
-            <Box flexDirection="row" flexShrink={0} backgroundColor={THEME.fileHeaderBackground} paddingX={1}>
-              <Box flexGrow={1}>
-                <Text bold color={THEME.heading} wrap="truncate-end">
-                  {pullRequest.overviewHeadline}
-                </Text>
-              </Box>
-              {overviewBlocks.length > 1 && (
-                <Text color={THEME.muted}>
-                  {diffOffset + 1}–{overviewBlocks.length}
-                  {'   '}
-                </Text>
-              )}
-              <Text>
-                <Text color={THEME.added}>+{pullRequest.additions}</Text>{' '}
-                <Text color={THEME.removed}>-{pullRequest.deletions}</Text>
-                <Text color={THEME.muted}>
-                  {'  ·  '}
-                  {pullRequest.changedFiles} file{pullRequest.changedFiles > 1 ? 's' : ''}
-                </Text>
-              </Text>
-            </Box>
-            <Box flexDirection="column">
-              {overviewBlocks.slice(diffOffset, diffOffset + visibleDiffRows).map((block, shownBlockIndex) => {
-                const blockIndex = diffOffset + shownBlockIndex
-                const anchorKey = `overview|${pullRequest.number}|${blockIndex}|${block.slice(0, 40)}`
-                return (
-                  <Box key={`block-${blockIndex}`} flexDirection="column" flexShrink={0} marginBottom={1}>
-                    <Box flexDirection="row">
-                      <Box width={4} flexShrink={0}>
-                        <Box display="none" hover={{ display: 'flex' }}>
-                          <Button
-                            key={`${ASK_BUTTON_KEY_PREFIX}overview-${blockIndex}`}
-                            plain
-                            label="[+]"
-                            onPress={() => openQuestion($, anchorKey)}
-                          />
-                        </Box>
-                      </Box>
-                      <Box flexGrow={1} flexShrink={1} flexDirection="column">
-                        <Markdown text={block} />
-                      </Box>
-                    </Box>
-                    {renderThreadsAndQuestion(anchorKey, () => overviewQuestionTarget($, blockIndex))}
-                  </Box>
-                )
-              })}
-            </Box>
-          </Box>
-        ) : selectedFile ? (
-          <Box flexDirection="row" flexShrink={0} backgroundColor={THEME.fileHeaderBackground} paddingX={1}>
-            <Box width={4} flexShrink={0}>
-              <Text color={fileTypeBadgeOf(selectedFile.path).color} bold>
-                {fileTypeBadgeOf(selectedFile.path).badge}
-              </Text>
-            </Box>
-            <Box flexGrow={1}>
-              <Text bold color={THEME.heading} wrap="truncate-start">
-                {selectedFile.path}
-              </Text>
-            </Box>
-            {drawnRows.length > visibleDiffRows && (
-              <Text color={THEME.muted}>
-                {diffOffset + 1}–{Math.min(diffOffset + visibleDiffRows, drawnRows.length)} / {drawnRows.length}
-                {'   '}
-              </Text>
-            )}
-            {renderFileStats(Text, selectedFile)}
-          </Box>
-        ) : (
-          <Box paddingX={1}>
-            <Text color={THEME.muted}>Pick a file on the left.</Text>
-          </Box>
-        )}
-        {!isOverviewShown && selectedFile && diffRows.length === 0 && (
-          <Box paddingX={1}>
-            <Text color={THEME.muted}>No textual change in this file.</Text>
-          </Box>
-        )}
-        {(isOverviewShown ? [] : shownDiffRows).map((row, shownRowIndex) => {
-          const rowIndex = diffOffset + shownRowIndex
-          const anchorKey = selectedFilePath ? anchorKeyOf(view, selectedCommitSha, selectedFilePath, row) : ''
-          if (row.kind === 'hunk') {
-            return (
-              <Box backgroundColor={THEME.hunkBackground} paddingX={1} flexShrink={0}>
-                <Text color={THEME.hunk}>
-                  {'@@ '}
-                  {row.text}
-                </Text>
-              </Box>
-            )
-          }
-          return (
-            <Box key={`row-${rowIndex}`} flexDirection="column" flexShrink={0}>
-              <Box flexDirection="row" alignItems="flex-start" backgroundColor={ROW_BACKGROUNDS[row.kind]}>
-                <Box width={4} height={1} flexShrink={0}>
-                  <Box display="none" hover={{ display: 'flex' }}>
-                    <Button
-                      key={`${ASK_BUTTON_KEY_PREFIX}${rowIndex}`}
-                      plain
-                      label="[+]"
-                      onPress={() => openQuestion($, anchorKey)}
-                    />
-                  </Box>
-                </Box>
-                <Box flexShrink={0} height={1}>
-                  <Button
-                    key={`${LINE_NUMBER_BUTTON_KEY_PREFIX}${rowIndex}`}
-                    plain
-                    dimColor
-                    hover={{ color: THEME.accent, bold: true }}
-                    label={`${String(row.oldNumber ?? '').padStart(5)}${String(row.newNumber ?? '').padStart(5)}`}
-                    onPress={() => openQuestion($, anchorKey)}
-                  />
-                </Box>
-                <Box flexShrink={0} height={1}>
-                  <Text color={ROW_COLORS[row.kind]}> {ROW_MARKS[row.kind]} </Text>
-                </Box>
-                <Box flexGrow={1} flexShrink={1} minWidth={0} flexDirection="column">
-                  {row.text.trim() === '' ? (
-                    <Text> </Text>
-                  ) : (
-                    <Code source={row.text} path={selectedFilePath ?? undefined} wrap="wrap" />
-                  )}
-                </Box>
-              </Box>
-              {renderThreadsAndQuestion(anchorKey, () => rowQuestionTarget($, rowIndex))}
-            </Box>
-          )
-        })}
-        {diffRows.length > MAX_DRAWN_DIFF_ROWS && (
-          <Box paddingX={1}>
-            <Text color={THEME.muted}>… {diffRows.length - MAX_DRAWN_DIFF_ROWS} more lines not shown</Text>
-          </Box>
-        )}
-      </Box>
-    )
-
-    return (
-      <Box flexDirection="column" backgroundColor={THEME.paneBackground} height={bodyRows} overflow="hidden">
-        {tabs}
-        {loadError && <Text color={THEME.removed}>{loadError}</Text>}
-        {commitPanel}
-        <Box flexDirection={isTwoColumns ? 'row' : 'column'} height={panelsHeight}>
-          {filePanel}
-          {isTwoColumns && (
-            <Client
-              key={DIVIDER_KEY}
-              module="./divider.tsx"
-              props={{ rows: panelsHeight, color: THEME.border, draggingColor: THEME.accent }}
-              width={1}
-              height={panelsHeight}
-            />
-          )}
-          {diffPanel}
-        </Box>
-      </Box>
-    )
+    return renderPane(ui, model.paneInput)
   })
 }

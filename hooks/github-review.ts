@@ -1,4 +1,6 @@
-import type { PullRequestSummary, ViewedState } from '../types'
+import type { DiffRow, GitHubComment, GitHubReviewThread, PullRequestSummary, ViewedState } from '../types'
+import { replaceEmojiShortcodes } from './markdown'
+import { gitHubThreadAnchorKeyOf } from './questions'
 
 export const PULL_REQUEST_FILES_PAGE_SIZE = 100
 
@@ -20,6 +22,96 @@ export const MARK_FILE_AS_VIEWED_MUTATION = `mutation($pullRequestId: ID!, $path
 export const UNMARK_FILE_AS_VIEWED_MUTATION = `mutation($pullRequestId: ID!, $path: String!) {
   unmarkFileAsViewed(input: { pullRequestId: $pullRequestId, path: $path }) { clientMutationId }
 }`
+
+export const REVIEW_THREADS_PAGE_SIZE = 100
+export const COMMENTS_PER_REVIEW_THREAD = 50
+
+export const REVIEW_THREADS_QUERY = `query($pullRequestId: ID!, $cursor: String) {
+  node(id: $pullRequestId) {
+    ... on PullRequest {
+      reviewThreads(first: ${REVIEW_THREADS_PAGE_SIZE}, after: $cursor) {
+        nodes {
+          id isResolved isOutdated path line originalLine diffSide
+          comments(first: ${COMMENTS_PER_REVIEW_THREAD}) { nodes { author { login } body createdAt url } }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}`
+
+export const RESOLVE_REVIEW_THREAD_MUTATION = `mutation($threadId: ID!) {
+  resolveReviewThread(input: { threadId: $threadId }) { thread { isResolved } }
+}`
+
+export const UNRESOLVE_REVIEW_THREAD_MUTATION = `mutation($threadId: ID!) {
+  unresolveReviewThread(input: { threadId: $threadId }) { thread { isResolved } }
+}`
+
+export type ReviewThreadsPage = { threads: GitHubReviewThread[]; nextCursor: string | null }
+
+export function parseReviewThreadsPage(
+  graphqlOutput: string,
+  emojiCharacterByShortcode: Record<string, string> = {},
+): ReviewThreadsPage {
+  const reviewThreads = JSON.parse(graphqlOutput)?.data?.node?.reviewThreads
+  const numberOrNull = (value: unknown) => (typeof value === 'number' ? value : null)
+  const nodesOf = (connection: unknown): Array<Record<string, unknown>> => {
+    const nodes = (connection as { nodes?: unknown } | null)?.nodes
+    return Array.isArray(nodes) ? nodes : []
+  }
+  const threads: GitHubReviewThread[] = nodesOf(reviewThreads).flatMap(node => {
+    if (typeof node.id !== 'string' || typeof node.path !== 'string') {
+      return []
+    }
+    const comments: GitHubComment[] = nodesOf(node.comments).map(comment => ({
+      author: String((comment.author as { login?: unknown } | null)?.login ?? 'ghost'),
+      body: replaceEmojiShortcodes(String(comment.body ?? ''), emojiCharacterByShortcode),
+      createdAt: String(comment.createdAt ?? ''),
+      url: String(comment.url ?? ''),
+    }))
+    const side: GitHubReviewThread['side'] = node.diffSide === 'LEFT' ? 'LEFT' : 'RIGHT'
+
+    return [
+      {
+        id: node.id,
+        path: node.path,
+        side,
+        line: numberOrNull(node.line),
+        originalLine: numberOrNull(node.originalLine),
+        isResolved: node.isResolved === true,
+        isOutdated: node.isOutdated === true,
+        comments,
+      },
+    ]
+  })
+
+  return {
+    threads,
+    nextCursor: reviewThreads?.pageInfo?.hasNextPage ? (reviewThreads.pageInfo.endCursor ?? null) : null,
+  }
+}
+
+// GitHub places a comment on the old side for a removed line and on the new side otherwise; an unchanged line has
+// both numbers, so a comment on either side lands on it.
+export function isGitHubThreadOnRow(thread: GitHubReviewThread, path: string, row: DiffRow): boolean {
+  if (thread.path !== path || thread.line === null || row.kind === 'hunk') {
+    return false
+  }
+
+  return thread.side === 'LEFT'
+    ? row.kind !== 'added' && row.oldNumber === thread.line
+    : row.kind !== 'removed' && row.newNumber === thread.line
+}
+
+// The threads of a file that no line of its diff carries: outdated ones, or lines outside the context shown.
+export function unplacedGitHubThreadsOf(threads: GitHubReviewThread[], path: string, rows: DiffRow[]): GitHubReviewThread[] {
+  return threads.filter(thread => thread.path === path && !rows.some(row => isGitHubThreadOnRow(thread, path, row)))
+}
+
+export function gitHubThreadNavigationEntries(threads: GitHubReviewThread[]): Array<{ id: string; anchorKey: string }> {
+  return threads.map(thread => ({ id: thread.id, anchorKey: gitHubThreadAnchorKeyOf(thread) }))
+}
 
 export type ViewedStatesPage = {
   viewedStateByPath: Record<string, ViewedState>
@@ -65,7 +157,7 @@ export function parsePullRequest(
 }
 
 // GitHub keeps a file viewed until it changes again on the branch; it then reports it as DISMISSED, to be looked at anew.
-export const VIEWED_MARKS: Record<ViewedState, string> = { VIEWED: '[✓]', UNVIEWED: '[ ]', DISMISSED: '[!]' }
+export const VIEWED_MARKS: Record<ViewedState, string> = { VIEWED: ' ✓ ', UNVIEWED: ' ○ ', DISMISSED: ' ! ' }
 
 export function countViewedFiles(paths: string[], viewedStateByPath: Record<string, ViewedState>): { viewed: number; total: number } {
   const pathsInPullRequest = paths.filter(path => viewedStateByPath[path] !== undefined)
@@ -139,64 +231,4 @@ export function buildPullRequestOverview(
   ].join('\n')
 
   return { headline: `#${String(pullRequest.number ?? '?')}  ${withEmoji(String(pullRequest.title ?? ''))}`, markdown }
-}
-
-// GitHub names each emoji image after its code points (`unicode/1f68b.png`, `unicode/1f1eb-1f1f7.png`): that file
-// name gives the character. Emoji GitHub draws as an image of its own (`:octocat:`) have none and keep their code.
-export function parseEmojiCharacters(emojisOutput: string): Record<string, string> {
-  const emojiCharacterByShortcode: Record<string, string> = {}
-  let emojis: unknown
-  try {
-    emojis = JSON.parse(emojisOutput)
-  } catch {
-    return emojiCharacterByShortcode
-  }
-  for (const [shortcode, imageUrl] of Object.entries(typeof emojis === 'object' && emojis !== null ? emojis : {})) {
-    const codePoints = typeof imageUrl === 'string' ? imageUrl.match(/\/unicode\/([0-9a-f-]+)\.png/)?.[1] : undefined
-    if (codePoints) {
-      emojiCharacterByShortcode[shortcode] = String.fromCodePoint(...codePoints.split('-').map(codePoint => parseInt(codePoint, 16)))
-    }
-  }
-
-  return emojiCharacterByShortcode
-}
-
-export function replaceEmojiShortcodes(text: string, emojiCharacterByShortcode: Record<string, string>): string {
-  return text.replace(/:([a-z0-9_+-]+):/g, (shortcode, name: string) => emojiCharacterByShortcode[name] ?? shortcode)
-}
-
-// A paragraph, a list, a fenced code block or a heading each make one block, so a question can point at any of them.
-export function splitMarkdownBlocks(markdown: string): string[] {
-  const blocks: string[] = []
-  let currentLines: string[] = []
-  let isInsideFence = false
-  const closeBlock = () => {
-    if (currentLines.some(line => line.trim() !== '')) {
-      blocks.push(currentLines.join('\n'))
-    }
-    currentLines = []
-  }
-  for (const line of markdown.split('\n')) {
-    if (line.trimStart().startsWith('```')) {
-      isInsideFence = !isInsideFence
-      currentLines.push(line)
-      if (!isInsideFence) {
-        closeBlock()
-      }
-      continue
-    }
-    if (isInsideFence) {
-      currentLines.push(line)
-    } else if (line.trim() === '') {
-      closeBlock()
-    } else if (/^#{1,6} /.test(line)) {
-      closeBlock()
-      blocks.push(line)
-    } else {
-      currentLines.push(line)
-    }
-  }
-  closeBlock()
-
-  return blocks
 }

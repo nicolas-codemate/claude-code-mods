@@ -1,14 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import {
-  buildPullRequestOverview,
-  countViewedFiles,
-  parseEmojiCharacters,
-  parsePullRequest,
-  parseViewedStatesPage,
-  replaceEmojiShortcodes,
-  splitMarkdownBlocks,
-} from './github-review'
+import { buildPullRequestOverview, countViewedFiles, parsePullRequest, parseViewedStatesPage } from './github-review'
+import { parseEmojiCharacters, replaceEmojiShortcodes, splitMarkdownBlocks } from './markdown'
 
 test('a page of PR files gives each path its viewed state and the cursor of the next page', async () => {
   const page = parseViewedStatesPage(

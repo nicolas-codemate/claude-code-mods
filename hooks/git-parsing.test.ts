@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { diffRangeArguments, fileTypeBadgeOf, groupFilesByDirectory, parseCommitLog, parseNumstat, parseUnifiedDiff } from './git-parsing'
+import { fileTypeBadgeOf } from './view/file-badges'
+import { diffRangeArguments, groupFilesByDirectory, commitsOfGraph, parseCommitGraph, parseNumstat, repositoryWebUrlOf, parseUnifiedDiff } from './git-parsing'
 
 test('a unified diff becomes rows numbered on both sides', async () => {
   const rows = parseUnifiedDiff(
@@ -13,14 +14,41 @@ test('a unified diff becomes rows numbered on both sides', async () => {
   expect(rows[4]).toEqual({ kind: 'context', oldNumber: 12, newNumber: 12, text: 'end' })
 })
 
-test('numstat and log lines are read, binary files have no counts', async () => {
-  expect(parseNumstat('3\t1\tsrc/a.php\n-\t-\tlogo.png\n')).toEqual([
+test('numstat lines are read, binary files have no counts', async () => {
+  expect(parseNumstat('3\t1\tsrc/a.php\n-\t-\tlogo.png\n0\t4\told.php\n create mode 100644 logo.png\n delete mode 100644 old.php\n')).toEqual([
     { path: 'src/a.php', addedLines: 3, removedLines: 1, isUntracked: false },
-    { path: 'logo.png', addedLines: null, removedLines: null, isUntracked: false },
+    { path: 'logo.png', addedLines: null, removedLines: null, isUntracked: false, creation: 'created' },
+    { path: 'old.php', addedLines: 0, removedLines: 4, isUntracked: false, creation: 'deleted' },
   ])
-  expect(parseCommitLog('abc123\u001fabc\u001fFix login\u001fSomeone\u001f2 hours ago\n')[0]).toEqual({
-    sha: 'abc123', shortSha: 'abc', subject: 'Fix login', author: 'Someone', relativeDate: '2 hours ago',
+})
+
+test('a graph log gives its commits with their lanes and refs, the base commit apart', async () => {
+  const fields = (sha: string, subject: string, decoration: string) =>
+    [sha, sha.slice(0, 3), subject, 'Someone', '2 hours ago', decoration].join('\u001f')
+  const graph = parseCommitGraph(
+    [
+      `*   ${fields('m1m1', 'Merge main', 'HEAD -> feat/login, origin/feat/login')}`,
+      '|\\  ',
+      `| * ${fields('b2b2', 'Fix main', '')}`,
+      `* | ${fields('a1a1', 'Fix login', 'tag: v1.2')}`,
+      '|/  ',
+      `o ${fields('base', 'Release', 'origin/main')}`,
+    ].join('\n'),
+  )
+  expect(graph.map(line => line.graph)).toEqual(['*', '|\\', '| *', '* |', '|/', 'o'])
+  expect(graph[0]?.commit).toEqual({
+    sha: 'm1m1', shortSha: 'm1m', subject: 'Merge main', author: 'Someone', relativeDate: '2 hours ago', refs: ['feat/login', 'origin/feat/login'],
   })
+  expect(graph[3]?.commit?.refs).toEqual(['tag: v1.2'])
+  expect(graph[5]?.isBoundary).toBe(true)
+  expect(commitsOfGraph(graph).map(commit => commit.sha)).toEqual(['m1m1', 'b2b2', 'a1a1'])
+})
+
+test('a remote gives the web page of its repository', async () => {
+  expect(repositoryWebUrlOf('git@github.com:acme/shop.git\n')).toBe('https://github.com/acme/shop')
+  expect(repositoryWebUrlOf('https://github.com/acme/shop.git')).toBe('https://github.com/acme/shop')
+  expect(repositoryWebUrlOf('https://token@github.com/acme/shop')).toBe('https://github.com/acme/shop')
+  expect(repositoryWebUrlOf('/srv/git/shop.git')).toBe(null)
 })
 
 test('each view compares what it should', async () => {

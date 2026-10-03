@@ -2,5 +2,153 @@
   "name": "diff-review",
   "version": "0.1.0",
   "description": "Review explorer: uncommitted changes, the whole PR or one commit at a time, with a [+] on any diff line to ask Claude about it and the answer drawn under the line",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "theme": {
+      "type": "string",
+      "title": "Theme",
+      "description": "Colors of the review pane: auto follows the Claude Code theme.",
+      "options": [
+        "auto",
+        "dark",
+        "light"
+      ],
+      "default": "auto"
+    },
+    "key_uncommitted_view": {
+      "type": "string",
+      "title": "Key: Uncommitted changes",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: 1."
+    },
+    "key_pr_view": {
+      "type": "string",
+      "title": "Key: Pull request",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: 2."
+    },
+    "key_commits_view": {
+      "type": "string",
+      "title": "Key: Commits",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: 3."
+    },
+    "key_previous_view": {
+      "type": "string",
+      "title": "Key: Previous view",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: q on AZERTY, a on QWERTY."
+    },
+    "key_next_view": {
+      "type": "string",
+      "title": "Key: Next view",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: d."
+    },
+    "key_previous_file": {
+      "type": "string",
+      "title": "Key: Previous file",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: z on AZERTY, w on QWERTY."
+    },
+    "key_next_file": {
+      "type": "string",
+      "title": "Key: Next file",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: s."
+    },
+    "key_mark_viewed": {
+      "type": "string",
+      "title": "Key: Mark viewed on GitHub, go to the next unviewed",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: y."
+    },
+    "key_filter_files": {
+      "type": "string",
+      "title": "Key: Filter the files (Enter goes back to the diff)",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: i."
+    },
+    "key_previous_line": {
+      "type": "string",
+      "title": "Key: Line above",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: k."
+    },
+    "key_next_line": {
+      "type": "string",
+      "title": "Key: Line below",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: j."
+    },
+    "key_previous_hunk": {
+      "type": "string",
+      "title": "Key: Previous hunk (@@ block)",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: b."
+    },
+    "key_next_hunk": {
+      "type": "string",
+      "title": "Key: Next hunk (@@ block)",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: f."
+    },
+    "key_more_context": {
+      "type": "string",
+      "title": "Key: More context around the changes",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: u."
+    },
+    "key_whole_file": {
+      "type": "string",
+      "title": "Key: The whole file, changes in place",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: l."
+    },
+    "key_split_view": {
+      "type": "string",
+      "title": "Key: Side by side or unified (wide diff)",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: t."
+    },
+    "key_ask_on_line": {
+      "type": "string",
+      "title": "Key: Ask Claude about the line (Enter too)",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: c."
+    },
+    "key_reply_on_line": {
+      "type": "string",
+      "title": "Key: Reply in the thread of the line",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: r."
+    },
+    "key_previous_thread": {
+      "type": "string",
+      "title": "Key: Previous thread",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: p."
+    },
+    "key_next_thread": {
+      "type": "string",
+      "title": "Key: Next thread",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: n."
+    },
+    "key_resolve_thread": {
+      "type": "string",
+      "title": "Key: Resolve or unresolve the GitHub thread",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: x."
+    },
+    "key_open_on_github": {
+      "type": "string",
+      "title": "Key: Open the comment, commit or PR on GitHub",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: o."
+    },
+    "key_mark_file": {
+      "type": "string",
+      "title": "Key: Mark the new file",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: v."
+    },
+    "key_mark_all_new": {
+      "type": "string",
+      "title": "Key: Mark every new file",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: m."
+    },
+    "key_stage_marked": {
+      "type": "string",
+      "title": "Key: git add the marked files",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: g."
+    },
+    "key_stage_all": {
+      "type": "string",
+      "title": "Key: git add everything",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: e."
+    },
+    "key_help": {
+      "type": "string",
+      "title": "Key: This help",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: h."
+    }
+  }
 }
