@@ -4,6 +4,8 @@ import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 import type { ChangedFile, DiffRow, GitHubReviewThread, KeyboardLayout, ReviewView, ViewedState } from '../types'
 import {
   ASK_BUTTON_KEY_PREFIX,
+  ASK_ON_LINE_KEY,
+  CURSOR_LINE_FOCUS_KEY,
   BASE_REF_CANDIDATES,
   CANCEL_QUESTION_KEY,
   CONTEXT_RADIUS_ROWS,
@@ -508,12 +510,7 @@ async function widenContext($: EngineInterface, path: string, contextLines: (cur
     ? diffRows.findIndex(row => row.kind === cursorRow.kind && row.oldNumber === cursorRow.oldNumber && row.newNumber === cursorRow.newNumber)
     : -1
   await update($, cursorRowIndexAtom, () => (cursorRowIndex === -1 ? null : cursorRowIndex))
-  // The button that held the keyboard was redrawn under another key: the keyboard follows the cursor's line.
-  if (cursorRowIndex === -1) {
-    await focusFirstChange($)
-  } else {
-    focusAfterNextDrawing($, `${LINE_NUMBER_BUTTON_KEY_PREFIX}${cursorRowIndex}`)
-  }
+  await focusFirstChange($)
 }
 
 async function loadView($: EngineInterface): Promise<void> {
@@ -603,7 +600,8 @@ async function selectFile($: EngineInterface, path: string, focus: 'first-change
   }
 }
 
-// With the keyboard on the cursor line's own button, Enter asks about it: a new file puts it on its first change.
+// With the keyboard on the cursor's hidden button, Enter asks about the cursor's line: a new file puts the cursor on
+// its first change.
 // The PR overview has no line: the keyboard then goes to the entry selected in the file list.
 async function focusFirstChange($: EngineInterface): Promise<void> {
   const diffRows = await read($, diffRowsAtom)
@@ -615,7 +613,7 @@ async function focusFirstChange($: EngineInterface): Promise<void> {
   const selectedFilePath = await read($, selectedFilePathAtom)
   const key =
     rowIndex !== null
-      ? `${LINE_NUMBER_BUTTON_KEY_PREFIX}${rowIndex}`
+      ? CURSOR_LINE_FOCUS_KEY
       : isOverviewDrawn || selectedFilePath === null
         ? PULL_REQUEST_OVERVIEW_KEY
         : `${FILE_BUTTON_KEY_PREFIX}${selectedFilePath}`
@@ -837,9 +835,8 @@ async function takeKeyboardBackToCursor($: EngineInterface): Promise<void> {
   if ((await read($, requestedPaneColumnsAtom)) > 0) {
     await $.ui.open(await paneOpenArguments($)).catch(() => undefined)
   }
-  const cursorRowIndex = lastDrawnLayout.cursorRowIndex
-  if (cursorRowIndex !== null) {
-    focusAfterNextDrawing($, `${LINE_NUMBER_BUTTON_KEY_PREFIX}${cursorRowIndex}`)
+  if (lastDrawnLayout.cursorRowIndex !== null) {
+    focusAfterNextDrawing($, CURSOR_LINE_FOCUS_KEY)
   }
 }
 
@@ -953,7 +950,7 @@ async function moveThread($: EngineInterface, offset: number): Promise<void> {
     await update($, cursorRowIndexAtom, () => rowIndex)
   }
   if (rowIndex !== -1) {
-    focusAfterNextDrawing($, `${LINE_NUMBER_BUTTON_KEY_PREFIX}${rowIndex}`)
+    focusAfterNextDrawing($, CURSOR_LINE_FOCUS_KEY)
   }
 }
 
@@ -1008,8 +1005,7 @@ async function moveCursor($: EngineInterface, move: CursorMove): Promise<void> {
   const target = move(stops, diffRows)(cursorRowIndex, isInView)
   await update($, cursorRowIndexAtom, () => target)
   await update($, diffOffsetAtom, offset => offsetShowingCursor(drawnIndexOf(target), offset, lastDrawnLayout.visibleDiffRows))
-  // With the keyboard on the line's own button, Enter asks about it.
-  focusAfterNextDrawing($, `${LINE_NUMBER_BUTTON_KEY_PREFIX}${target}`)
+  focusAfterNextDrawing($, CURSOR_LINE_FOCUS_KEY)
 }
 
 async function cursorAnchorKey($: EngineInterface): Promise<string | null> {
@@ -1324,7 +1320,11 @@ export const register: Register = (on, options) => {
 
   on('ui.focus', { component: 'Pane', requestId: PANE_ID }, async ($, e, next) => {
     const element = e.element ?? ''
-    const isLineButton = element.startsWith(ASK_BUTTON_KEY_PREFIX) || element.startsWith(LINE_NUMBER_BUTTON_KEY_PREFIX)
+    const isLineButton =
+      element === ASK_ON_LINE_KEY ||
+      element === CURSOR_LINE_FOCUS_KEY ||
+      element.startsWith(ASK_BUTTON_KEY_PREFIX) ||
+      element.startsWith(LINE_NUMBER_BUTTON_KEY_PREFIX)
     const isQuestionWaitingForKeyboard =
       (await read($, anchorWithOpenInputAtom)) !== null && !(await read($, hasQuestionHadKeyboardAtom))
     if (isLineButton && isQuestionWaitingForKeyboard) {

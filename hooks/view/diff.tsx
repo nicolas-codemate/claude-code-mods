@@ -1,5 +1,5 @@
 import type { ChangedFile, DiffRow, GitHubReviewThread, ReviewThread, ReviewView } from '../../types'
-import { ASK_BUTTON_KEY_PREFIX, LINE_NUMBER_BUTTON_KEY_PREFIX } from '../constants'
+import { ASK_BUTTON_KEY_PREFIX, ASK_ON_LINE_KEY, LINE_NUMBER_BUTTON_KEY_PREFIX } from '../constants'
 import { isGitHubThreadOnRow, unplacedGitHubThreadsOf } from '../github-review'
 import type { Keymap, ShortcutAction } from '../keymap'
 import { anchorKeyOf } from '../questions'
@@ -331,7 +331,7 @@ export function renderLineShortcuts(ui: ViewElements, input: DiffViewInput) {
     { key: 'cursor-up', action: 'previousLine', label: '↑ line', onPress: () => input.actions.moveCursor(-1) },
     { key: 'hunk-next', action: 'nextHunk', label: '↓ hunk', onPress: () => input.actions.moveCursorToHunk(1) },
     { key: 'hunk-previous', action: 'previousHunk', label: '↑ hunk', onPress: () => input.actions.moveCursorToHunk(-1) },
-    { key: 'ask-on-line', action: 'askOnLine', label: input.isOnGitHubThread ? 'address comment' : 'ask', onPress: () => input.actions.askOnCursorLine() },
+    { key: ASK_ON_LINE_KEY, action: 'askOnLine', label: input.isOnGitHubThread ? 'address comment' : 'ask', onPress: () => input.actions.askOnCursorLine() },
     { key: 'reply-on-line', action: 'replyOnLine', label: 'reply', onPress: () => input.actions.replyOnCursorLine() },
   ]
   const path = input.selectedFile?.path

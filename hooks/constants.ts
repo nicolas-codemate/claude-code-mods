@@ -43,6 +43,10 @@ export const CANCEL_QUESTION_KEY = 'cancel-question'
 export const FILE_FILTER_KEY = 'file-filter'
 export const DIVIDER_KEY = 'file-divider'
 export const FILE_BUTTON_KEY_PREFIX = 'file-'
+export const ASK_ON_LINE_KEY = 'ask-on-line'
+// The keyboard rests on a hidden button drawn first in the pane: the engine keeps the focus by position, so a button
+// drawn after threads or files would drift as they come and go. Enter on it asks about the cursor's line.
+export const CURSOR_LINE_FOCUS_KEY = 'cursor-line'
 export const ADDRESS_GITHUB_THREAD_KEY_PREFIX = 'address-github-thread-'
 export const PULL_REQUEST_OVERVIEW_KEY = 'pr-overview'
 export const HELP_CLOSE_KEY = 'help-close'

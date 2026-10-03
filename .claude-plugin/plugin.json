@@ -1,7 +1,21 @@
 {
   "name": "diff-review",
-  "version": "0.1.0",
-  "description": "Review explorer: uncommitted changes, the whole PR or one commit at a time, with a [+] on any diff line to ask Claude about it and the answer drawn under the line",
+  "version": "0.2.0",
+  "description": "Review pane for uncommitted changes, the pull request or one commit at a time: ask Claude about any line, read and settle GitHub review threads, all from the keyboard",
+  "author": {
+    "name": "Nicolas",
+    "url": "https://github.com/nicolas-codemate"
+  },
+  "homepage": "https://github.com/nicolas-codemate/claude-code-mods/tree/main/plugins/diff-review",
+  "repository": "https://github.com/nicolas-codemate/claude-code-mods",
+  "license": "MIT",
+  "keywords": [
+    "review",
+    "diff",
+    "pull-request",
+    "github",
+    "mod"
+  ],
   "types": "./types/index.d.ts",
   "userConfig": {
     "theme": {

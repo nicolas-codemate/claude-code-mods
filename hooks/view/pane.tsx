@@ -1,5 +1,5 @@
 import type { CommitGraphLine, PullRequestSummary, ReviewView } from '../../types'
-import { COMMIT_PANEL_MAX_LINES, DIVIDER_KEY, MIN_PANE_COLUMNS } from '../constants'
+import { COMMIT_PANEL_MAX_LINES, CURSOR_LINE_FOCUS_KEY, DIVIDER_KEY, MIN_PANE_COLUMNS } from '../constants'
 import { SHORTCUTS } from '../keymap'
 import type { Keymap, ShortcutAction } from '../keymap'
 import type { PaneGeometry } from '../layout'
@@ -52,7 +52,7 @@ export function renderNarrowPane(ui: ViewElements, bodyColumns: number) {
 }
 
 export function renderPane(ui: ViewElements, input: PaneInput) {
-  const { Box, Client, Text } = ui
+  const { Box, Button, Client, Text } = ui
   const { geometry } = input
   const shownGraphLines = input.commitGraph.slice(
     geometry.firstShownCommitLineIndex,
@@ -61,6 +61,9 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
 
   return (
     <Box flexDirection="column" backgroundColor={ui.theme.paneBackground} height={input.bodyRows} overflow="hidden">
+      <Box key="cursor-line-box" display="none">
+        <Button key={CURSOR_LINE_FOCUS_KEY} plain label="ask about the cursor's line" onPress={() => input.actions.askOnCursorLine()} />
+      </Box>
       {renderHeader(ui, {
         view: input.view,
         location: input.location,

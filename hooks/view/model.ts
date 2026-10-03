@@ -177,7 +177,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
   })
   const location = [
     snapshot.isLoading ? 'loading…' : null,
-    snapshot.repositoryRoot,
+    snapshot.repositoryRoot?.split('/').filter(Boolean).at(-1) ?? null,
     snapshot.branch,
     view !== 'uncommitted' && snapshot.baseRef ? `base ${snapshot.baseRef.slice(0, 10)}` : null,
   ]

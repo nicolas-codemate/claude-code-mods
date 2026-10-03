@@ -1,0 +1,17 @@
+{
+  "name": "codemate-mods",
+  "owner": {
+    "name": "Nicolas",
+    "url": "https://github.com/nicolas-codemate"
+  },
+  "metadata": {
+    "description": "Mods for Claude Code"
+  },
+  "plugins": [
+    {
+      "name": "diff-review",
+      "source": "./plugins/diff-review",
+      "description": "Review pane for uncommitted changes, the pull request or one commit at a time: ask Claude about any line, read and settle GitHub review threads, all from the keyboard"
+    }
+  ]
+}
