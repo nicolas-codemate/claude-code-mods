@@ -61,13 +61,16 @@ import {
   MARK_FILE_AS_VIEWED_MUTATION,
   parsePullRequest,
   parseReviewThreadsPage,
+  parseRenamedPaths,
   parseViewedStatesPage,
+  pullRequestRenamesArguments,
   PULL_REQUEST_VIEW_FIELDS,
   RESOLVE_REVIEW_THREAD_MUTATION,
   REVIEW_THREADS_QUERY,
   UNRESOLVE_REVIEW_THREAD_MUTATION,
   UNMARK_FILE_AS_VIEWED_MUTATION,
   VIEWED_STATES_QUERY,
+  withPreviousPathsOfRenames,
 } from './github-review'
 import { cursorAtHunk, cursorStopsOf, firstChangeStop, movedCursor, offsetShowingCursor } from './cursor'
 import { visibleFilesOf } from './file-filter'
@@ -122,6 +125,7 @@ const isLoadingAtom = atom({ plugin: 'diff-review', key: 'isLoading' } as const,
 // The pull request of the branch, and GitHub's viewed box per file.
 const pullRequestAtom = atom({ plugin: 'diff-review', key: 'pullRequest' } as const, null)
 const viewedStateByPathAtom = atom({ plugin: 'diff-review', key: 'viewedStateByPath' } as const, {})
+const renamedPathByPreviousPathAtom = atom({ plugin: 'diff-review', key: 'renamedPathByPreviousPath' } as const, {})
 
 // Layout and scrolling.
 const requestedPaneColumnsAtom = atom({ plugin: 'diff-review', key: 'requestedPaneColumns' } as const, 0)
@@ -278,6 +282,7 @@ async function loadPullRequest($: EngineInterface): Promise<void> {
   await update($, pullRequestAtom, () => pullRequest)
   if (pullRequest === null) {
     await update($, viewedStateByPathAtom, () => ({}))
+    await update($, renamedPathByPreviousPathAtom, () => ({}))
     await update($, gitHubReviewThreadsAtom, () => [])
     return
   }
@@ -302,7 +307,10 @@ async function loadPullRequest($: EngineInterface): Promise<void> {
     Object.assign(viewedStateByPath, parsedPage.viewedStateByPath)
     cursor = parsedPage.nextCursor
   } while (cursor !== null)
-  await update($, viewedStateByPathAtom, () => viewedStateByPath)
+  const renames = await runGh($, pullRequestRenamesArguments(pullRequest.number))
+  const renamedPathByPreviousPath = renames.isSuccess ? parseRenamedPaths(renames.output) : {}
+  await update($, renamedPathByPreviousPathAtom, () => renamedPathByPreviousPath)
+  await update($, viewedStateByPathAtom, () => withPreviousPathsOfRenames(viewedStateByPath, renamedPathByPreviousPath))
 }
 
 async function loadGitHubReviewThreads($: EngineInterface, pullRequestId: string): Promise<void> {
@@ -363,9 +371,20 @@ async function toggleViewed($: EngineInterface, path: string): Promise<void> {
   if (pullRequest === null || previousState === undefined) {
     return
   }
+  const renamedPathByPreviousPath = await read($, renamedPathByPreviousPathAtom)
+  const gitHubPath = renamedPathByPreviousPath[path] ?? path
+  const pathsSharingTheBox = [
+    gitHubPath,
+    ...Object.keys(renamedPathByPreviousPath).filter(previousPath => renamedPathByPreviousPath[previousPath] === gitHubPath),
+  ]
+  const setStateOfPathsSharingTheBox = async (viewedState: ViewedState) => {
+    await update($, viewedStateByPathAtom, states => ({
+      ...states,
+      ...Object.fromEntries(pathsSharingTheBox.map(sharingPath => [sharingPath, viewedState])),
+    }))
+  }
   const isMarkingViewed = previousState !== 'VIEWED'
-  const nextState: ViewedState = isMarkingViewed ? 'VIEWED' : 'UNVIEWED'
-  await update($, viewedStateByPathAtom, states => ({ ...states, [path]: nextState }))
+  await setStateOfPathsSharingTheBox(isMarkingViewed ? 'VIEWED' : 'UNVIEWED')
   const mutation = await runGh($, [
     'api',
     'graphql',
@@ -374,10 +393,10 @@ async function toggleViewed($: EngineInterface, path: string): Promise<void> {
     '-F',
     `pullRequestId=${pullRequest.id}`,
     '-f',
-    `path=${path}`,
+    `path=${gitHubPath}`,
   ])
   if (!mutation.isSuccess) {
-    await update($, viewedStateByPathAtom, states => ({ ...states, [path]: previousState }))
+    await setStateOfPathsSharingTheBox(previousState)
     $.ui.toast(`diff-review: GitHub refused to change the viewed state of ${path}`)
   }
 }

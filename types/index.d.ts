@@ -115,6 +115,7 @@ declare module 'claude-code' {
       gitHubReviewThreads: GitHubReviewThread[]
       expandedGitHubThreadIds: string[]
       viewedStateByPath: Record<string, ViewedState>
+      renamedPathByPreviousPath: Record<string, string>
     }
   }
 }

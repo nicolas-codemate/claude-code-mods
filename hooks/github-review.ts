@@ -149,6 +149,45 @@ export function parseViewedStatesPage(graphqlOutput: string): ViewedStatesPage {
   }
 }
 
+// GitHub lists a renamed file once, under its new path, and gives the old one only through the REST API.
+export function pullRequestRenamesArguments(pullRequestNumber: number): string[] {
+  return [
+    'api',
+    '--paginate',
+    `repos/{owner}/{repo}/pulls/${pullRequestNumber}/files`,
+    '--jq',
+    '.[] | select(.status == "renamed") | [.previous_filename, .filename] | @tsv',
+  ]
+}
+
+export function parseRenamedPaths(renamesOutput: string): Record<string, string> {
+  const renamedPathByPreviousPath: Record<string, string> = {}
+  for (const line of renamesOutput.split('\n')) {
+    const [previousPath, path] = line.split('\t')
+    if (previousPath && path) {
+      renamedPathByPreviousPath[previousPath] = path
+    }
+  }
+
+  return renamedPathByPreviousPath
+}
+
+// The diff lists a renamed file as one path deleted and one created: the deleted one shares the box of the new one.
+export function withPreviousPathsOfRenames(
+  viewedStateByPath: Record<string, ViewedState>,
+  renamedPathByPreviousPath: Record<string, string>,
+): Record<string, ViewedState> {
+  const viewedStateWithPreviousPaths = { ...viewedStateByPath }
+  for (const [previousPath, path] of Object.entries(renamedPathByPreviousPath)) {
+    const viewedState = viewedStateByPath[path]
+    if (viewedState !== undefined) {
+      viewedStateWithPreviousPaths[previousPath] = viewedState
+    }
+  }
+
+  return viewedStateWithPreviousPaths
+}
+
 export function parsePullRequest(
   prViewOutput: string,
   emojiCharacterByShortcode: Record<string, string> = {},

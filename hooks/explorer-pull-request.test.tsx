@@ -315,6 +315,46 @@ test('y marks the file viewed and brings the next one still to view', async ($, 
   await pane.unmount()
 })
 
+test('a renamed file, listed as deleted then created, shares one viewed box with its new path', async ($, on) => {
+  const markedPaths: string[] = []
+  stubWorld(on, {
+    git: gitCommand =>
+      gitCommand === 'diff --numstat --summary --no-renames base000 HEAD'
+        ? {
+            exitCode: 0,
+            stdout: '3\t0\tsrc/Invoice.php\n0\t3\tsrc/Bill.php\n create mode 100644 src/Invoice.php\n delete mode 100644 src/Bill.php\n',
+          }
+        : undefined,
+    gh: ghCommand => {
+      if (ghCommand.startsWith('pr view')) {
+        return { exitCode: 0, stdout: JSON.stringify(PULL_REQUEST) }
+      }
+      if (ghCommand.includes('markFileAsViewed')) {
+        markedPaths.push(ghCommand.match(/path=(\S+)/)?.[1] ?? '')
+        return { exitCode: 0, stdout: '{}' }
+      }
+      if (ghCommand.includes('/pulls/42/files')) {
+        return { exitCode: 0, stdout: 'src/Bill.php\tsrc/Invoice.php\n' }
+      }
+      const files = {
+        nodes: [{ path: 'src/Invoice.php', viewerViewedState: 'UNVIEWED' }],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }
+      return { exitCode: 0, stdout: JSON.stringify({ data: { node: { files } } }) }
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-pr' })
+  expect((await pane.find({ key: 'viewed-src/Bill.php' }))?.text).toBe(' ○ ')
+
+  await pane.press({ key: 'viewed-src/Bill.php' })
+  expect(markedPaths).toEqual(['src/Invoice.php'])
+  expect((await pane.find({ key: 'viewed-src/Bill.php' }))?.text).toBe(' ✓ ')
+  expect((await pane.find({ key: 'viewed-src/Invoice.php' }))?.text).toBe(' ✓ ')
+  await pane.unmount()
+})
+
 test('a resolved GitHub thread unfolds while the keyboard is on it', async ($, on) => {
   stubWorld(on, {
     gh: ghCommand => {
