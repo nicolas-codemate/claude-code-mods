@@ -7,7 +7,7 @@ import { renderCommitList } from './commits'
 import { renderDiffView, renderLineShortcuts } from './diff'
 import type { DiffViewInput } from './diff'
 import type { HeaderTile } from './drawings'
-import { renderFileList } from './file-list'
+import { isFiltered, renderFileList } from './file-list'
 import type { FileListInput } from './file-list'
 import { renderHeader } from './header'
 import { renderHelp } from './help'
@@ -168,10 +168,15 @@ function renderFileBar(ui: ViewElements, input: PaneInput) {
           key="file-drawer-toggle"
           plain
           hover={{ color: ui.theme.accent, bold: true }}
-          label={`${input.geometry.isFileDrawerOpen ? '✕' : '☰'} Files ${fileList.files.length}`}
+          label={`${input.geometry.isFileDrawerOpen ? '✕' : '☰'} Files ${isFiltered(fileList) ? `${fileList.shownFileCount} of ` : ''}${fileList.files.length}`}
           onPress={() => input.actions.toggleFileDrawer()}
         />
       </Box>
+      {isFiltered(fileList) && (
+        <Box flexShrink={0} marginLeft={1}>
+          <Text color={ui.theme.filtered}>filtered</Text>
+        </Box>
+      )}
       <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden" marginLeft={2}>
         <Text color={ui.theme.heading} wrap="truncate-start">
           {shownName}

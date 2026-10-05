@@ -1239,6 +1239,11 @@ function explorerActions($: EngineInterface): ExplorerActions {
     toggleNoiseShown: async () => {
       await update($, isNoiseShownAtom, isNoiseShown => !isNoiseShown)
     },
+    clearFileFilters: async () => {
+      await update($, fileFilterAtom, () => '')
+      await update($, isNoiseShownAtom, () => true)
+      await update($, fileListOffsetAtom, () => 0)
+    },
     toggleDirectoryFold: directory => toggleDirectoryFold($, directory),
     toggleCurrentDirectoryFold: async () => {
       const selectedFilePath = await read($, selectedFilePathAtom)

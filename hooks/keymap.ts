@@ -10,6 +10,7 @@ export type ShortcutAction =
   | 'nextFile'
   | 'markViewedAndNext'
   | 'focusFileFilter'
+  | 'clearFileFilters'
   | 'toggleDirectoryFold'
   | 'toggleFileListCollapse'
   | 'previousLine'
@@ -58,6 +59,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
   { action: 'nextFile', configField: 'key_next_file', group: 'Files', description: 'Next file', defaultKeys: fixed('s') },
   { action: 'markViewedAndNext', configField: 'key_mark_viewed', group: 'Files', description: 'Mark viewed on GitHub, go to the next unviewed', defaultKeys: fixed('y') },
   { action: 'focusFileFilter', configField: 'key_filter_files', group: 'Files', description: 'Filter the files (Enter goes back to the diff)', defaultKeys: fixed('i') },
+  { action: 'clearFileFilters', configField: 'key_clear_filters', group: 'Files', description: 'Clear the filters, every file listed again', defaultKeys: fixed('5') },
   { action: 'toggleDirectoryFold', configField: 'key_fold_directory', group: 'Files', description: "Fold or unfold the file's directory", defaultKeys: fixed('0') },
   { action: 'toggleFileListCollapse', configField: 'key_collapse_file_list', group: 'Files', description: 'Collapse the file list behind a bar, or pin it beside the code', defaultKeys: fixed('9') },
   { action: 'previousLine', configField: 'key_previous_line', group: 'Lines', description: 'Line above', defaultKeys: fixed('k') },

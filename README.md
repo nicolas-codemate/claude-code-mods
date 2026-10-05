@@ -60,6 +60,7 @@ keyboard between the prompt and the pane; Escape closes an open question, then t
 | `q` / `d` | Previous / next view (`a` / `d` on a QWERTY keyboard) |
 | `z` / `s` | Previous / next file (`w` / `s` on a QWERTY keyboard) |
 | `i` | Filter the files; Enter goes back to the diff (on a narrow pane, opens the file list) |
+| `5` | Clear the filters: the typed filter, and lockfiles and generated files folded away |
 | `0` | Fold or unfold the directory of the file (or click its arrow) |
 | `9` | Collapse the file list behind a bar, or pin it back beside the code |
 | `j` / `k` | Line below / above |

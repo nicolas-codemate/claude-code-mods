@@ -60,9 +60,11 @@ export function renderFileList(ui: ViewElements, input: FileListInput) {
         <Box flexGrow={1}>
           <Text bold color={ui.theme.heading}>
             Files{'  '}
-            <Text color={ui.theme.muted}>
-              {input.shownFileCount === input.files.length ? input.files.length : `${input.shownFileCount} of ${input.files.length}`}
-            </Text>
+            {isFiltered(input) ? (
+              <Text bold color={ui.theme.filtered}>{`${input.shownFileCount} of ${input.files.length}`}</Text>
+            ) : (
+              <Text color={ui.theme.muted}>{input.files.length}</Text>
+            )}
           </Text>
         </Box>
         <Text color={ui.theme.muted}>
@@ -122,8 +124,24 @@ function renderFilter(ui: ViewElements, input: FileListInput) {
           onSubmit={value => input.actions.submitFileFilter(value)}
         />
       </Box>
+      {isFiltered(input) && (
+        <Box key="clear-file-filters-box" flexShrink={0} marginLeft={1}>
+          <Button
+            key="clear-file-filters"
+            plain
+            hover={{ color: ui.theme.accent }}
+            hotkey={input.hotkeyOf('clearFileFilters')}
+            label="✕ clear"
+            onPress={() => input.actions.clearFileFilters()}
+          />
+        </Box>
+      )}
     </Box>
   )
+}
+
+export function isFiltered(input: Pick<FileListInput, 'files' | 'shownFileCount'>): boolean {
+  return input.shownFileCount < input.files.length
 }
 
 function renderNoiseNotice(ui: ViewElements, input: FileListInput) {

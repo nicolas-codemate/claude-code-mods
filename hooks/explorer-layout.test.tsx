@@ -81,6 +81,8 @@ test('a narrow pane shows the code alone, the file list opening over it and clos
   await pane.input({ key: 'file-filter', text: 'total' })
   expect(await isDrawerOpen()).toBe(false)
   expect(await pane.find({ type: 'Text', text: 'src/Total.php' })).toBeDefined()
+  expect((await pane.find({ key: 'file-drawer-toggle' }))?.text).toBe('☰ Files 1 of 2')
+  expect(await pane.find({ type: 'Text', text: 'filtered' })).toBeDefined()
 
   await pane.press({ key: 'file-drawer-toggle' })
   await pane.press({ key: 'file-drawer-toggle' })

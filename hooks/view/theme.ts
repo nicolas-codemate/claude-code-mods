@@ -13,6 +13,8 @@ export type Theme = {
   lineNumber: string
   accent: string
   accentBorder: string
+  // The file count while a filter hides some files, so a short list is not mistaken for the whole change.
+  filtered: string
   activeTabBackground: string | undefined
   selectedBackground: string | undefined
   cursorBackground: string | undefined
@@ -43,6 +45,7 @@ const DARK_THEME: Theme = {
   lineNumber: '#4b5363',
   accent: '#6cb6ff',
   accentBorder: '#2b4a6e',
+  filtered: '#ffa657',
   activeTabBackground: '#16263a',
   selectedBackground: '#1d2533',
   cursorBackground: '#1d2a3c',
@@ -71,6 +74,7 @@ const LIGHT_THEME: Theme = {
   lineNumber: '#9aa1ab',
   accent: '#0a5cc2',
   accentBorder: '#a9c7ee',
+  filtered: '#a34200',
   activeTabBackground: '#e3eefc',
   selectedBackground: '#eaf1fb',
   cursorBackground: '#dde9fb',

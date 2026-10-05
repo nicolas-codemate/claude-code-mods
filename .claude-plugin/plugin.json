@@ -74,6 +74,11 @@
       "title": "Key: Filter the files (Enter goes back to the diff)",
       "description": "One letter or digit (several: comma separated). Empty keeps the default: i."
     },
+    "key_clear_filters": {
+      "type": "string",
+      "title": "Key: Clear the filters, every file listed again",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: 5."
+    },
     "key_fold_directory": {
       "type": "string",
       "title": "Key: Fold or unfold the file's directory",

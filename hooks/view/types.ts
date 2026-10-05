@@ -30,6 +30,7 @@ export type ExplorerActions = {
   stageAllChanges: () => Promise<void>
   updateFileFilter: (filter: string) => Promise<void>
   toggleNoiseShown: () => Promise<void>
+  clearFileFilters: () => Promise<void>
   toggleDirectoryFold: (directory: string) => Promise<void>
   toggleCurrentDirectoryFold: () => Promise<void>
   toggleFileDrawer: () => Promise<void>

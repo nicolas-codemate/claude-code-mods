@@ -112,6 +112,16 @@ test('the filter narrows the file list and lockfiles stay folded until shown', a
   await pane.unmount()
 
   pane = await mountPane($)
+  await pane.press({ key: 'toggle-noise' })
+  expect(await pane.find({ type: 'Text', text: /^1 of 3$/ })).toBeDefined()
+  await pane.press({ key: 'clear-file-filters' })
+  expect(await pane.find({ type: 'Button', text: 'notes.md' })).toBeDefined()
+  expect(await pane.find({ type: 'Button', text: 'package-lock.json' })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /^1 of 3$/ })).toBeUndefined()
+  expect(await pane.find({ key: 'clear-file-filters' })).toBeUndefined()
+  await pane.unmount()
+
+  pane = await mountPane($)
   await pane.input({ key: 'file-filter', text: 'nothing like this', kind: 'change' })
   expect(await pane.find({ type: 'Text', text: 'No file matches the filter.' })).toBeDefined()
   await pane.unmount()
