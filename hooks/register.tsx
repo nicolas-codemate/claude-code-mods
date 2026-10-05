@@ -9,6 +9,7 @@ import {
   CURSOR_LINE_FOCUS_KEY,
   BASE_REF_CANDIDATES,
   CANCEL_QUESTION_KEY,
+  DICTATE_QUESTION_KEY,
   CONTEXT_RADIUS_ROWS,
   DEFAULT_DIFF_CONTEXT_LINES,
   DIFF_CONTEXT_STEP_LINES,
@@ -938,6 +939,24 @@ async function armQuestionForPrompt($: EngineInterface, anchorKey: string, targe
   await update($, armedQuestionAtom, () => ({ anchorKey, ...target }))
 }
 
+async function armOpenQuestionForPrompt($: EngineInterface): Promise<void> {
+  const anchorKey = await read($, anchorWithOpenInputAtom)
+  const anchor = anchorKey === null ? null : parseAnchorKey(anchorKey)
+  if (anchorKey === null || anchor === null) {
+    return
+  }
+  if (anchor.kind === 'overview') {
+    await armQuestionForPrompt($, anchorKey, await findOverviewQuestionTarget($, anchor.blockIndex))
+    return
+  }
+  const view = await read($, viewAtom)
+  const commitSha = await read($, selectedCommitShaAtom)
+  const rowIndex = (await read($, diffRowsAtom)).findIndex(row => anchorKeyOf(view, commitSha, anchor.path, row) === anchorKey)
+  if (rowIndex !== -1) {
+    await armQuestionForPrompt($, anchorKey, await findRowQuestionTarget($, rowIndex))
+  }
+}
+
 async function appendExchange($: EngineInterface, threadId: string, question: string): Promise<void> {
   await update($, threadsAtom, threads =>
     threads.map(thread =>
@@ -1489,7 +1508,14 @@ export const register: Register = (on, options) => {
 
       return redirected
     }
+    const previouslyFocusedKey = await read($, focusedElementKeyAtom)
     await update($, focusedElementKeyAtom, () => e.element ?? null)
+    // The down arrow written on that button: leaving the field for it arms the question as a press would.
+    if (element === DICTATE_QUESTION_KEY && previouslyFocusedKey?.startsWith(QUESTION_INPUT_KEY_PREFIX) && e.origin.kind === 'person') {
+      const moved = await next(e)
+      await armOpenQuestionForPrompt($)
+      return moved
+    }
     if (element.startsWith(QUESTION_INPUT_KEY_PREFIX)) {
       await update($, hasQuestionHadKeyboardAtom, () => true)
       return next(e)
@@ -1497,7 +1523,7 @@ export const register: Register = (on, options) => {
     // Moving to another element, by Tab or a click, closes a question left empty; landing on a [+], the question's own
     // buttons or a thread's close button is part of opening or closing it.
     const isPartOfQuestion =
-      isLineButton || element === CANCEL_QUESTION_KEY || element.startsWith(DISMISS_THREAD_KEY_PREFIX)
+      isLineButton || element === CANCEL_QUESTION_KEY || element === DICTATE_QUESTION_KEY || element.startsWith(DISMISS_THREAD_KEY_PREFIX)
     const isQuestionLeftEmpty =
       (await read($, anchorWithOpenInputAtom)) !== null && (await read($, questionDraftAtom)).trim() === ''
     if (!isPartOfQuestion && isQuestionLeftEmpty) {

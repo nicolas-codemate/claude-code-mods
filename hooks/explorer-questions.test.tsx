@@ -105,7 +105,7 @@ test('a question armed on a line is asked from the main prompt, with the line as
   const pane = await mountPane($)
   await pane.press({ key: 'file-src/Total.php' })
   await pane.press({ key: 'ask-3' })
-  await pane.press({ key: 'ask-from-prompt' })
+  await pane.press({ key: 'dictate-question' })
   expect(await hasQuestionField(pane)).toBe(false)
   expect(await pane.find({ type: 'Text', text: /Ask from the prompt below/ })).toBeDefined()
 
@@ -119,16 +119,36 @@ test('a question armed on a line is asked from the main prompt, with the line as
   expect(world.submittedPrompts[1]?.context).toBeUndefined()
 
   await pane.press({ key: 'ask-2' })
-  await pane.press({ key: 'ask-from-prompt' })
+  await pane.press({ key: 'dictate-question' })
   await $.prompt.submit({ text: 'From the attached terminal', origin: { kind: 'unclassified' } } as never)
   expect(world.submittedPrompts[2]?.context?.[0]).toContain('src/Total.php')
 
   await pane.press({ key: 'ask-2' })
-  await pane.press({ key: 'ask-from-prompt' })
+  await pane.press({ key: 'dictate-question' })
   await pane.press({ key: 'ask-3' })
   expect(await pane.find({ type: 'Text', text: /Ask from the prompt below/ })).toBeUndefined()
   await $.prompt.submit({ text: 'Plain message', origin: { kind: 'composer' } } as never)
   expect(world.submittedPrompts[3]?.context).toBeUndefined()
+  await pane.unmount()
+})
+
+test('the down arrow from a question field arms it for the main prompt, the cancel button comes after', async ($, on) => {
+  stubWorld(on, { withFocus: true })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'file-src/Total.php' })
+  await pane.press({ key: 'ask-3' })
+  const fieldKey = await questionFieldKey(pane)
+  const focusOrder = (await pane.findAll({}))
+    .filter(element => element.type === 'Input' || element.type === 'Button')
+    .map(element => element.key)
+  expect(focusOrder.indexOf('dictate-question')).toBe(focusOrder.indexOf(fieldKey) + 1)
+  expect(focusOrder.indexOf('cancel-question')).toBe(focusOrder.indexOf(fieldKey) + 2)
+
+  await focusElement($, fieldKey)
+  await focusElement($, 'dictate-question')
+  expect(await hasQuestionField(pane)).toBe(false)
+  expect(await pane.find({ type: 'Text', text: /Ask from the prompt below/ })).toBeDefined()
   await pane.unmount()
 })
 

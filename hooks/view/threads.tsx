@@ -1,5 +1,5 @@
 import type { ReviewThread } from '../../types'
-import { CANCEL_QUESTION_KEY, DISMISS_THREAD_KEY_PREFIX, REPLY_INPUT_KEY_PREFIX } from '../constants'
+import { CANCEL_QUESTION_KEY, DICTATE_QUESTION_KEY, DISMISS_THREAD_KEY_PREFIX, REPLY_INPUT_KEY_PREFIX } from '../constants'
 import { isLastExchangeDone } from '../questions'
 import type { ExplorerActions, QuestionState, ViewElements } from './types'
 
@@ -120,14 +120,23 @@ function renderQuestionField(
       backgroundColor={ui.theme.threadBackground}
       paddingX={1}
     >
+      <Input
+        key={questionFieldKey}
+        autoFocus
+        onInput={value => input.actions.updateQuestionDraft(value)}
+        placeholder="Type your question, Enter to send"
+        onSubmit={value => input.ask(value)}
+      />
+      {/* The arrows and Tab follow the order written: the down arrow from the field reaches the dictation button first. */}
       <Box flexDirection="row">
         <Box flexGrow={1}>
-          <Input
-            key={questionFieldKey}
-            autoFocus
-            onInput={value => input.actions.updateQuestionDraft(value)}
-            placeholder="Type your question, Enter to send"
-            onSubmit={value => input.ask(value)}
+          <Button
+            key={DICTATE_QUESTION_KEY}
+            plain
+            dimColor
+            hover={{ color: ui.theme.accent }}
+            label="↓ dictate in the prompt instead"
+            onPress={() => input.armForPrompt()}
           />
         </Box>
         <Box key="cancel-question-box" flexShrink={0} marginLeft={1}>
@@ -140,16 +149,6 @@ function renderQuestionField(
             onPress={() => input.actions.closeQuestion()}
           />
         </Box>
-      </Box>
-      <Box key="ask-from-prompt-box">
-        <Button
-          key="ask-from-prompt"
-          plain
-          dimColor
-          hover={{ color: ui.theme.accent }}
-          label="↓ dictate in the prompt instead"
-          onPress={() => input.armForPrompt()}
-        />
       </Box>
     </Box>
   )
