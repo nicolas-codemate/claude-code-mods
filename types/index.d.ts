@@ -11,7 +11,7 @@ export type ChangedFile = {
 
 export type DiffRowKind = 'hunk' | 'context' | 'added' | 'removed'
 
-export type DiffRow = { kind: DiffRowKind; oldNumber: number | null; newNumber: number | null; text: string }
+export type DiffRow = { kind: DiffRowKind; oldNumber: number | null; newNumber: number | null; text: string; language?: string }
 
 export type CommitSummary = {
   sha: string

@@ -355,6 +355,32 @@ test('a renamed file, listed as deleted then created, shares one viewed box with
   await pane.unmount()
 })
 
+test('the script of a Vue component is drawn in its own language, even when the hunk starts inside it', async ($, on) => {
+  const component = '<template>\n  <p>{{ total }}</p>\n</template>\n\n<script setup lang="ts">\nconst total = 2\n</script>\n'
+  stubWorld(on, {
+    git: gitCommand => {
+      if (gitCommand === 'diff --numstat --summary --no-renames base000 HEAD') {
+        return { exitCode: 0, stdout: '1\t1\tsrc/Total.vue\n' }
+      }
+      if (gitCommand.startsWith('diff --no-color')) {
+        return { exitCode: 0, stdout: ['@@ -6,1 +6,1 @@', '-const total = 1', '+const total = 2'].join('\n') }
+      }
+      if (gitCommand.startsWith('show ')) {
+        return { exitCode: 0, stdout: component }
+      }
+      return undefined
+    },
+    gh: ghCommand => (ghCommand.startsWith('pr view') ? { exitCode: 0, stdout: JSON.stringify(PULL_REQUEST) } : undefined),
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-pr' })
+  await pane.press({ key: 'file-src/Total.vue' })
+  const codeLines = await pane.findAll({ type: 'Code' })
+  expect(codeLines.map(line => line.props.language)).toEqual(['typescript', 'typescript'])
+  await pane.unmount()
+})
+
 test('a resolved GitHub thread unfolds while the keyboard is on it', async ($, on) => {
   stubWorld(on, {
     gh: ghCommand => {

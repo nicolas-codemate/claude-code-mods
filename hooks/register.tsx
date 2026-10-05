@@ -94,6 +94,7 @@ import {
 import { anchorKeyOf } from './questions'
 import type { QuestionTarget } from './questions'
 import { pairRowsSideBySide, splitIndexOfRow } from './split-rows'
+import { isVueFile, withVueLanguages } from './syntax-language'
 import { buildPaneModel } from './view/model'
 import type { ExplorerSnapshot } from './view/model'
 import { renderNarrowPane, renderPane } from './view/pane'
@@ -447,11 +448,30 @@ async function findBaseRef($: EngineInterface): Promise<{ sha: string; branchNam
   return null
 }
 
+async function readWorkingTreeFile($: EngineInterface, path: string): Promise<string> {
+  const repositoryRoot = await read($, repositoryRootAtom)
+
+  return $.fs.read(repositoryRoot ? `${repositoryRoot}/${path}` : path)
+}
+
+// A file missing at that revision, created or deleted by the change, reads as empty.
+async function fileContentAt($: EngineInterface, revision: string | null, path: string): Promise<string> {
+  if (revision === null) {
+    try {
+      return await readWorkingTreeFile($, path)
+    } catch {
+      return ''
+    }
+  }
+  const show = await runGit($, ['show', `${revision}:${path}`])
+
+  return show.isSuccess ? show.output : ''
+}
+
 async function readUntrackedFileRows($: EngineInterface, path: string): Promise<DiffRow[]> {
   let content = ''
   try {
-    const repositoryRoot = await read($, repositoryRootAtom)
-    content = await $.fs.read(repositoryRoot ? `${repositoryRoot}/${path}` : path)
+    content = await readWorkingTreeFile($, path)
   } catch (error) {
     await update($, loadErrorAtom, () => `Cannot read ${path}: ${String(error)}`)
   }
@@ -474,7 +494,8 @@ async function loadSelectedFileDiff($: EngineInterface): Promise<void> {
   }
   if (file.isUntracked) {
     const rows = await readUntrackedFileRows($, path)
-    await update($, diffRowsAtom, () => rows)
+    const content = rows.flatMap(row => (row.kind === 'added' ? [row.text] : [])).join('\n')
+    await update($, diffRowsAtom, () => (isVueFile(path) ? withVueLanguages(rows, '', content) : rows))
     return
   }
   const range = diffRangeArguments(await read($, viewAtom), await read($, baseRefAtom), await read($, selectedCommitShaAtom))
@@ -484,7 +505,15 @@ async function loadSelectedFileDiff($: EngineInterface): Promise<void> {
   }
   const contextLines = (await read($, contextLinesByPathAtom))[path] ?? DEFAULT_DIFF_CONTEXT_LINES
   const diff = await runGit($, ['diff', '--no-color', '--no-renames', `-U${contextLines}`, ...range, '--', path])
-  await update($, diffRowsAtom, () => (diff.isSuccess ? parseUnifiedDiff(diff.output) : []))
+  const rows = diff.isSuccess ? parseUnifiedDiff(diff.output) : []
+  if (isVueFile(path) && rows.length > 0) {
+    const [oldRevision = null, newRevision = null] = range
+    const oldContent = await fileContentAt($, oldRevision, path)
+    const newContent = await fileContentAt($, newRevision, path)
+    await update($, diffRowsAtom, () => withVueLanguages(rows, oldContent, newContent))
+  } else {
+    await update($, diffRowsAtom, () => rows)
+  }
   if (!diff.isSuccess) {
     await update($, loadErrorAtom, () => diff.output.trim())
   }

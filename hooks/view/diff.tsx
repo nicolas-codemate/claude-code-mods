@@ -4,6 +4,7 @@ import { isGitHubThreadOnRow, unplacedGitHubThreadsOf } from '../github-review'
 import type { Keymap, ShortcutAction } from '../keymap'
 import { anchorKeyOf } from '../questions'
 import type { SplitRow, SplitSide } from '../split-rows'
+import { languageOfPath } from '../syntax-language'
 import { fileTypeBadgeOf } from './file-badges'
 import { renderFileStats, renderShortcutHint, renderThreadNavigation } from './labels'
 import { renderGitHubThread } from './github-threads'
@@ -295,7 +296,7 @@ function renderCode(ui: ViewElements, row: DiffRow, path: string) {
 
   return (
     <Box flexGrow={1} flexShrink={1} minWidth={0} flexDirection="column">
-      {row.text.trim() === '' ? <Text> </Text> : <Code source={row.text} path={path} wrap="wrap" />}
+      {row.text.trim() === '' ? <Text> </Text> : <Code source={row.text} path={path} language={row.language ?? languageOfPath(path)} wrap="wrap" />}
     </Box>
   )
 }
