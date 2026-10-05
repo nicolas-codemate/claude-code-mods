@@ -23,9 +23,10 @@ import type { Keymap, ShortcutAction } from '../keymap'
 import { buildFileLines, clampFileListWidth, computePaneGeometry } from '../layout'
 import type { PaneGeometry } from '../layout'
 import { splitMarkdownBlocks } from '../markdown'
-import { fileAnchorPrefixOf, threadsInReadingOrder } from '../questions'
+import { fileAnchorPrefixOf, openThreadsByPath, threadsInReadingOrder } from '../questions'
 import { groupFilesByDirectory } from '../git-parsing'
 import { pairRowsSideBySide } from '../split-rows'
+import type { HeaderTile } from './drawings'
 import type { PaneInput } from './pane'
 import type { ExplorerActions, GitHubPage, QuestionState, ThreadNavigation } from './types'
 
@@ -35,6 +36,7 @@ export type ExplorerSnapshot = {
   repositoryWebUrl: string | null
   branch: string | null
   baseRef: string | null
+  baseBranchName: string | null
   isLoading: boolean
   loadError: string | null
   commits: CommitSummary[]
@@ -52,6 +54,9 @@ export type ExplorerSnapshot = {
   fileFilter: string
   isWholeFileByPath: Record<string, boolean>
   isNoiseShown: boolean
+  foldedDirectories: string[]
+  isFileDrawerOpen: boolean
+  isFileListCollapsed: boolean
   isSplitViewPreferred: boolean
   keymap: Keymap
   keymapProblems: string[]
@@ -68,6 +73,7 @@ export type ExplorerSnapshot = {
   hasQuestionHadKeyboard: boolean
   armedAnchorKey: string | null
   currentThreadId: string | null
+  answerPulseFrame: number
 }
 
 export type PaneSurface = { bodyRows: number; bodyColumns: number; isPaneFocused: boolean }
@@ -116,6 +122,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     isQuestionFieldShown: surface.isPaneFocused || !snapshot.hasQuestionHadKeyboard || snapshot.questionDraft.trim() !== '',
     questionFieldKey: `${QUESTION_INPUT_KEY_PREFIX}${snapshot.questionFieldNumber}`,
     armedAnchorKey: snapshot.armedAnchorKey,
+    isAnswerPulseLit: snapshot.answerPulseFrame % 2 === 0,
   }
   const fileAnchorPrefix = selectedFilePath ? fileAnchorPrefixOf(view, selectedCommitSha, selectedFilePath) : null
   const gitHubThreads = pullRequest ? snapshot.gitHubReviewThreads : []
@@ -128,13 +135,17 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
       ))
 
   const shown = visibleFilesOf(files, { filter: snapshot.fileFilter, isNoiseShown: snapshot.isNoiseShown })
-  const fileLines = buildFileLines(shown.files, pullRequest !== null)
+  const fileLines = buildFileLines(shown.files, pullRequest !== null, snapshot.foldedDirectories)
   const threadsOfScreen = threadsInReadingOrder([...threads, ...gitHubThreadNavigationEntries(gitHubThreads)], {
     view,
     commitSha: view === 'commits' ? selectedCommitSha : null,
     orderedPaths: groupFilesByDirectory(shown.files).flatMap(group => group.files.map(file => file.path)),
     hasOverview: pullRequest !== null,
   })
+  const resolvedGitHubThreadIds = new Set(gitHubThreads.filter(thread => thread.isResolved).map(thread => thread.id))
+  const openThreadCountByPath = Object.fromEntries(
+    Object.entries(openThreadsByPath(threadsOfScreen, resolvedGitHubThreadIds)).map(([path, threadsOfFile]) => [path, threadsOfFile.length]),
+  )
   const currentThreadIndex = threadsOfScreen.findIndex(thread => thread.id === snapshot.currentThreadId)
   const threadNavigation: ThreadNavigation = {
     position: currentThreadIndex === -1 ? null : currentThreadIndex,
@@ -142,7 +153,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     currentGitHubThread: gitHubThreads.find(thread => thread.id === snapshot.currentThreadId) ?? null,
   }
   const diffWidth =
-    surface.bodyColumns >= TWO_COLUMNS_MIN_WIDTH
+    !snapshot.isFileListCollapsed && surface.bodyColumns >= TWO_COLUMNS_MIN_WIDTH
       ? surface.bodyColumns - clampFileListWidth(snapshot.fileListWidth, surface.bodyColumns)
       : surface.bodyColumns
   const canSplitView = diffWidth >= SPLIT_VIEW_MIN_DIFF_WIDTH
@@ -160,6 +171,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     bodyColumns: surface.bodyColumns,
     view,
     hasLoadError: snapshot.loadError !== null,
+    hasPullRequestLine: pullRequest !== null,
     commitLineCount: snapshot.commitGraph.length,
     selectedCommitLineIndex: Math.max(
       0,
@@ -174,18 +186,23 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     isScrollingPastEnd,
     requestedDiffOffset: snapshot.diffOffset,
     hasLineShortcuts,
+    isFileDrawerOpen: snapshot.isFileDrawerOpen,
+    isFileListCollapsed: snapshot.isFileListCollapsed,
   })
+  const repositoryName = snapshot.repositoryRoot?.split('/').filter(Boolean).at(-1)
   const location = [
     snapshot.isLoading ? 'loading…' : null,
-    snapshot.repositoryRoot?.split('/').filter(Boolean).at(-1) ?? null,
-    snapshot.branch,
-    view !== 'uncommitted' && snapshot.baseRef ? `base ${snapshot.baseRef.slice(0, 10)}` : null,
+    repositoryName ? `\u{1F4C1} ${repositoryName}` : null,
+    snapshot.branch ? `\u{1F33F} ${snapshot.branch}` : null,
+    view !== 'uncommitted' && snapshot.baseRef ? `from ${snapshot.baseBranchName ?? 'base'} ${snapshot.baseRef.slice(0, 10)}` : null,
   ]
     .filter(part => part !== null && part !== '')
     .join('  │  ')
 
+  const viewedCount = countViewedFiles(files.map(file => file.path), viewedStateByPath)
   const paneInput: PaneInput = {
     bodyRows: surface.bodyRows,
+    bodyColumns: surface.bodyColumns,
     geometry,
     view,
     location,
@@ -193,7 +210,8 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     help: snapshot.isHelpShown ? { keymap: snapshot.keymap, problems: snapshot.keymapProblems } : null,
     loadError: snapshot.loadError,
     pullRequest,
-    viewedCount: countViewedFiles(files.map(file => file.path), viewedStateByPath),
+    viewedCount,
+    headerTiles: headerTilesOf(files, pullRequest, viewedCount, gitHubThreads),
     commitGraph: snapshot.commitGraph,
     commitCount: snapshot.commits.length,
     repositoryWebUrl: snapshot.repositoryWebUrl,
@@ -219,6 +237,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
       isOverviewShown,
       pullRequest,
       viewedStateByPath,
+      openThreadCountByPath,
       hasUntrackedFiles,
       hasStageActions,
       markedPaths: view === 'uncommitted' ? snapshot.markedPaths : [],
@@ -281,6 +300,32 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     cursorRowIndex,
     isScrollingPastEnd,
   }
+}
+
+function headerTilesOf(
+  files: ChangedFile[],
+  pullRequest: PullRequestSummary | null,
+  viewedCount: { viewed: number; total: number },
+  gitHubThreads: GitHubReviewThread[],
+): HeaderTile[] {
+  const lineTotals = pullRequest
+    ? { addedLines: pullRequest.additions, removedLines: pullRequest.deletions }
+    : files.reduce(
+        (totals, file) => ({ addedLines: totals.addedLines + (file.addedLines ?? 0), removedLines: totals.removedLines + (file.removedLines ?? 0) }),
+        { addedLines: 0, removedLines: 0 },
+      )
+  const tiles: HeaderTile[] = [
+    { kind: 'count', label: 'Files', value: String(files.length) },
+    { kind: 'lines', label: 'Lines', ...lineTotals },
+  ]
+  if (pullRequest) {
+    tiles.push(
+      { kind: 'progress', label: 'Viewed', done: viewedCount.viewed, total: viewedCount.total },
+      { kind: 'count', label: 'Open threads', value: String(gitHubThreads.filter(thread => !thread.isResolved).length) },
+    )
+  }
+
+  return tiles
 }
 
 // The page the GitHub shortcut opens: the review comment the keyboard went to, else the selected commit in the commits

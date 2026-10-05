@@ -124,11 +124,15 @@ export function diffRangeArguments(view: ReviewView, baseRef: string | null, com
 
 export type FileGroup = { directory: string; files: ChangedFile[] }
 
+export function directoryOf(path: string): string {
+  const slashIndex = path.lastIndexOf('/')
+  return slashIndex === -1 ? '' : path.slice(0, slashIndex)
+}
+
 export function groupFilesByDirectory(files: ChangedFile[]): FileGroup[] {
   const groups = new Map<string, ChangedFile[]>()
   for (const file of files) {
-    const slashIndex = file.path.lastIndexOf('/')
-    const directory = slashIndex === -1 ? '' : file.path.slice(0, slashIndex)
+    const directory = directoryOf(file.path)
     groups.set(directory, [...(groups.get(directory) ?? []), file])
   }
 

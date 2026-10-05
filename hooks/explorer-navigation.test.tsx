@@ -7,7 +7,8 @@ test('the explorer walks the three views and picks files and commits', async ($,
   await openExplorer($)
   const pane = await mountPane($)
 
-  expect(await pane.find({ type: 'Text', text: /▾ src\// })).toBeDefined()
+  expect((await pane.find({ key: 'directory-src' }))?.text).toBe('▾ ')
+  expect(await pane.find({ type: 'Text', text: 'src/' })).toBeDefined()
   expect(await pane.find({ type: 'Button', text: 'Total.php' })).toBeDefined()
   expect(await pane.find({ type: 'Button', text: 'notes.md' })).toBeDefined()
   expect(await pane.find({ type: 'Text', text: /^notes\.md$/ })).toBeDefined()
@@ -192,11 +193,62 @@ test('the help lists every shortcut and closes with its key or its button', asyn
   await pane.unmount()
 })
 
-test('a key remapped in the plugin options drives its shortcut', { options: { key_next_line: '9' } }, async ($, on) => {
+test('a key remapped in the plugin options drives its shortcut', { options: { key_next_line: '8' } }, async ($, on) => {
   stubWorld(on)
   await openExplorer($)
   const pane = await mountPane($)
   await pane.press({ key: 'file-src/Total.php' })
-  expect((await pane.find({ key: 'cursor-down' }))?.props.hotkey).toBe('9')
+  expect((await pane.find({ key: 'cursor-down' }))?.props.hotkey).toBe('8')
+  await pane.unmount()
+})
+
+test('a directory folds from its arrow or the shortcut, its files then stepped over until a jump opens it again', async ($, on) => {
+  stubWorld(on, {
+    git: gitCommand => {
+      if (gitCommand === 'diff --numstat --summary --no-renames HEAD') {
+        return { exitCode: 0, stdout: '1\t0\tdocs/guide.md\n2\t1\tsrc/Tax.php\n2\t1\tsrc/Total.php\n1\t0\ttests/TotalTest.php\n' }
+      }
+      if (gitCommand === 'ls-files --others --exclude-standard') return { exitCode: 0, stdout: '' }
+      return undefined
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'file-docs/guide.md' })
+
+  await pane.press({ key: 'directory-src' })
+  expect((await pane.find({ key: 'directory-src' }))?.text).toBe('▸ ')
+  expect(await pane.find({ type: 'Text', text: '2 files' })).toBeDefined()
+  expect(await pane.find({ key: 'file-src/Tax.php' })).toBeUndefined()
+
+  await pane.press({ key: 'navigate-s' })
+  expect(await pane.find({ type: 'Text', text: /^tests\/TotalTest\.php$/ })).toBeDefined()
+  await pane.press({ key: 'navigate-z' })
+  expect(await pane.find({ type: 'Text', text: /^docs\/guide\.md$/ })).toBeDefined()
+
+  await pane.press({ key: 'fold-current-directory' })
+  expect((await pane.find({ key: 'directory-docs' }))?.text).toBe('▸ ')
+  expect(await pane.find({ type: 'Text', text: '1 file' })).toBeDefined()
+  await pane.press({ key: 'fold-current-directory' })
+  expect((await pane.find({ key: 'directory-docs' }))?.text).toBe('▾ ')
+
+  await pane.press({ key: 'directory-src' })
+  expect(await pane.find({ key: 'file-src/Tax.php' })).toBeDefined()
+  await pane.press({ key: 'directory-src' })
+  await pane.press({ key: 'directory-docs' })
+  await pane.press({ key: 'file-tests/TotalTest.php' })
+  await pane.press({ key: 'navigate-z' })
+  expect(await pane.find({ type: 'Text', text: /^tests\/TotalTest\.php$/ })).toBeDefined()
+
+  await pane.press({ key: 'directory-src' })
+  await pane.press({ key: 'file-src/Total.php' })
+  await pane.press({ key: 'ask-3' })
+  await pane.input({ key: await questionFieldKey(pane), text: 'Why 2?' })
+  await pane.press({ key: 'file-tests/TotalTest.php' })
+  await pane.press({ key: 'directory-src' })
+  expect(await pane.find({ key: 'file-src/Total.php' })).toBeUndefined()
+  await pane.press({ key: 'thread-next' })
+  expect((await pane.find({ key: 'directory-src' }))?.text).toBe('▾ ')
+  expect(await pane.find({ key: 'file-src/Total.php' })).toBeDefined()
   await pane.unmount()
 })

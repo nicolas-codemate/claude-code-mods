@@ -43,8 +43,8 @@ test('the wheel scrolls the diff or the file list under the pointer, the other o
 test('a pane narrower than the minimum asks to be widened, and long lines wrap instead of being cut', async ($, on) => {
   stubWorld(on)
   await openExplorer($)
-  const narrowPane = await mountPane($, { bodyColumns: 62 })
-  expect(await narrowPane.find({ type: 'Text', text: /needs at least 80 columns \(now 62\)/ })).toBeDefined()
+  const narrowPane = await mountPane($, { bodyColumns: 52 })
+  expect(await narrowPane.find({ type: 'Text', text: /needs at least 60 columns \(now 52\)/ })).toBeDefined()
   expect(await narrowPane.find({ type: 'Button', text: 'Total.php' })).toBeUndefined()
   await narrowPane.unmount()
 
@@ -55,13 +55,66 @@ test('a pane narrower than the minimum asks to be widened, and long lines wrap i
   await widePane.unmount()
 })
 
-test('a pane drawn inline or narrow puts the file list above the diff, without a divider', async ($, on) => {
+test('a narrow pane shows the code alone, the file list opening over it and closing once a file is picked', async ($, on) => {
   stubWorld(on)
   await openExplorer($)
   const pane = await mountPane($, { bodyColumns: 100 })
-  expect(await pane.find({ type: 'Button', text: 'notes.md' })).toBeDefined()
+  const isDrawerOpen = async () => (await pane.find({ key: 'file-drawer-box' }))?.props.display === 'flex'
   expect(await pane.find({ key: 'file-divider' })).toBeUndefined()
+  expect(await isDrawerOpen()).toBe(false)
+  expect((await pane.find({ key: 'file-drawer-toggle' }))?.text).toBe('☰ Files 2')
+  expect(await pane.find({ type: 'Text', text: 'notes.md' })).toBeDefined()
+
+  await pane.press({ key: 'file-drawer-toggle' })
+  expect(await isDrawerOpen()).toBe(true)
+  expect((await pane.find({ key: 'file-drawer-toggle' }))?.text).toBe('✕ Files 2')
+  await pane.press({ key: 'file-src/Total.php' })
+  expect(await isDrawerOpen()).toBe(false)
+  expect(await pane.find({ type: 'Text', text: 'src/Total.php' })).toBeDefined()
+
+  await pane.press({ key: 'navigate-z' })
+  expect(await isDrawerOpen()).toBe(false)
+  expect(await pane.find({ type: 'Text', text: 'notes.md' })).toBeDefined()
+
+  await pane.press({ key: 'focus-file-filter' })
+  expect(await isDrawerOpen()).toBe(true)
+  await pane.input({ key: 'file-filter', text: 'total' })
+  expect(await isDrawerOpen()).toBe(false)
+  expect(await pane.find({ type: 'Text', text: 'src/Total.php' })).toBeDefined()
+
+  await pane.press({ key: 'file-drawer-toggle' })
+  await pane.press({ key: 'file-drawer-toggle' })
+  expect(await isDrawerOpen()).toBe(false)
   await pane.unmount()
+})
+
+test('a wide pane can collapse the file list behind the bar, the code then taking the whole width, and pin it back', async ($, on) => {
+  stubWorld(on)
+  await openExplorer($)
+  let pane = await mountPane($)
+  expect(await pane.find({ key: 'file-divider' })).toBeDefined()
+  expect(await pane.find({ key: 'file-list-pin' })).toBeUndefined()
+
+  await pane.press({ key: 'file-list-collapse' })
+  expect(await pane.find({ key: 'file-divider' })).toBeUndefined()
+  expect(await pane.find({ key: 'file-list-collapse' })).toBeUndefined()
+  await pane.press({ key: 'file-drawer-toggle' })
+  expect((await pane.find({ key: 'file-drawer-box' }))?.props.display).toBe('flex')
+  expect((await pane.find({ key: 'file-list-pin' }))?.text).toBe('\u{1F4CC} pin')
+  await pane.press({ key: 'file-src/Total.php' })
+  expect((await pane.find({ key: 'file-drawer-box' }))?.props.display).toBe('none')
+  await pane.unmount()
+
+  pane = await mountPane($)
+  expect(await pane.find({ key: 'file-divider' })).toBeUndefined()
+  await pane.press({ key: 'file-list-pin' })
+  expect(await pane.find({ key: 'file-divider' })).toBeDefined()
+  await pane.unmount()
+
+  const narrowPane = await mountPane($, { bodyColumns: 100 })
+  expect(await narrowPane.find({ key: 'file-list-pin' })).toBeUndefined()
+  expect(await narrowPane.find({ key: 'file-list-collapse' })).toBeUndefined()
+  await narrowPane.unmount()
 })
 
 test('dragging the divider sets the width of the file list, within bounds', async ($, on) => {
@@ -125,5 +178,22 @@ test('a light Claude Code theme draws the panels light', async ($, on) => {
   await openExplorer($)
   const pane = await mountPane($)
   expect(JSON.stringify(await pane.findAll({ type: 'Box' }))).toContain('#f6f5f1')
+  await pane.unmount()
+})
+
+test('the header buttons are pills: no border or padding around the label a click takes, the active view lit', async ($, on) => {
+  stubWorld(on)
+  await openExplorer($)
+  const pane = await mountPane($)
+  const pillOf = async (key: string) => (await pane.find({ key: `${key}-box` }))?.props
+
+  expect(await pillOf('view-uncommitted')).toEqual({ key: 'view-uncommitted-box', display: 'flex', flexShrink: 0, height: 1, backgroundColor: '#2b4a6e', marginRight: 1 })
+  expect(await pillOf('refresh')).toEqual({ key: 'refresh-box', display: 'flex', flexShrink: 0, height: 1, backgroundColor: '#2a2f3a', marginLeft: 1 })
+  expect((await pane.find({ key: 'view-pr' }))?.text).toBe('PR ')
+  expect((await pane.find({ key: 'refresh' }))?.text).toBe(' refresh ')
+
+  await pane.press({ key: 'view-pr' })
+  expect((await pillOf('view-pr'))?.backgroundColor).toBe('#2b4a6e')
+  expect((await pillOf('view-uncommitted'))?.backgroundColor).toBe('#2a2f3a')
   await pane.unmount()
 })

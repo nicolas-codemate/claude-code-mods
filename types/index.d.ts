@@ -71,6 +71,7 @@ declare module 'claude-code' {
     'diff-review': {
       view: ReviewView
       baseRef: string | null
+      baseBranchName: string | null
       commits: CommitSummary[]
       commitGraph: CommitGraphLine[]
       selectedCommitSha: string | null
@@ -98,9 +99,13 @@ declare module 'claude-code' {
       contextLinesByPath: Record<string, number>
       currentThreadId: string | null
       isNoiseShown: boolean
+      foldedDirectories: string[]
+      isFileDrawerOpen: boolean
+      isFileListCollapsed: boolean
       isSplitViewPreferred: boolean
       cursorRowIndex: number | null
       isHelpShown: boolean
+      answerPulseFrame: number
       claudeCodeTheme: string | null
       questionFieldNumber: number
       requestedPaneColumns: number

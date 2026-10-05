@@ -23,7 +23,7 @@ export function renderThreadsAndQuestion(
     <Box flexDirection="column" flexShrink={0}>
       {input.threads
         .filter(thread => thread.anchorKey === anchorKey)
-        .map(thread => renderThread(ui, thread, input.actions))}
+        .map(thread => renderThread(ui, thread, input.actions, questionState.isAnswerPulseLit))}
       {questionState.anchorWithOpenInput === anchorKey &&
         questionState.isQuestionFieldShown &&
         renderQuestionField(ui, questionState.questionFieldKey, input)}
@@ -32,7 +32,7 @@ export function renderThreadsAndQuestion(
   )
 }
 
-function renderThread(ui: ViewElements, thread: ReviewThread, actions: ExplorerActions) {
+function renderThread(ui: ViewElements, thread: ReviewThread, actions: ExplorerActions, isAnswerPulseLit: boolean) {
   const { Box, Button, Input, Markdown, Text } = ui
 
   return (
@@ -51,6 +51,7 @@ function renderThread(ui: ViewElements, thread: ReviewThread, actions: ExplorerA
         <Box flexGrow={1}>
           <Text color={ui.theme.accent} bold>
             ◆ Claude
+            {!isLastExchangeDone(thread) && <Text color={ui.theme.accent}>{isAnswerPulseLit ? '  ●' : '  ○'}</Text>}
           </Text>
         </Box>
         <Button
@@ -109,7 +110,7 @@ function renderQuestionField(
 
   return (
     <Box
-      flexDirection="row"
+      flexDirection="column"
       flexShrink={0}
       marginLeft={THREAD_INDENT}
       marginRight={2}
@@ -119,19 +120,37 @@ function renderQuestionField(
       backgroundColor={ui.theme.threadBackground}
       paddingX={1}
     >
-      <Box flexGrow={1}>
-        <Input
-          key={questionFieldKey}
-          autoFocus
-          onInput={value => input.actions.updateQuestionDraft(value)}
-          placeholder="Type your question, Enter to send (or ↓ to dictate it in the prompt)"
-          onSubmit={value => input.ask(value)}
+      <Box flexDirection="row">
+        <Box flexGrow={1}>
+          <Input
+            key={questionFieldKey}
+            autoFocus
+            onInput={value => input.actions.updateQuestionDraft(value)}
+            placeholder="Type your question, Enter to send"
+            onSubmit={value => input.ask(value)}
+          />
+        </Box>
+        <Box key="cancel-question-box" flexShrink={0} marginLeft={1}>
+          <Button
+            key={CANCEL_QUESTION_KEY}
+            plain
+            dimColor
+            hover={{ color: ui.theme.accent }}
+            label="× cancel"
+            onPress={() => input.actions.closeQuestion()}
+          />
+        </Box>
+      </Box>
+      <Box key="ask-from-prompt-box">
+        <Button
+          key="ask-from-prompt"
+          plain
+          dimColor
+          hover={{ color: ui.theme.accent }}
+          label="↓ dictate in the prompt instead"
+          onPress={() => input.armForPrompt()}
         />
       </Box>
-      <Box marginLeft={1}>
-        <Button key="ask-from-prompt" variant="primary" label="↓ dictate in prompt" onPress={() => input.armForPrompt()} />
-      </Box>
-      <Button key={CANCEL_QUESTION_KEY} label="× cancel" onPress={() => input.actions.closeQuestion()} />
     </Box>
   )
 }

@@ -5,7 +5,7 @@ import type { Keymap, ShortcutAction } from '../keymap'
 import { anchorKeyOf } from '../questions'
 import type { SplitRow, SplitSide } from '../split-rows'
 import { fileTypeBadgeOf } from './file-badges'
-import { renderFileStats, renderThreadNavigation } from './labels'
+import { renderFileStats, renderShortcutHint, renderThreadNavigation } from './labels'
 import { renderGitHubThread } from './github-threads'
 import { ROW_MARKS, rowBackgroundOf, rowColorOf } from './theme'
 import { renderThreadsAndQuestion } from './threads'
@@ -121,13 +121,14 @@ function renderHunkHeader(ui: ViewElements, row: DiffRow, rowIndex: number, file
 
   return (
     <Box key={`hunk-${rowIndex}`} flexDirection="row" paddingX={1} flexShrink={0} height={1}>
-      <Box flexShrink={0} overflow="hidden">
+      <Box flexShrink={1} minWidth={0} overflow="hidden">
         <Text color={ui.theme.hunk} wrap="truncate-end">
           {'@@ '}
           {row.text}{' '}
         </Text>
       </Box>
-      <Box flexGrow={1} flexShrink={1} minWidth={0} height={1} overflow="hidden">
+      {/* No width of its own: the rule only fills what the context leaves, and a long context is cut instead. */}
+      <Box flexGrow={1} flexShrink={0} width={0} height={1} overflow="hidden">
         <Text color={ui.theme.border} wrap="truncate-end">
           {HUNK_RULE}
         </Text>
@@ -326,11 +327,11 @@ function gitHubThreadInputOf(input: DiffViewInput) {
 
 export function renderLineShortcuts(ui: ViewElements, input: DiffViewInput) {
   const { Box, Button } = ui
-  const shortcuts: Array<{ key: string; action: ShortcutAction; label: string; onPress: () => Promise<void> }> = [
-    { key: 'cursor-down', action: 'nextLine', label: '↓ line', onPress: () => input.actions.moveCursor(1) },
-    { key: 'cursor-up', action: 'previousLine', label: '↑ line', onPress: () => input.actions.moveCursor(-1) },
-    { key: 'hunk-next', action: 'nextHunk', label: '↓ hunk', onPress: () => input.actions.moveCursorToHunk(1) },
-    { key: 'hunk-previous', action: 'previousHunk', label: '↑ hunk', onPress: () => input.actions.moveCursorToHunk(-1) },
+  const shortcuts: Array<{ key: string; action: ShortcutAction; label: string; isMove?: boolean; onPress: () => Promise<void> }> = [
+    { key: 'cursor-down', action: 'nextLine', label: '↓ line', isMove: true, onPress: () => input.actions.moveCursor(1) },
+    { key: 'cursor-up', action: 'previousLine', label: '↑ line', isMove: true, onPress: () => input.actions.moveCursor(-1) },
+    { key: 'hunk-next', action: 'nextHunk', label: '↓ hunk', isMove: true, onPress: () => input.actions.moveCursorToHunk(1) },
+    { key: 'hunk-previous', action: 'previousHunk', label: '↑ hunk', isMove: true, onPress: () => input.actions.moveCursorToHunk(-1) },
     { key: ASK_ON_LINE_KEY, action: 'askOnLine', label: input.isOnGitHubThread ? 'address comment' : 'ask', onPress: () => input.actions.askOnCursorLine() },
     { key: 'reply-on-line', action: 'replyOnLine', label: 'reply', onPress: () => input.actions.replyOnCursorLine() },
   ]
@@ -351,6 +352,17 @@ export function renderLineShortcuts(ui: ViewElements, input: DiffViewInput) {
       {shortcuts.map(shortcut => {
         const hotkey = input.hotkeyOf(shortcut.action)
         const typedKey = input.keymap[shortcut.action][0] ?? ''
+        // A move only names its key; its hidden button carries it.
+        if (shortcut.isMove) {
+          return (
+            <Box key={`box-${shortcut.key}`} marginRight={2} flexShrink={0}>
+              {renderShortcutHint(ui, typedKey, shortcut.label, hotkey === undefined)}
+              <Box display="none">
+                <Button key={shortcut.key} plain hotkey={hotkey} label={shortcut.label} onPress={shortcut.onPress} />
+              </Box>
+            </Box>
+          )
+        }
         return (
           <Box key={`box-${shortcut.key}`} marginRight={2} flexShrink={0}>
             <Button

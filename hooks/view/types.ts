@@ -7,7 +7,9 @@ import type { Theme } from './theme'
 export type GitHubPage = { url: string; description: string }
 
 // The elements a view draws with, and the colors of the pane's theme.
+// `Svg` is the Desktop's alone: the terminal draws the same things in text.
 export type ViewElements = Pick<Elements['terminal'], 'Box' | 'Button' | 'Client' | 'Code' | 'Input' | 'Link' | 'Markdown' | 'Text'> & {
+  Svg?: Elements['desktop']['Svg']
   theme: Theme
 }
 
@@ -28,6 +30,11 @@ export type ExplorerActions = {
   stageAllChanges: () => Promise<void>
   updateFileFilter: (filter: string) => Promise<void>
   toggleNoiseShown: () => Promise<void>
+  toggleDirectoryFold: (directory: string) => Promise<void>
+  toggleCurrentDirectoryFold: () => Promise<void>
+  toggleFileDrawer: () => Promise<void>
+  toggleFileListCollapse: () => Promise<void>
+  openFirstThreadOfFile: (path: string) => Promise<void>
   expandContext: (path: string) => Promise<void>
   showWholeFile: (path: string) => Promise<void>
   toggleSplitView: () => Promise<void>
@@ -72,4 +79,6 @@ export type QuestionState = {
   isQuestionFieldShown: boolean
   questionFieldKey: string
   armedAnchorKey: string | null
+  // Lit and unlit by turns while Claude answers a thread.
+  isAnswerPulseLit: boolean
 }

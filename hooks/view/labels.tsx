@@ -1,6 +1,37 @@
 import type { ChangedFile } from '../../types'
 import type { ShortcutAction } from '../keymap'
+import { imagesAsLinks } from '../markdown'
 import type { ExplorerActions, ThreadNavigation, ViewElements } from './types'
+
+// A picture's link opens it in the browser on a plain click, the one place that draws it and holds the GitHub login a
+// private repository's attachment needs.
+export function renderMarkdownWithImages(ui: ViewElements, key: string, markdown: string, actions: ExplorerActions) {
+  const { Markdown } = ui
+  const { markdown: text, imageUrls } = imagesAsLinks(markdown)
+  if (imageUrls.length === 0) {
+    return <Markdown key={key} text={text} />
+  }
+
+  return (
+    <Markdown
+      key={key}
+      text={text}
+      pressableLinks={imageUrls}
+      onLinkPress={link => actions.openOnGitHub({ url: link.href, description: 'image' })}
+    />
+  )
+}
+
+// A key and what it does, as a plain Button with a hotkey reads, for a move the keyboard makes and a click would not.
+export function renderShortcutHint(ui: ViewElements, key: string, label: string, isDim: boolean) {
+  const { Text } = ui
+
+  return (
+    <Text dimColor={isDim}>
+      <Text color={ui.theme.accent}>{key}</Text>: {label}
+    </Text>
+  )
+}
 
 export function renderFileStats(ui: ViewElements, file: ChangedFile) {
   const { Text } = ui

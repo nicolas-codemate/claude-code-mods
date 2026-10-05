@@ -74,6 +74,16 @@
       "title": "Key: Filter the files (Enter goes back to the diff)",
       "description": "One letter or digit (several: comma separated). Empty keeps the default: i."
     },
+    "key_fold_directory": {
+      "type": "string",
+      "title": "Key: Fold or unfold the file's directory",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: 0."
+    },
+    "key_collapse_file_list": {
+      "type": "string",
+      "title": "Key: Collapse the file list behind a bar, or pin it beside the code",
+      "description": "One letter or digit (several: comma separated). Empty keeps the default: 9."
+    },
     "key_previous_line": {
       "type": "string",
       "title": "Key: Line above",

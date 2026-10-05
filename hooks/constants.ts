@@ -7,7 +7,8 @@ export const PANE_TITLE = 'Review'
 // The transcript and the prompt keep the left third, the review takes the rest.
 export const PANE_SHARE_OF_TERMINAL = 2 / 3
 // Under this width the gutter (ask button, line numbers, marker) leaves too little room to read code.
-export const MIN_PANE_COLUMNS = 80
+export const MIN_PANE_COLUMNS = 60
+// Narrower, the file list leaves the code the whole width and opens over it on demand.
 export const TWO_COLUMNS_MIN_WIDTH = 120
 export const DEFAULT_FILE_LIST_WIDTH = 50
 export const MIN_FILE_LIST_WIDTH = 24
@@ -15,7 +16,10 @@ export const MIN_DIFF_WIDTH = 40
 // Each half of the side-by-side view needs about as much room as the narrowest unified diff.
 export const SPLIT_VIEW_MIN_DIFF_WIDTH = 140
 export const COMMIT_PANEL_MAX_LINES = 8
+// What the header holds besides the Desktop's tiles: the view tabs, the buttons and a little of the location.
+export const HEADER_COLUMNS_WITHOUT_TILES = 135
 export const WHEEL_TICK_ROWS = 3
+export const ANSWER_PULSE_MS = 600
 export const CONTEXT_RADIUS_ROWS = 6
 export const DEFAULT_DIFF_CONTEXT_LINES = 3
 export const DIFF_CONTEXT_STEP_LINES = 20
@@ -43,6 +47,7 @@ export const CANCEL_QUESTION_KEY = 'cancel-question'
 export const FILE_FILTER_KEY = 'file-filter'
 export const DIVIDER_KEY = 'file-divider'
 export const FILE_BUTTON_KEY_PREFIX = 'file-'
+export const DIRECTORY_BUTTON_KEY_PREFIX = 'directory-'
 export const ASK_ON_LINE_KEY = 'ask-on-line'
 // The keyboard rests on a hidden button drawn first in the pane: the engine keeps the focus by position, so a button
 // drawn after threads or files would drift as they come and go. Enter on it asks about the cursor's line.
@@ -63,6 +68,7 @@ export const GH_TIMEOUT_MS = 20000
 
 export const FILE_LIST_WIDTH_STORE_KEY = 'fileListWidth'
 export const SPLIT_VIEW_STORE_KEY = 'isSplitViewPreferred'
+export const FILE_LIST_COLLAPSED_STORE_KEY = 'isFileListCollapsed'
 export const THREADS_STORE_KEY_PREFIX = 'threads'
 export const MAX_SAVED_THREADS_PER_BRANCH = 100
 export const EMOJI_STORE_KEY = 'githubEmojiCharacters'

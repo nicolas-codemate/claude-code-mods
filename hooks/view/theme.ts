@@ -27,6 +27,9 @@ export type Theme = {
   gitHubThread: string
   gitHubThreadBorder: string
   gitHubThreadBackground: string | undefined
+  // The fill of the drawings the Desktop shows: kept when the backgrounds go back to the terminal, since a drawing
+  // brings its own text colors and needs its own surface under them.
+  tileFill: string
 }
 
 const DARK_THEME: Theme = {
@@ -54,6 +57,7 @@ const DARK_THEME: Theme = {
   gitHubThread: '#b392f0',
   gitHubThreadBorder: '#3d3160',
   gitHubThreadBackground: '#1a1626',
+  tileFill: '#1c2029',
 }
 
 const LIGHT_THEME: Theme = {
@@ -81,6 +85,7 @@ const LIGHT_THEME: Theme = {
   gitHubThread: '#7038c7',
   gitHubThreadBorder: '#cdb6f2',
   gitHubThreadBackground: '#f6f1fd',
+  tileFill: '#f0efe9',
 }
 
 // Claude Code's light themes are named light-…; anything else, the terminal-following one included, counts as dark.

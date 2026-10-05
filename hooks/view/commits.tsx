@@ -1,18 +1,37 @@
 import type { CommitGraphLine } from '../../types'
 import { ROW_CLICK_TARGET_LENGTH } from '../constants'
+import { DESKTOP_PIXELS_PER_COLUMN, GRAPH_ROW_PIXELS, commitGraphRowSvg } from './drawings'
 import type { ExplorerActions, ViewElements } from './types'
 
 export function renderCommitList(
   ui: ViewElements,
   input: {
     commitCount: number
+    commitGraph: CommitGraphLine[]
+    firstShownLineIndex: number
     shownGraphLines: CommitGraphLine[]
     repositoryWebUrl: string | null
     selectedCommitSha: string | null
     actions: ExplorerActions
   },
 ) {
-  const { Box, Button, Link, Text } = ui
+  const { Box, Button, Link, Svg, Text } = ui
+  const graphColumns = Math.max(1, ...input.commitGraph.map(line => line.graph.length))
+  // On the Desktop the lanes are drawn, all rows as wide as the widest so the commits line up; the terminal keeps
+  // git's own characters.
+  const renderGraph = (lineIndex: number, isSelected: boolean, graphText: string) =>
+    Svg ? (
+      <Box flexShrink={0} height={1} marginRight={1} flexDirection="column" justifyContent="center" overflow="hidden">
+        <Svg
+          source={commitGraphRowSvg(ui.theme, input.commitGraph, input.firstShownLineIndex + lineIndex, graphColumns, isSelected)}
+          alt={graphText}
+          width={graphColumns * DESKTOP_PIXELS_PER_COLUMN}
+          height={GRAPH_ROW_PIXELS}
+        />
+      </Box>
+    ) : (
+      <Text color={ui.theme.hunk}>{graphText} </Text>
+    )
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={ui.theme.border} backgroundColor={ui.theme.panelBackground} paddingX={1} marginBottom={1}>
@@ -24,8 +43,9 @@ export function renderCommitList(
         const { commit } = line
         if (!commit) {
           return (
-            <Box key={`graph-${lineIndex}`} height={1}>
-              <Text color={ui.theme.muted}> {line.graph}</Text>
+            <Box key={`graph-${lineIndex}`} flexDirection="row" height={1}>
+              <Text color={ui.theme.muted}> {Svg ? '' : line.graph}</Text>
+              {Svg && renderGraph(lineIndex, false, line.graph)}
             </Box>
           )
         }
@@ -38,8 +58,8 @@ export function renderCommitList(
         return (
           <Box key={`graph-${lineIndex}`} flexDirection="row" height={1} backgroundColor={isSelected ? ui.theme.selectedBackground : undefined}>
             <Text color={isSelected ? ui.theme.accent : ui.theme.muted}>{isSelected ? '▌' : ' '}</Text>
-            <Box flexShrink={0}>
-              <Text color={ui.theme.hunk}>{line.graph} </Text>
+            <Box flexShrink={0} flexDirection="row">
+              {renderGraph(lineIndex, isSelected, line.graph)}
               <Text color={ui.theme.commitSha}>{shortSha} </Text>
               {commit.refs.length > 0 && <Text color={ui.theme.directory}>({commit.refs.join(', ')}) </Text>}
             </Box>

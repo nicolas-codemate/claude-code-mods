@@ -1,5 +1,7 @@
 import type { GitHubReviewThread } from '../../types'
 import { ADDRESS_GITHUB_THREAD_KEY_PREFIX, ROW_CLICK_TARGET_LENGTH } from '../constants'
+import { imagesAsLinks } from '../markdown'
+import { renderMarkdownWithImages } from './labels'
 import type { ExplorerActions, ViewElements } from './types'
 
 const GITHUB_THREAD_INDENT = 16
@@ -8,7 +10,7 @@ export type GitHubThreadInput = { expandedThreadIds: string[]; currentThreadId: 
 
 // A resolved conversation folds to one line, as GitHub shows it, until opened or reached with the keyboard.
 export function renderGitHubThread(ui: ViewElements, thread: GitHubReviewThread, input: GitHubThreadInput) {
-  const { Box, Button, Link, Markdown, Text } = ui
+  const { Box, Button, Link, Text } = ui
   const firstComment = thread.comments[0]
   const isCurrent = thread.id === input.currentThreadId
   const isFolded = thread.isResolved && !isCurrent && !input.expandedThreadIds.includes(thread.id)
@@ -99,7 +101,7 @@ export function renderGitHubThread(ui: ViewElements, thread: GitHubReviewThread,
             </Text>
             <Text color={ui.theme.muted}> · {comment.createdAt.slice(0, 10)}</Text>
           </Text>
-          <Markdown text={comment.body} />
+          {renderMarkdownWithImages(ui, `github-comment-${thread.id}-${commentIndex}`, comment.body, input.actions)}
         </Box>
       ))}
     </Box>
@@ -107,5 +109,8 @@ export function renderGitHubThread(ui: ViewElements, thread: GitHubReviewThread,
 }
 
 function plainFirstLineOf(markdown: string): string {
-  return (markdown.split('\n')[0] ?? '').replace(/[*_`~]+/g, '').replace(/^#+\s*/, '')
+  return (imagesAsLinks(markdown).markdown.split('\n')[0] ?? '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[*_`~]+/g, '')
+    .replace(/^#+\s*/, '')
 }

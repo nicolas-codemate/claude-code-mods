@@ -207,3 +207,24 @@ test('threads saved by an earlier session on this branch come back under their l
   await pane.unmount()
   expect(JSON.stringify(world.store.get('threads|/work/shop|feat/tax'))).toContain('A new one')
 })
+
+test('the mark of a thread blinks while Claude answers it and goes once the answer is in', async ($, on) => {
+  const world = stubWorld(on)
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'file-src/Total.php' })
+  await pane.press({ key: 'ask-3' })
+  await pane.input({ key: await questionFieldKey(pane), text: 'Why 2?' })
+
+  const mark = async () => (await pane.find({ type: 'Text', text: /^ {2}[●○]$/ }))?.text
+  expect(await mark()).toBe('  ●')
+  await world.clock.advance(600)
+  expect(await mark()).toBe('  ○')
+  await world.clock.advance(600)
+  expect(await mark()).toBe('  ●')
+
+  await answerTurn($, 'turn-1', 'Why 2?', 'Because the total doubled.')
+  await world.clock.advance(600)
+  expect(await mark()).toBeUndefined()
+  await pane.unmount()
+})

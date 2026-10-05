@@ -2,7 +2,7 @@ import type { PullRequestSummary, ReviewThread } from '../../types'
 import { ASK_BUTTON_KEY_PREFIX } from '../constants'
 import type { ShortcutAction } from '../keymap'
 import { overviewAnchorKeyOf } from '../questions'
-import { renderLineCounts, renderThreadNavigation } from './labels'
+import { renderLineCounts, renderMarkdownWithImages, renderThreadNavigation } from './labels'
 import { renderThreadsAndQuestion } from './threads'
 import type { ExplorerActions, QuestionState, ThreadNavigation, ViewElements } from './types'
 
@@ -19,7 +19,7 @@ export type OverviewInput = {
 }
 
 export function renderOverview(ui: ViewElements, input: OverviewInput) {
-  const { Box, Button, Markdown, Text } = ui
+  const { Box, Button, Text } = ui
   const { pullRequest } = input
   const shownBlocks = input.blocks.slice(input.blockOffset, input.blockOffset + input.visibleBlocks)
 
@@ -63,7 +63,7 @@ export function renderOverview(ui: ViewElements, input: OverviewInput) {
                 </Box>
               </Box>
               <Box flexGrow={1} flexShrink={1} flexDirection="column">
-                <Markdown text={block} />
+                {renderMarkdownWithImages(ui, `overview-block-${blockIndex}`, block, input.actions)}
               </Box>
             </Box>
             {renderThreadsAndQuestion(ui, {

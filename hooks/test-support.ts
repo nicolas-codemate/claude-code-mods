@@ -135,10 +135,10 @@ export async function reopenExplorer($: Engine, terminalColumns = 300): Promise<
 
 export type PaneOptions = { isFocused?: boolean; bodyColumns?: number; bodyRows?: number; placement?: 'dock' | 'inline' }
 
-export function paneTarget(options: PaneOptions = {}) {
+export function paneTarget<Surface extends 'terminal' | 'desktop' = 'terminal'>(options: PaneOptions = {}, surface?: Surface) {
   return {
     plugin: 'diff-review',
-    surface: 'terminal',
+    surface: (surface ?? 'terminal') as Surface,
     component: 'Pane',
     requestId: 'diff-review',
     props: {
@@ -153,6 +153,10 @@ export function paneTarget(options: PaneOptions = {}) {
 
 export async function mountPane($: Engine, options: PaneOptions = {}): Promise<Mounted<'terminal', 'Pane'>> {
   return $.ui.mount(paneTarget(options))
+}
+
+export async function mountDesktopPane($: Engine, options: PaneOptions = {}): Promise<Mounted<'desktop', 'Pane'>> {
+  return $.ui.mount(paneTarget(options, 'desktop'))
 }
 
 export async function keyStartingWith(pane: Mounted<'terminal', 'Pane'>, type: 'Input' | 'Button', prefix: string): Promise<string> {

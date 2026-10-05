@@ -3,6 +3,7 @@ import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
 import type { ChangedFile, DiffRow, GitHubReviewThread, KeyboardLayout, ReviewView, ViewedState } from '../types'
 import {
+  ANSWER_PULSE_MS,
   ASK_BUTTON_KEY_PREFIX,
   ASK_ON_LINE_KEY,
   CURSOR_LINE_FOCUS_KEY,
@@ -19,6 +20,7 @@ import {
   EMOJI_STORE_KEY,
   BROWSER_OPENERS,
   FILE_BUTTON_KEY_PREFIX,
+  FILE_LIST_COLLAPSED_STORE_KEY,
   FILE_LIST_WIDTH_STORE_KEY,
   SPLIT_VIEW_MIN_DIFF_WIDTH,
   SPLIT_VIEW_STORE_KEY,
@@ -42,6 +44,7 @@ import {
 } from './constants'
 import {
   diffRangeArguments,
+  directoryOf,
   groupFilesByDirectory,
   LOG_FORMAT,
   commitsOfGraph,
@@ -70,12 +73,13 @@ import { cursorAtHunk, cursorStopsOf, firstChangeStop, movedCursor, offsetShowin
 import { visibleFilesOf } from './file-filter'
 import { KEYBOARD_LAYOUT_SOURCES, keyboardLayoutOf } from './keyboard'
 import { resolveKeymap } from './keymap'
-import { clampFileListWidth, clampOffset } from './layout'
+import { buildFileLines, clampFileListWidth, clampOffset } from './layout'
 import { parseEmojiCharacters, splitMarkdownBlocks } from './markdown'
 import {
   isLastExchangeDone,
   newThread,
   overviewQuestionTarget,
+  openThreadsByPath,
   parseAnchorKey,
   queuedExchange,
   replyContextOf,
@@ -102,6 +106,7 @@ const repositoryRootAtom = atom({ plugin: 'diff-review', key: 'repositoryRoot' }
 const repositoryWebUrlAtom = atom({ plugin: 'diff-review', key: 'repositoryWebUrl' } as const, null)
 const branchAtom = atom({ plugin: 'diff-review', key: 'branch' } as const, null)
 const baseRefAtom = atom({ plugin: 'diff-review', key: 'baseRef' } as const, null)
+const baseBranchNameAtom = atom({ plugin: 'diff-review', key: 'baseBranchName' } as const, null)
 const commitsAtom = atom({ plugin: 'diff-review', key: 'commits' } as const, [])
 const commitGraphAtom = atom({ plugin: 'diff-review', key: 'commitGraph' } as const, [])
 const gitHubReviewThreadsAtom = atom({ plugin: 'diff-review', key: 'gitHubReviewThreads' } as const, [])
@@ -132,9 +137,13 @@ const focusedElementKeyAtom = atom({ plugin: 'diff-review', key: 'focusedElement
 const fileFilterAtom = atom({ plugin: 'diff-review', key: 'fileFilter' } as const, '')
 const contextLinesByPathAtom = atom({ plugin: 'diff-review', key: 'contextLinesByPath' } as const, {})
 const isNoiseShownAtom = atom({ plugin: 'diff-review', key: 'isNoiseShown' } as const, false)
+const foldedDirectoriesAtom = atom({ plugin: 'diff-review', key: 'foldedDirectories' } as const, [])
+const isFileDrawerOpenAtom = atom({ plugin: 'diff-review', key: 'isFileDrawerOpen' } as const, false)
+const isFileListCollapsedAtom = atom({ plugin: 'diff-review', key: 'isFileListCollapsed' } as const, false)
 const cursorRowIndexAtom = atom({ plugin: 'diff-review', key: 'cursorRowIndex' } as const, null)
 const claudeCodeThemeAtom = atom({ plugin: 'diff-review', key: 'claudeCodeTheme' } as const, null)
 const isHelpShownAtom = atom({ plugin: 'diff-review', key: 'isHelpShown' } as const, false)
+const answerPulseFrameAtom = atom({ plugin: 'diff-review', key: 'answerPulseFrame' } as const, 0)
 const isSplitViewPreferredAtom = atom({ plugin: 'diff-review', key: 'isSplitViewPreferred' } as const, false)
 
 // New files marked for git add.
@@ -157,6 +166,7 @@ type CommandResult = { isSuccess: boolean; output: string }
 // resize the file list from where a drag of the divider started.
 const lastDrawnLayout = {
   isTwoColumns: true,
+  isFileDrawerOpen: false,
   panelsTop: 0,
   bodyColumns: 0,
   fileListWidth: 0,
@@ -400,7 +410,7 @@ async function markViewedAndNext($: EngineInterface): Promise<void> {
 
 // A PR may target another branch than the repository's default one (a release branch such as 2026-09): its own
 // target comes first, or the PR view would list the commits of that branch too.
-async function findBaseRef($: EngineInterface): Promise<string | null> {
+async function findBaseRef($: EngineInterface): Promise<{ sha: string; branchName: string } | null> {
   const pullRequestBase = (await read($, pullRequestAtom))?.baseRefName
   const originHead = await runGit($, ['rev-parse', '--abbrev-ref', 'origin/HEAD'])
   const candidates = [
@@ -411,7 +421,7 @@ async function findBaseRef($: EngineInterface): Promise<string | null> {
   for (const candidate of candidates) {
     const mergeBase = await runGit($, ['merge-base', 'HEAD', candidate])
     if (mergeBase.isSuccess) {
-      return mergeBase.output.trim()
+      return { sha: mergeBase.output.trim(), branchName: candidate.replace(/^origin\//, '') }
     }
   }
 
@@ -526,8 +536,10 @@ async function loadView($: EngineInterface): Promise<void> {
   const branch = await runGit($, ['rev-parse', '--abbrev-ref', 'HEAD'])
   await update($, branchAtom, () => (branch.isSuccess ? branch.output.trim() : null))
   const view = await read($, viewAtom)
-  const baseRef = await findBaseRef($)
+  const base = await findBaseRef($)
+  const baseRef = base?.sha ?? null
   await update($, baseRefAtom, () => baseRef)
+  await update($, baseBranchNameAtom, () => base?.branchName ?? null)
   if (view === 'commits') {
     await loadBranchCommits($, baseRef)
   }
@@ -590,6 +602,8 @@ async function showOverview($: EngineInterface): Promise<void> {
 async function selectFile($: EngineInterface, path: string, focus: 'first-change' | 'caller' = 'first-change'): Promise<void> {
   await update($, isOverviewShownAtom, () => false)
   await update($, selectedFilePathAtom, () => path)
+  // A file reached from a thread or from the next one to view opens its folded directory.
+  await update($, foldedDirectoriesAtom, folded => folded.filter(directory => directory !== directoryOf(path)))
   await update($, diffOffsetAtom, () => 0)
   await update($, cursorRowIndexAtom, () => null)
   await scrollFileListTo($, path)
@@ -621,8 +635,11 @@ async function focusFirstChange($: EngineInterface): Promise<void> {
 }
 
 async function scrollFileListTo($: EngineInterface, path: string): Promise<void> {
-  const fileLineIndex = lastDrawnLayout.fileLineIndexByPath[path]
-  if (fileLineIndex === undefined) {
+  // The list as it is about to be drawn, the directory of the file maybe just unfolded.
+  const hasOverview = (await read($, viewAtom)) === 'pr' && (await read($, pullRequestAtom)) !== null
+  const fileLines = buildFileLines(await shownFilesOf($, await read($, filesAtom)), hasOverview, await read($, foldedDirectoriesAtom))
+  const fileLineIndex = fileLines.findIndex(fileLine => fileLine.kind === 'file' && fileLine.file.path === path)
+  if (fileLineIndex === -1) {
     return
   }
   const visibleFileLines = lastDrawnLayout.visibleFileLines
@@ -634,6 +651,12 @@ async function scrollFileListTo($: EngineInterface, path: string): Promise<void>
   })
 }
 
+async function toggleDirectoryFold($: EngineInterface, directory: string): Promise<void> {
+  await update($, foldedDirectoriesAtom, folded =>
+    folded.includes(directory) ? folded.filter(candidate => candidate !== directory) : [...folded, directory],
+  )
+}
+
 // In the PR view the overview stands first, before the files.
 async function moveFileSelection($: EngineInterface, offset: number): Promise<void> {
   const overviewEntry = '\u0000overview'
@@ -643,8 +666,13 @@ async function moveFileSelection($: EngineInterface, offset: number): Promise<vo
   const orderedEntries = hasOverview ? [overviewEntry, ...filePaths] : filePaths
   const currentEntry =
     hasOverview && (await read($, isOverviewShownAtom)) ? overviewEntry : ((await read($, selectedFilePathAtom)) ?? '')
-  const targetEntry =
-    orderedEntries[Math.min(orderedEntries.length - 1, Math.max(0, orderedEntries.indexOf(currentEntry) + offset))]
+  // The files of folded directories are stepped over; the selected one may sit in a directory folded since.
+  const foldedDirectories = await read($, foldedDirectoriesAtom)
+  const isListed = (entry: string) => entry === overviewEntry || !foldedDirectories.includes(directoryOf(entry))
+  const currentIndex = orderedEntries.indexOf(currentEntry)
+  const candidates = offset > 0 ? orderedEntries.slice(currentIndex + 1) : orderedEntries.slice(0, Math.max(0, currentIndex)).reverse()
+  const listedCandidates = candidates.filter(isListed)
+  const targetEntry = currentIndex === -1 ? orderedEntries.find(isListed) : (listedCandidates[Math.abs(offset) - 1] ?? listedCandidates.at(-1))
   if (targetEntry === overviewEntry) {
     await showOverview($)
   } else if (targetEntry !== undefined) {
@@ -922,8 +950,24 @@ async function moveThread($: EngineInterface, offset: number): Promise<void> {
   const targetIndex =
     currentIndex === -1 ? (offset > 0 ? 0 : orderedThreads.length - 1) : (currentIndex + offset + orderedThreads.length) % orderedThreads.length
   const target = orderedThreads[targetIndex]
-  const anchor = target ? parseAnchorKey(target.anchorKey) : null
-  if (!target || !anchor) {
+  if (target) {
+    await goToThread($, target)
+  }
+}
+
+// The file list's comment mark leads to the first thread still open in its file.
+async function goToFirstOpenThreadOfFile($: EngineInterface, path: string): Promise<void> {
+  const gitHubReviewThreads = await read($, gitHubReviewThreadsAtom)
+  const resolvedThreadIds = new Set(gitHubReviewThreads.filter(thread => thread.isResolved).map(thread => thread.id))
+  const firstOpenThread = openThreadsByPath(await threadsOfScreen($), resolvedThreadIds)[path]?.[0]
+  if (firstOpenThread) {
+    await goToThread($, firstOpenThread)
+  }
+}
+
+async function goToThread($: EngineInterface, target: { id: string; anchorKey: string }): Promise<void> {
+  const anchor = parseAnchorKey(target.anchorKey)
+  if (!anchor) {
     return
   }
   await update($, currentThreadIdAtom, () => target.id)
@@ -1109,6 +1153,7 @@ async function readExplorerSnapshot($: EngineInterface, options: PluginOptions):
     repositoryWebUrl: await read($, repositoryWebUrlAtom),
     branch: await read($, branchAtom),
     baseRef: await read($, baseRefAtom),
+    baseBranchName: await read($, baseBranchNameAtom),
     isLoading: await read($, isLoadingAtom),
     loadError: await read($, loadErrorAtom),
     commits: await read($, commitsAtom),
@@ -1128,6 +1173,9 @@ async function readExplorerSnapshot($: EngineInterface, options: PluginOptions):
       Object.entries(await read($, contextLinesByPathAtom)).map(([path, lines]) => [path, lines >= WHOLE_FILE_CONTEXT_LINES]),
     ),
     isNoiseShown: await read($, isNoiseShownAtom),
+    foldedDirectories: await read($, foldedDirectoriesAtom),
+    isFileDrawerOpen: await read($, isFileDrawerOpenAtom),
+    isFileListCollapsed: await read($, isFileListCollapsedAtom),
     isSplitViewPreferred: await read($, isSplitViewPreferredAtom),
     keymap,
     keymapProblems: problems,
@@ -1144,6 +1192,7 @@ async function readExplorerSnapshot($: EngineInterface, options: PluginOptions):
     hasQuestionHadKeyboard: await read($, hasQuestionHadKeyboardAtom),
     armedAnchorKey: (await read($, armedQuestionAtom))?.anchorKey ?? null,
     currentThreadId: await read($, currentThreadIdAtom),
+    answerPulseFrame: await read($, answerPulseFrameAtom),
   }
 }
 
@@ -1154,8 +1203,14 @@ function explorerActions($: EngineInterface): ExplorerActions {
     refresh: () => refreshExplorer($),
     close: () => $.ui.close({ id: PANE_ID }),
     selectCommit: commitSha => selectCommit($, commitSha),
-    showOverview: () => showOverview($),
-    selectFile: path => selectFile($, path),
+    showOverview: async () => {
+      await update($, isFileDrawerOpenAtom, () => false)
+      await showOverview($)
+    },
+    selectFile: async path => {
+      await update($, isFileDrawerOpenAtom, () => false)
+      await selectFile($, path)
+    },
     moveFileSelection: offset => moveFileSelection($, offset),
     toggleViewed: path => toggleViewed($, path),
     toggleMarked: path => toggleMarked($, path),
@@ -1183,6 +1238,13 @@ function explorerActions($: EngineInterface): ExplorerActions {
     },
     toggleNoiseShown: async () => {
       await update($, isNoiseShownAtom, isNoiseShown => !isNoiseShown)
+    },
+    toggleDirectoryFold: directory => toggleDirectoryFold($, directory),
+    toggleCurrentDirectoryFold: async () => {
+      const selectedFilePath = await read($, selectedFilePathAtom)
+      if (selectedFilePath !== null && !(await read($, isOverviewShownAtom))) {
+        await toggleDirectoryFold($, directoryOf(selectedFilePath))
+      }
     },
     openQuestion: anchorKey => openQuestion($, anchorKey),
     closeQuestion: () => closeQuestion($),
@@ -1212,12 +1274,37 @@ function explorerActions($: EngineInterface): ExplorerActions {
     replyOnCursorLine: () => replyOnCursorLine($),
     markViewedAndNext: () => markViewedAndNext($),
     focusFileFilter: async () => {
+      await update($, isFileDrawerOpenAtom, () => !lastDrawnLayout.isTwoColumns)
       focusAfterNextDrawing($, FILE_FILTER_KEY)
     },
     submitFileFilter: async filter => {
       await update($, fileFilterAtom, () => filter)
       await update($, fileListOffsetAtom, () => 0)
+      if (lastDrawnLayout.isFileDrawerOpen) {
+        // The drawer gives the code its place back on the file the filter found.
+        await update($, isFileDrawerOpenAtom, () => false)
+        const shownFiles = await shownFilesOf($, await read($, filesAtom))
+        const selectedFilePath = await read($, selectedFilePathAtom)
+        const foundPath = groupFilesByDirectory(shownFiles)[0]?.files[0]?.path
+        if (foundPath && !shownFiles.some(file => file.path === selectedFilePath)) {
+          await selectFile($, foundPath)
+          return
+        }
+      }
       await focusFirstChange($)
+    },
+    toggleFileDrawer: async () => {
+      await update($, isFileDrawerOpenAtom, isFileDrawerOpen => !isFileDrawerOpen)
+    },
+    openFirstThreadOfFile: async path => {
+      await update($, isFileDrawerOpenAtom, () => false)
+      await goToFirstOpenThreadOfFile($, path)
+    },
+    toggleFileListCollapse: async () => {
+      const isFileListCollapsed = !(await read($, isFileListCollapsedAtom))
+      await update($, isFileListCollapsedAtom, () => isFileListCollapsed)
+      await update($, isFileDrawerOpenAtom, () => false)
+      await $.store.set(FILE_LIST_COLLAPSED_STORE_KEY, isFileListCollapsed).catch(() => undefined)
     },
     toggleHelp: async () => {
       await update($, isHelpShownAtom, isHelpShown => !isHelpShown)
@@ -1247,12 +1334,22 @@ export const register: Register = (on, options) => {
     if (typeof savedFileListWidth === 'number') {
       await update($, fileListWidthAtom, () => savedFileListWidth)
     }
+    const savedFileListCollapse = await $.store.get(FILE_LIST_COLLAPSED_STORE_KEY).catch(() => undefined)
+    if (typeof savedFileListCollapse === 'boolean') {
+      await update($, isFileListCollapsedAtom, () => savedFileListCollapse)
+    }
     const savedSplitViewPreference = await $.store.get(SPLIT_VIEW_STORE_KEY).catch(() => undefined)
     if (typeof savedSplitViewPreference === 'boolean') {
       await update($, isSplitViewPreferredAtom, () => savedSplitViewPreference)
     }
     const keyboardLayout = await detectKeyboardLayout($)
     await update($, keyboardLayoutAtom, () => keyboardLayout)
+    // The mark of a thread Claude is still answering blinks; nothing is redrawn while no answer is awaited.
+    $.clock.every(ANSWER_PULSE_MS, async () => {
+      if ((await read($, threadsAtom)).some(thread => !isLastExchangeDone(thread))) {
+        await update($, answerPulseFrameAtom, frame => frame + 1)
+      }
+    })
     await $.command.register({
       name: 'diff-review',
       description: 'Open the review explorer: uncommitted changes, the PR, or commit by commit',
@@ -1302,7 +1399,8 @@ export const register: Register = (on, options) => {
     const isOverFileList =
       pointer !== undefined &&
       pointer.row >= layout.panelsTop &&
-      (layout.isTwoColumns ? pointer.column < layout.fileListWidth : pointer.row < layout.panelsTop + layout.fileListBoxHeight)
+      (layout.isTwoColumns || layout.isFileDrawerOpen) &&
+      pointer.column < layout.fileListWidth
     if (isOverFileList) {
       await update($, fileListOffsetAtom, offset =>
         clampOffset(offset + e.by * WHEEL_TICK_ROWS, layout.fileLineCount, layout.visibleFileLines),
@@ -1374,6 +1472,11 @@ export const register: Register = (on, options) => {
       return { value: undefined }
     }
     const focusedElementKey = (await read($, focusedElementKeyAtom)) ?? ''
+    if (lastDrawnLayout.isFileDrawerOpen) {
+      await update($, isFileDrawerOpenAtom, () => false)
+      await update($, focusedElementKeyAtom, () => null)
+      return { value: undefined }
+    }
     if (focusedElementKey.startsWith(REPLY_INPUT_KEY_PREFIX) || focusedElementKey === FILE_FILTER_KEY) {
       await update($, focusedElementKeyAtom, () => null)
       return { value: undefined }
@@ -1479,8 +1582,11 @@ export const register: Register = (on, options) => {
       const { Text } = $.ui.resolve(e)
       return <Text dimColor>The review explorer needs the terminal or Desktop.</Text>
     }
+    const elements = $.ui.resolve(e)
     const ui: ViewElements = {
-      ...$.ui.resolve(e),
+      ...elements,
+      // The terminal's table may name Svg too, but only the Desktop draws it.
+      Svg: e.surface === 'desktop' && 'Svg' in elements ? elements.Svg : undefined,
       theme: themeOf(options.theme, await read($, claudeCodeThemeAtom)),
     }
     if (e.props.bodyColumns < MIN_PANE_COLUMNS) {
@@ -1497,6 +1603,7 @@ export const register: Register = (on, options) => {
     )
     Object.assign(lastDrawnLayout, {
       isTwoColumns: model.geometry.isTwoColumns,
+      isFileDrawerOpen: model.geometry.isFileDrawerOpen,
       panelsTop: model.geometry.panelsTop,
       bodyColumns: e.props.bodyColumns,
       fileListWidth: model.geometry.fileListWidth,

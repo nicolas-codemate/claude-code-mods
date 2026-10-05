@@ -8,6 +8,7 @@ const GEOMETRY: GeometryInput = {
   bodyColumns: 200,
   view: 'uncommitted',
   hasLoadError: false,
+  hasPullRequestLine: false,
   commitLineCount: 0,
   selectedCommitLineIndex: 0,
   fileLineCount: 10,
@@ -19,26 +20,32 @@ const GEOMETRY: GeometryInput = {
   isScrollingPastEnd: false,
   requestedDiffOffset: 0,
   hasLineShortcuts: false,
+  isFileDrawerOpen: false,
+  isFileListCollapsed: false,
 }
 
 test('a wide pane puts the list beside the diff, both as tall as the space under the tabs', async () => {
   const geometry = computePaneGeometry(GEOMETRY)
   expect(geometry.isTwoColumns).toBe(true)
-  expect(geometry.panelsTop).toBe(3)
-  expect(geometry.fileListBoxHeight).toBe(37)
-  expect(geometry.visibleFileLines).toBe(37 - 7)
-  expect(geometry.diffBoxHeight).toBe(37)
-  expect(geometry.visibleDiffRows).toBe(34)
+  expect(geometry.panelsTop).toBe(3 + 1 + 1)
+  expect(geometry.fileListBoxHeight).toBe(35)
+  expect(geometry.visibleFileLines).toBe(35 - 7)
+  expect(geometry.diffBoxHeight).toBe(35)
+  expect(geometry.visibleDiffRows).toBe(32)
+})
+
+test('the line of the pull request under the tabs takes one more row above the panels', async () => {
+  expect(computePaneGeometry({ ...GEOMETRY, view: 'pr', hasPullRequestLine: true }).panelsTop).toBe(3 + 1 + 1 + 1)
 })
 
 test('the diff stops at its last screen, unless it may scroll past its end', async () => {
-  expect(computePaneGeometry({ ...GEOMETRY, requestedDiffOffset: 500 }).diffOffset).toBe(66)
+  expect(computePaneGeometry({ ...GEOMETRY, requestedDiffOffset: 500 }).diffOffset).toBe(68)
   expect(computePaneGeometry({ ...GEOMETRY, requestedDiffOffset: 500, isScrollingPastEnd: true }).diffOffset).toBe(99)
 })
 
 test('the commits view takes rows above the panels, and a narrow pane stacks them', async () => {
   const commits = computePaneGeometry({ ...GEOMETRY, view: 'commits', commitLineCount: 3 })
-  expect(commits.panelsTop).toBe(3 + 2 + 1 + 3 + 1)
+  expect(commits.panelsTop).toBe(3 + 1 + 1 + 2 + 1 + 3 + 1)
   expect(computePaneGeometry({ ...GEOMETRY, bodyColumns: 100 }).isTwoColumns).toBe(false)
 })
 
@@ -49,4 +56,18 @@ test('the file list keeps its bounds and its lines group files under their direc
   expect(buildFileLines([file('src/a.ts'), file('README.md')], true).map(line => line.kind)).toEqual([
     'overview', 'spacer', 'directory', 'file', 'spacer', 'directory', 'file',
   ])
+})
+
+test('a narrow pane gives the code the whole height under a bar, the file list opening over it as tall', async () => {
+  const closed = computePaneGeometry({ ...GEOMETRY, bodyColumns: 100 })
+  expect(closed.isTwoColumns).toBe(false)
+  expect(closed.isFileDrawerOpen).toBe(false)
+  expect(closed.diffBoxHeight).toBe(35 - 1)
+  expect(closed.fileListBoxHeight).toBe(35 - 1)
+  expect(closed.fileListWidth).toBe(50)
+  expect(computePaneGeometry({ ...GEOMETRY, bodyColumns: 100, isFileDrawerOpen: true }).isFileDrawerOpen).toBe(true)
+  expect(computePaneGeometry({ ...GEOMETRY, isFileDrawerOpen: true }).isFileDrawerOpen).toBe(false)
+  const collapsed = computePaneGeometry({ ...GEOMETRY, isFileListCollapsed: true, isFileDrawerOpen: true })
+  expect(collapsed.isTwoColumns).toBe(false)
+  expect(collapsed.isFileDrawerOpen).toBe(true)
 })

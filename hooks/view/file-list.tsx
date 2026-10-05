@@ -1,11 +1,14 @@
 import type { ChangedFile, PullRequestSummary, ViewedState } from '../../types'
-import { FILE_BUTTON_KEY_PREFIX, FILE_FILTER_KEY, PULL_REQUEST_OVERVIEW_KEY, ROW_CLICK_TARGET_LENGTH } from '../constants'
+import { DIRECTORY_BUTTON_KEY_PREFIX, FILE_BUTTON_KEY_PREFIX, FILE_FILTER_KEY, PULL_REQUEST_OVERVIEW_KEY, ROW_CLICK_TARGET_LENGTH } from '../constants'
 import type { Keymap, ShortcutAction } from '../keymap'
 import { fileNameOf } from '../git-parsing'
 import { VIEWED_MARKS } from '../github-review'
 import type { FileLine } from '../layout'
-import { renderFileStats, renderLineCounts } from './labels'
+import { renderFileStats, renderLineCounts, renderShortcutHint } from './labels'
 import type { ExplorerActions, ViewElements } from './types'
+
+const COMMENT_MARK = '\u{1F4AC}'
+const PIN_MARK = '\u{1F4CC}'
 
 export type FileListInput = {
   files: ChangedFile[]
@@ -19,10 +22,15 @@ export type FileListInput = {
   visibleFileLines: number
   width: number | undefined
   height: number
+  // Drawn over the code: its own opaque background, so the code does not show through.
+  isDrawer: boolean
+  // A drawer on a pane wide enough to take the list beside the code.
+  canPin: boolean
   selectedFilePath: string | null
   isOverviewShown: boolean
   pullRequest: PullRequestSummary | null
   viewedStateByPath: Record<string, ViewedState>
+  openThreadCountByPath: Record<string, number>
   hasUntrackedFiles: boolean
   hasStageActions: boolean
   markedPaths: string[]
@@ -33,7 +41,7 @@ export type FileListInput = {
 }
 
 export function renderFileList(ui: ViewElements, input: FileListInput) {
-  const { Box, Text } = ui
+  const { Box, Button, Text } = ui
   const hasMoreAbove = input.fileListOffset > 0
   const hasMoreBelow = input.fileListOffset + input.visibleFileLines < input.fileLines.length
 
@@ -44,8 +52,8 @@ export function renderFileList(ui: ViewElements, input: FileListInput) {
       height={input.height}
       overflow="hidden"
       borderStyle="round"
-      borderColor={ui.theme.border}
-      backgroundColor={ui.theme.panelBackground}
+      borderColor={input.isDrawer ? ui.theme.accentBorder : ui.theme.border}
+      backgroundColor={input.isDrawer ? ui.theme.tileFill : ui.theme.panelBackground}
       paddingX={1}
     >
       <Box flexDirection="row">
@@ -61,6 +69,17 @@ export function renderFileList(ui: ViewElements, input: FileListInput) {
           {hasMoreAbove ? '▲' : ' '}
           {hasMoreBelow ? '▼' : ' '}
         </Text>
+        {(!input.isDrawer || input.canPin) && (
+          <Box flexShrink={0} marginLeft={1}>
+            <Button
+              key={input.isDrawer ? 'file-list-pin' : 'file-list-collapse'}
+              plain
+              hotkey={input.hotkeyOf('toggleFileListCollapse')}
+              label={input.isDrawer ? `${PIN_MARK} pin` : '⇤ collapse'}
+              onPress={() => input.actions.toggleFileListCollapse()}
+            />
+          </Box>
+        )}
       </Box>
       {renderFilter(ui, input)}
       <Box flexDirection="column" height={input.visibleFileLines} overflow="hidden">
@@ -70,6 +89,17 @@ export function renderFileList(ui: ViewElements, input: FileListInput) {
       </Box>
       {(input.hiddenNoiseCount > 0 || input.isNoiseShown) && renderNoiseNotice(ui, input)}
       {renderNavigationHints(ui, input)}
+      {input.selectedFilePath !== null && !input.isOverviewShown && (
+        <Box key="fold-directory-box" display="none">
+          <Button
+            key="fold-current-directory"
+            plain
+            hotkey={input.hotkeyOf('toggleDirectoryFold')}
+            label="fold or unfold the file's directory"
+            onPress={() => input.actions.toggleCurrentDirectoryFold()}
+          />
+        </Box>
+      )}
       {input.hasStageActions && renderStageActions(ui, input)}
     </Box>
   )
@@ -117,17 +147,43 @@ function renderFileLine(ui: ViewElements, fileLine: FileLine, input: FileListInp
     return <Text> </Text>
   }
   if (fileLine.kind === 'directory') {
-    return (
-      <Text color={ui.theme.directory} wrap="truncate-start">
-        ▾ {fileLine.directory === '' ? './' : `${fileLine.directory}/`}
-      </Text>
-    )
+    return renderDirectoryLine(ui, fileLine, input)
   }
   if (fileLine.kind === 'overview') {
     return renderOverviewLine(ui, input)
   }
 
   return renderChangedFileLine(ui, fileLine.file, input)
+}
+
+function renderDirectoryLine(ui: ViewElements, fileLine: Extract<FileLine, { kind: 'directory' }>, input: FileListInput) {
+  const { Box, Button, Text } = ui
+
+  return (
+    <Box flexDirection="row" height={1}>
+      <Box key={`directory-box-${fileLine.directory}`} flexShrink={0}>
+        <Button
+          key={`${DIRECTORY_BUTTON_KEY_PREFIX}${fileLine.directory}`}
+          plain
+          hover={{ color: ui.theme.accent, bold: true }}
+          label={fileLine.isFolded ? '▸ ' : '▾ '}
+          onPress={() => input.actions.toggleDirectoryFold(fileLine.directory)}
+        />
+      </Box>
+      <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
+        <Text color={ui.theme.directory} wrap="truncate-start">
+          {fileLine.directory === '' ? './' : `${fileLine.directory}/`}
+        </Text>
+      </Box>
+      {fileLine.isFolded && (
+        <Box flexShrink={0} marginLeft={1}>
+          <Text color={ui.theme.muted}>
+            {fileLine.fileCount} file{fileLine.fileCount > 1 ? 's' : ''}
+          </Text>
+        </Box>
+      )}
+    </Box>
+  )
 }
 
 function renderSelectionMark(ui: ViewElements, isSelected: boolean) {
@@ -165,6 +221,7 @@ function renderChangedFileLine(ui: ViewElements, file: ChangedFile, input: FileL
   const { Box, Button, Text } = ui
   const isSelected = !input.isOverviewShown && file.path === input.selectedFilePath
   const viewedState = input.viewedStateByPath[file.path]
+  const openThreadCount = input.openThreadCountByPath[file.path] ?? 0
   const change = changeLetterOf(file)
 
   return (
@@ -197,6 +254,17 @@ function renderChangedFileLine(ui: ViewElements, file: ChangedFile, input: FileL
           onPress={() => input.actions.selectFile(file.path)}
         />
       </Box>
+      {openThreadCount > 0 && (
+        <Box key={`threads-box-${file.path}`} flexShrink={0} marginLeft={1}>
+          <Button
+            key={`threads-${file.path}`}
+            plain
+            hover={{ color: ui.theme.accent, bold: true }}
+            label={`${COMMENT_MARK} ${openThreadCount}`}
+            onPress={() => input.actions.openFirstThreadOfFile(file.path)}
+          />
+        </Box>
+      )}
       <Box flexShrink={0} marginLeft={1}>
         {renderFileStats(ui, file)}
       </Box>
@@ -221,7 +289,7 @@ function renderChangedFileLine(ui: ViewElements, file: ChangedFile, input: FileL
 }
 
 function renderNavigationHints(ui: ViewElements, input: FileListInput) {
-  const { Box } = ui
+  const { Box, Button } = ui
   const hints: Array<{ arrow: string; action: ShortcutAction; act: () => Promise<void> }> = [
     { arrow: '↑', action: 'previousFile', act: () => input.actions.moveFileSelection(-1) },
     { arrow: '↓', action: 'nextFile', act: () => input.actions.moveFileSelection(1) },
@@ -229,35 +297,23 @@ function renderNavigationHints(ui: ViewElements, input: FileListInput) {
     { arrow: '→', action: 'nextView', act: () => input.actions.moveView(1) },
   ]
 
+  // The row names the keys; their hidden buttons carry them.
   return (
     <Box flexDirection="row" marginTop={1} height={1} overflow="hidden">
-      {hints.map(hint => renderNavigationHint(ui, hint.arrow, input.keymap[hint.action], hint.act, input.isTyping))}
-    </Box>
-  )
-}
-
-function renderNavigationHint(
-  ui: ViewElements,
-  arrow: string,
-  hotkeys: readonly string[],
-  move: () => Promise<void>,
-  isTyping: boolean,
-) {
-  const { Box, Button } = ui
-
-  return (
-    <Box flexDirection="row" marginRight={2}>
-      {hotkeys.map(hotkey => (
-        <Box marginRight={1}>
-          <Button
-            key={`navigate-${hotkey}`}
-            plain
-            hotkey={isTyping ? undefined : hotkey}
-            label={isTyping ? `${hotkey}: ${arrow}` : arrow}
-            onPress={move}
-          />
-        </Box>
-      ))}
+      {hints.flatMap(hint =>
+        input.keymap[hint.action].map(hotkey => (
+          <Box key={`navigate-hint-${hotkey}`} marginRight={2} flexShrink={0}>
+            {renderShortcutHint(ui, hotkey, hint.arrow, input.isTyping)}
+          </Box>
+        )),
+      )}
+      <Box display="none">
+        {hints.flatMap(hint =>
+          input.keymap[hint.action].map(hotkey => (
+            <Button key={`navigate-${hotkey}`} plain hotkey={input.isTyping ? undefined : hotkey} label={hint.arrow} onPress={hint.act} />
+          )),
+        )}
+      </Box>
     </Box>
   )
 }

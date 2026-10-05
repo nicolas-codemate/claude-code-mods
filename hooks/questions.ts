@@ -138,6 +138,22 @@ export function parseAnchorKey(anchorKey: string): ParsedAnchor | null {
   return { kind: 'row', view, commitSha, path, lineNumber: Number.isNaN(lineNumber) ? 0 : lineNumber }
 }
 
+// The threads still waiting on each file, in the order given: a GitHub conversation already resolved is settled.
+export function openThreadsByPath<Thread extends { id: string; anchorKey: string }>(
+  threads: Thread[],
+  resolvedThreadIds: ReadonlySet<string>,
+): Record<string, Thread[]> {
+  const threadsByPath: Record<string, Thread[]> = {}
+  for (const thread of threads) {
+    const anchor = parseAnchorKey(thread.anchorKey)
+    if (anchor?.kind === 'row' && !resolvedThreadIds.has(thread.id)) {
+      threadsByPath[anchor.path] = [...(threadsByPath[anchor.path] ?? []), thread]
+    }
+  }
+
+  return threadsByPath
+}
+
 // The threads of what is on screen, in reading order: the PR overview first, then the files as the list shows them,
 // each from its top line down.
 export function threadsInReadingOrder<Thread extends { anchorKey: string }>(

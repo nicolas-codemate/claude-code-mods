@@ -48,14 +48,14 @@ test('in the PR view each file of the PR carries a viewed box that GitHub keeps'
   expect(await pane.find({ type: 'Text', text: /^src\/Tax\.php$/ })).toBeDefined()
   await pane.press({ key: 'navigate-z' })
   expect(await pane.find({ type: 'Text', text: /^#42 / })).toBeDefined()
-  expect(await pane.find({ type: 'Text', text: /viewed 1\/2/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /^1\/2 $/ })).toBeDefined()
   expect((await pane.find({ key: 'viewed-src/Tax.php' }))?.text).toBe(' ✓ ')
   expect((await pane.find({ key: 'viewed-src/Total.php' }))?.text).toBe(' ○ ')
 
   await pane.press({ key: 'viewed-src/Total.php' })
   expect(githubMutations).toEqual(['mark'])
   expect((await pane.find({ key: 'viewed-src/Total.php' }))?.text).toBe(' ✓ ')
-  expect(await pane.find({ type: 'Text', text: /viewed 2\/2/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /^2\/2 $/ })).toBeDefined()
 
   isGithubRefusing = true
   await pane.press({ key: 'viewed-src/Total.php' })
@@ -81,7 +81,7 @@ test('a PR targeting a release branch is compared to that branch, not to the def
   await pane.press({ key: 'view-pr' })
   expect(await pane.find({ type: 'Button', text: 'Tax.php' })).toBeDefined()
   expect(await pane.find({ type: 'Button', text: 'Total.php' })).toBeUndefined()
-  expect(await pane.find({ type: 'Text', text: /base release0/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /from 2026-09 release0/ })).toBeDefined()
   await pane.unmount()
 })
 
@@ -110,6 +110,7 @@ test('in the PR view the GitHub shortcut opens the pull request, its number a li
   const pane = await mountPane($)
   await pane.press({ key: 'view-pr' })
   expect((await pane.findAll({ type: 'Link' })).map(link => link.props.href)).toContain(PULL_REQUEST.url)
+  expect((await pane.find({ key: 'open-on-github-box' }))?.props.display).toBe('none')
   await pane.press({ key: 'open-on-github' })
   expect(world.openedUrls).toEqual([PULL_REQUEST.url])
   await pane.unmount()
@@ -188,8 +189,58 @@ test('the PR view draws the GitHub review comments under their lines, j/k walk t
   await pane.press({ key: 'thread-next' })
   await pane.press({ key: 'thread-next' })
   expect(await pane.find({ type: 'Text', text: /thread 2\/3/ })).toBeDefined()
+  expect((await pane.find({ key: 'open-on-github-box' }))?.props.display).toBe('flex')
   await pane.press({ key: 'open-on-github' })
   expect(world.openedUrls).toEqual(['https://github.com/o/r/pull/42#discussion_r1'])
+  await pane.unmount()
+})
+
+test('the file list marks the threads still open in a file, and its mark leads to the first of them', async ($, on) => {
+  const world = stubWorld(on, {
+    gh: ghCommand => {
+      if (ghCommand.startsWith('pr view')) {
+        return { exitCode: 0, stdout: JSON.stringify(PULL_REQUEST) }
+      }
+      if (ghCommand.includes('reviewThreads')) {
+        return { exitCode: 0, stdout: JSON.stringify(REVIEW_THREADS) }
+      }
+      return undefined
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-pr' })
+  expect((await pane.find({ key: 'threads-src/Total.php' }))?.text).toBe('\u{1F4AC} 2')
+  expect(await pane.find({ key: 'threads-src/Tax.php' })).toBeUndefined()
+
+  await pane.press({ key: 'threads-src/Total.php' })
+  await pane.press({ key: 'open-on-github' })
+  expect(world.openedUrls).toEqual(['https://github.com/o/r/pull/42#discussion_r4'])
+  await pane.unmount()
+})
+
+test('a picture in a GitHub comment shows as a link a click opens in the browser', async ($, on) => {
+  const imageUrl = 'https://github.com/user-attachments/assets/b8d6'
+  const threadsWithPicture = JSON.parse(JSON.stringify(REVIEW_THREADS)) as typeof REVIEW_THREADS
+  threadsWithPicture.data.node.reviewThreads.nodes[0]!.comments.nodes[1]!.body = `See:\n<img width="903" height="343" alt="image" src="${imageUrl}" />`
+  const world = stubWorld(on, {
+    gh: ghCommand => {
+      if (ghCommand.startsWith('pr view')) {
+        return { exitCode: 0, stdout: JSON.stringify(PULL_REQUEST) }
+      }
+      if (ghCommand.includes('reviewThreads')) {
+        return { exitCode: 0, stdout: JSON.stringify(threadsWithPicture) }
+      }
+      return undefined
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-pr' })
+  await pane.press({ key: 'file-src/Total.php' })
+  expect((await pane.find({ key: 'github-comment-RT_open-1' }))?.text).toBe(`See:\n[\u{1F5BC} image 903×343 ↗](${imageUrl})`)
+  await pane.press({ key: 'github-comment-RT_open-1', link: { href: imageUrl } })
+  expect(world.openedUrls).toEqual([imageUrl])
   await pane.unmount()
 })
 

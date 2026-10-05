@@ -10,7 +10,7 @@ import { groupFilesByDirectory } from './git-parsing'
 export type FileLine =
   | { kind: 'overview' }
   | { kind: 'spacer' }
-  | { kind: 'directory'; directory: string }
+  | { kind: 'directory'; directory: string; fileCount: number; isFolded: boolean }
   | { kind: 'file'; file: ChangedFile }
 
 export function clampOffset(offset: number, itemCount: number, visibleCount: number): number {
@@ -21,14 +21,18 @@ export function clampFileListWidth(width: number, bodyColumns: number): number {
   return Math.max(MIN_FILE_LIST_WIDTH, Math.min(width, bodyColumns - MIN_DIFF_WIDTH))
 }
 
-export function buildFileLines(files: ChangedFile[], hasOverview: boolean): FileLine[] {
+// A folded directory keeps its own line, its files go out of the list.
+export function buildFileLines(files: ChangedFile[], hasOverview: boolean, foldedDirectories: readonly string[] = []): FileLine[] {
   return [
     ...(hasOverview ? [{ kind: 'overview' as const }] : []),
-    ...groupFilesByDirectory(files).flatMap(group => [
-      { kind: 'spacer' as const },
-      { kind: 'directory' as const, directory: group.directory },
-      ...group.files.map(file => ({ kind: 'file' as const, file })),
-    ]),
+    ...groupFilesByDirectory(files).flatMap(group => {
+      const isFolded = foldedDirectories.includes(group.directory)
+      return [
+        { kind: 'spacer' as const },
+        { kind: 'directory' as const, directory: group.directory, fileCount: group.files.length, isFolded },
+        ...(isFolded ? [] : group.files.map(file => ({ kind: 'file' as const, file }))),
+      ]
+    }),
   ]
 }
 
@@ -37,6 +41,7 @@ export type GeometryInput = {
   bodyColumns: number
   view: ReviewView
   hasLoadError: boolean
+  hasPullRequestLine: boolean
   commitLineCount: number
   selectedCommitLineIndex: number
   fileLineCount: number
@@ -50,10 +55,14 @@ export type GeometryInput = {
   requestedDiffOffset: number
   // The row of line shortcuts under a file's diff.
   hasLineShortcuts: boolean
+  isFileDrawerOpen: boolean
+  isFileListCollapsed: boolean
 }
 
 export type PaneGeometry = {
   isTwoColumns: boolean
+  // Narrow or collapsed, the file list is a drawer over the code, opened from a bar above it.
+  isFileDrawerOpen: boolean
   panelsTop: number
   panelsHeight: number
   firstShownCommitLineIndex: number
@@ -67,19 +76,28 @@ export type PaneGeometry = {
 }
 
 const TAB_ROWS = 3
+const LOCATION_LINE_ROWS = 1
+const HEADER_BOTTOM_PADDING_ROWS = 1
 const BORDER_ROWS = 2
 const PANEL_TITLE_ROWS = 1
 const NAVIGATION_HINT_ROWS = 2
 const FILTER_ROWS = 1
 const MIN_PANELS_HEIGHT = 8
+const FILE_BAR_ROWS = 1
 
 // The pane is drawn to exactly its height so the engine never scrolls it; each panel scrolls on its own instead.
 export function computePaneGeometry(input: GeometryInput): PaneGeometry {
-  const isTwoColumns = input.bodyColumns >= TWO_COLUMNS_MIN_WIDTH
+  const isTwoColumns = !input.isFileListCollapsed && input.bodyColumns >= TWO_COLUMNS_MIN_WIDTH
   const firstShownCommitLineIndex = clampOffset(input.selectedCommitLineIndex - 2, input.commitLineCount, COMMIT_PANEL_MAX_LINES)
   const shownCommitLineCount = Math.min(COMMIT_PANEL_MAX_LINES, input.commitLineCount)
   const commitPanelRows = input.view === 'commits' ? BORDER_ROWS + PANEL_TITLE_ROWS + Math.max(1, shownCommitLineCount) + 1 : 0
-  const panelsTop = TAB_ROWS + (input.hasLoadError ? 1 : 0) + commitPanelRows
+  const panelsTop =
+    TAB_ROWS +
+    LOCATION_LINE_ROWS +
+    (input.hasPullRequestLine ? 1 : 0) +
+    HEADER_BOTTOM_PADDING_ROWS +
+    (input.hasLoadError ? 1 : 0) +
+    commitPanelRows
   const panelsHeight = Math.max(MIN_PANELS_HEIGHT, input.bodyRows - panelsTop)
 
   const fileListChromeRows =
@@ -89,16 +107,15 @@ export function computePaneGeometry(input: GeometryInput): PaneGeometry {
     NAVIGATION_HINT_ROWS +
     (input.hasStageActions ? 1 : 0) +
     (input.hasNoiseNotice ? 1 : 0)
-  const fileListBoxHeight = isTwoColumns
-    ? panelsHeight
-    : Math.min(input.fileLineCount + fileListChromeRows, Math.max(fileListChromeRows + 3, Math.floor(panelsHeight / 3)))
+  const fileListBoxHeight = isTwoColumns ? panelsHeight : panelsHeight - FILE_BAR_ROWS
   const visibleFileLines = Math.max(1, fileListBoxHeight - fileListChromeRows)
 
-  const diffBoxHeight = isTwoColumns ? panelsHeight : Math.max(4, panelsHeight - fileListBoxHeight)
+  const diffBoxHeight = isTwoColumns ? panelsHeight : panelsHeight - FILE_BAR_ROWS
   const visibleDiffRows = Math.max(1, diffBoxHeight - BORDER_ROWS - PANEL_TITLE_ROWS - (input.hasLineShortcuts ? 1 : 0))
 
   return {
     isTwoColumns,
+    isFileDrawerOpen: !isTwoColumns && input.isFileDrawerOpen,
     panelsTop,
     panelsHeight,
     firstShownCommitLineIndex,

@@ -1,15 +1,17 @@
 import type { CommitGraphLine, PullRequestSummary, ReviewView } from '../../types'
-import { COMMIT_PANEL_MAX_LINES, CURSOR_LINE_FOCUS_KEY, DIVIDER_KEY, MIN_PANE_COLUMNS } from '../constants'
+import { COMMIT_PANEL_MAX_LINES, CURSOR_LINE_FOCUS_KEY, DIVIDER_KEY, MIN_PANE_COLUMNS, TWO_COLUMNS_MIN_WIDTH } from '../constants'
 import { SHORTCUTS } from '../keymap'
 import type { Keymap, ShortcutAction } from '../keymap'
 import type { PaneGeometry } from '../layout'
 import { renderCommitList } from './commits'
 import { renderDiffView, renderLineShortcuts } from './diff'
 import type { DiffViewInput } from './diff'
+import type { HeaderTile } from './drawings'
 import { renderFileList } from './file-list'
 import type { FileListInput } from './file-list'
 import { renderHeader } from './header'
 import { renderHelp } from './help'
+import { renderFileStats } from './labels'
 import type { HelpInput } from './help'
 import { renderOverview } from './overview'
 import type { OverviewInput } from './overview'
@@ -17,6 +19,7 @@ import type { ExplorerActions, GitHubPage, ViewElements } from './types'
 
 export type PaneInput = {
   bodyRows: number
+  bodyColumns: number
   geometry: PaneGeometry
   view: ReviewView
   location: string
@@ -25,6 +28,7 @@ export type PaneInput = {
   loadError: string | null
   pullRequest: PullRequestSummary | null
   viewedCount: { viewed: number; total: number }
+  headerTiles: HeaderTile[]
   commitGraph: CommitGraphLine[]
   commitCount: number
   repositoryWebUrl: string | null
@@ -32,7 +36,7 @@ export type PaneInput = {
   selectedCommitSha: string | null
   hotkeyOf: (action: ShortcutAction) => string | undefined
   idleShortcuts: { keymap: Keymap; claimedActions: ReadonlySet<ShortcutAction> } | null
-  fileList: Omit<FileListInput, 'width' | 'height'>
+  fileList: Omit<FileListInput, 'width' | 'height' | 'isDrawer' | 'canPin'>
   overview: OverviewInput | null
   diff: DiffViewInput
   actions: ExplorerActions
@@ -70,6 +74,8 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
         activeViewCount: input.activeViewCount,
         pullRequest: input.pullRequest,
         viewedCount: input.viewedCount,
+        tiles: input.headerTiles,
+        bodyColumns: input.bodyColumns,
         gitHubPage: input.gitHubPage,
         hotkeyOf: input.hotkeyOf,
         actions: input.actions,
@@ -78,23 +84,17 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
       {input.view === 'commits' &&
         renderCommitList(ui, {
           commitCount: input.commitCount,
+          commitGraph: input.commitGraph,
+          firstShownLineIndex: geometry.firstShownCommitLineIndex,
           shownGraphLines,
           repositoryWebUrl: input.repositoryWebUrl,
           selectedCommitSha: input.selectedCommitSha,
           actions: input.actions,
         })}
       {input.help && renderHelp(ui, input.help, geometry.panelsHeight, input.actions)}
-      <Box
-        flexDirection={geometry.isTwoColumns ? 'row' : 'column'}
-        height={geometry.panelsHeight}
-        display={input.help ? 'none' : 'flex'}
-      >
-        {renderFileList(ui, {
-          ...input.fileList,
-          width: geometry.isTwoColumns ? geometry.fileListWidth : undefined,
-          height: geometry.fileListBoxHeight,
-        })}
-        {geometry.isTwoColumns && (
+      {geometry.isTwoColumns ? (
+        <Box flexDirection="row" height={geometry.panelsHeight} display={input.help ? 'none' : 'flex'}>
+          {renderFileList(ui, { ...input.fileList, width: geometry.fileListWidth, height: geometry.fileListBoxHeight, isDrawer: false, canPin: false })}
           <Client
             key={DIVIDER_KEY}
             module="./divider.tsx"
@@ -102,23 +102,82 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
             width={1}
             height={geometry.panelsHeight}
           />
-        )}
-        <Box
-          flexDirection="column"
-          flexGrow={1}
-          height={geometry.diffBoxHeight}
-          overflow="hidden"
-          borderStyle="round"
-          borderColor={ui.theme.border}
-          backgroundColor={ui.theme.panelBackground}
-        >
-          <Box flexDirection="column" flexGrow={1} overflow="hidden">
-            {input.overview ? renderOverview(ui, input.overview) : renderDiffView(ui, input.diff)}
-          </Box>
-          {!input.overview && input.diff.hasLineShortcuts && renderLineShortcuts(ui, input.diff)}
+          {renderCodeBox(ui, input)}
         </Box>
-      </Box>
+      ) : (
+        <Box flexDirection="column" height={geometry.panelsHeight} display={input.help ? 'none' : 'flex'}>
+          {renderFileBar(ui, input)}
+          <Box flexDirection="column" height={geometry.diffBoxHeight}>
+            {renderCodeBox(ui, input)}
+            {/* Closed, the drawer is still drawn hidden: its keys (files, filter, git add) keep working. */}
+            <Box
+              key="file-drawer-box"
+              position="absolute"
+              top={0}
+              left={0}
+              display={geometry.isFileDrawerOpen ? 'flex' : 'none'}
+            >
+              {renderFileList(ui, {
+                ...input.fileList,
+                width: geometry.fileListWidth,
+                height: geometry.fileListBoxHeight,
+                isDrawer: true,
+                canPin: input.bodyColumns >= TWO_COLUMNS_MIN_WIDTH,
+              })}
+            </Box>
+          </Box>
+        </Box>
+      )}
       {renderIdleShortcuts(ui, input)}
+    </Box>
+  )
+}
+
+function renderCodeBox(ui: ViewElements, input: PaneInput) {
+  const { Box } = ui
+
+  return (
+    <Box
+      flexDirection="column"
+      flexGrow={1}
+      height={input.geometry.diffBoxHeight}
+      overflow="hidden"
+      borderStyle="round"
+      borderColor={ui.theme.border}
+      backgroundColor={ui.theme.panelBackground}
+    >
+      <Box flexDirection="column" flexGrow={1} overflow="hidden">
+        {input.overview ? renderOverview(ui, input.overview) : renderDiffView(ui, input.diff)}
+      </Box>
+      {!input.overview && input.diff.hasLineShortcuts && renderLineShortcuts(ui, input.diff)}
+    </Box>
+  )
+}
+
+// Narrow or collapsed, the bar above the code says which file it shows and opens the file list over it.
+function renderFileBar(ui: ViewElements, input: PaneInput) {
+  const { Box, Button, Text } = ui
+  const { fileList } = input
+  const selectedFile = fileList.isOverviewShown ? undefined : fileList.files.find(file => file.path === fileList.selectedFilePath)
+  const shownName = fileList.isOverviewShown && fileList.pullRequest ? 'Overview' : (selectedFile?.path ?? '')
+
+  return (
+    <Box flexDirection="row" height={1} paddingX={1} backgroundColor={ui.theme.headerBackground}>
+      <Box key="file-drawer-toggle-box" flexShrink={0}>
+        <Button
+          key="file-drawer-toggle"
+          plain
+          hover={{ color: ui.theme.accent, bold: true }}
+          label={`${input.geometry.isFileDrawerOpen ? '✕' : '☰'} Files ${fileList.files.length}`}
+          onPress={() => input.actions.toggleFileDrawer()}
+        />
+      </Box>
+      <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden" marginLeft={2}>
+        <Text color={ui.theme.heading} wrap="truncate-start">
+          {shownName}
+        </Text>
+      </Box>
+      {selectedFile && <Box flexShrink={0} marginLeft={1}>{renderFileStats(ui, selectedFile)}</Box>}
     </Box>
   )
 }
