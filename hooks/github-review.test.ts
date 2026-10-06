@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { buildPullRequestOverview, countViewedFiles, parsePullRequest, parseViewedStatesPage } from './github-review'
-import { parseEmojiCharacters, replaceEmojiShortcodes, splitMarkdownBlocks } from './markdown'
+import { isListItemBlock, parseEmojiCharacters, replaceEmojiShortcodes, splitListItemIndentation, splitMarkdownBlocks } from './markdown'
 
 test('a page of PR files gives each path its viewed state and the cursor of the next page', async () => {
   const page = parseViewedStatesPage(
@@ -65,7 +65,14 @@ test('GitHub emoji codes become their characters, an image-only one keeps its co
   expect(parseEmojiCharacters('not json')).toEqual({})
 })
 
-test('markdown splits into headings, paragraphs, lists and whole code blocks', async () => {
+test('markdown splits into headings, paragraphs, list items and whole code blocks', async () => {
   const blocks = splitMarkdownBlocks(['## Notes', '', '- first', '- second', '', '```php', '$a = 1;', '', '$b = 2;', '```', 'After.'].join('\n'))
-  expect(blocks).toEqual(['## Notes', '- first\n- second', '```php\n$a = 1;\n\n$b = 2;\n```', 'After.'])
+  expect(blocks).toEqual(['## Notes', '- first', '- second', '```php\n$a = 1;\n\n$b = 2;\n```', 'After.'])
+})
+
+test('each list item, nested or wrapped, makes a block of its own', async () => {
+  const blocks = splitMarkdownBlocks(['- **Limits:**', '  - the portfolio keeps', '    the old split', '  - the extractor', '1. numbered'].join('\n'))
+  expect(blocks).toEqual(['- **Limits:**', '  - the portfolio keeps\n    the old split', '  - the extractor', '1. numbered'])
+  expect(splitListItemIndentation(blocks[1] ?? '')).toEqual({ indentation: 2, text: '- the portfolio keeps\n  the old split' })
+  expect(isListItemBlock('After.')).toBe(false)
 })

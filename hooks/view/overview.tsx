@@ -1,6 +1,7 @@
 import type { PullRequestSummary, ReviewThread } from '../../types'
 import { ASK_BUTTON_KEY_PREFIX } from '../constants'
 import type { ShortcutAction } from '../keymap'
+import { isListItemBlock, splitListItemIndentation } from '../markdown'
 import { overviewAnchorKeyOf } from '../questions'
 import { renderLineCounts, renderMarkdownWithImages, renderThreadNavigation } from './labels'
 import { renderThreadsAndQuestion } from './threads'
@@ -49,8 +50,11 @@ export function renderOverview(ui: ViewElements, input: OverviewInput) {
       {shownBlocks.map((block, shownBlockIndex) => {
         const blockIndex = input.blockOffset + shownBlockIndex
         const anchorKey = overviewAnchorKeyOf(pullRequest.number, blockIndex, block)
+        const nextBlock = input.blocks[blockIndex + 1]
+        const isFollowedBySameList = isListItemBlock(block) && nextBlock !== undefined && isListItemBlock(nextBlock)
+        const { indentation, text } = splitListItemIndentation(block)
         return (
-          <Box key={`block-${blockIndex}`} flexDirection="column" flexShrink={0} marginBottom={1}>
+          <Box key={`block-${blockIndex}`} flexDirection="column" flexShrink={0} marginBottom={isFollowedBySameList ? 0 : 1}>
             <Box flexDirection="row">
               <Box width={4} flexShrink={0}>
                 <Box display="none" hover={{ display: 'flex' }}>
@@ -62,8 +66,8 @@ export function renderOverview(ui: ViewElements, input: OverviewInput) {
                   />
                 </Box>
               </Box>
-              <Box flexGrow={1} flexShrink={1} flexDirection="column">
-                {renderMarkdownWithImages(ui, `overview-block-${blockIndex}`, block, input.actions)}
+              <Box flexGrow={1} flexShrink={1} flexDirection="column" paddingLeft={indentation}>
+                {renderMarkdownWithImages(ui, `overview-block-${blockIndex}`, text, input.actions)}
               </Box>
             </Box>
             {renderThreadsAndQuestion(ui, {

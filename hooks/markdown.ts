@@ -61,7 +61,20 @@ function imageDescriptionOf(alt: string | null): string {
   return trimmedAlt === '' || trimmedAlt.toLowerCase() === 'image' ? 'image' : trimmedAlt
 }
 
-// A paragraph, a list, a fenced code block or a heading each make one block, so a question can point at any of them.
+const LIST_ITEM = /^(\s*)(?:[-*+]|\d+[.)])\s/
+
+export function isListItemBlock(block: string): boolean {
+  return LIST_ITEM.test(block)
+}
+
+// A nested item drawn alone would read as a top-level one: its indentation is kept apart, to be drawn as a margin.
+export function splitListItemIndentation(block: string): { indentation: number; text: string } {
+  const indentation = block.match(LIST_ITEM)?.[1]?.length ?? 0
+
+  return { indentation, text: block.split('\n').map(line => line.slice(Math.min(indentation, line.search(/\S|$/)))).join('\n') }
+}
+
+// A paragraph, a list item, a fenced code block or a heading each make one block, so a question can point at any of them.
 export function splitMarkdownBlocks(markdown: string): string[] {
   const blocks: string[] = []
   let currentLines: string[] = []
@@ -88,6 +101,9 @@ export function splitMarkdownBlocks(markdown: string): string[] {
     } else if (/^#{1,6} /.test(line)) {
       closeBlock()
       blocks.push(line)
+    } else if (LIST_ITEM.test(line)) {
+      closeBlock()
+      currentLines.push(line)
     } else {
       currentLines.push(line)
     }
