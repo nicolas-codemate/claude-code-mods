@@ -238,7 +238,7 @@ function renderOverviewLine(ui: ViewElements, input: FileListInput) {
       {renderSelectionMark(ui, input.isOverviewShown)}
       <Box width={4} flexShrink={0}>
         <Text color={ui.theme.accent} bold>
-          ☰
+          ≡
         </Text>
       </Box>
       <Box flexGrow={1} flexShrink={1} height={1} overflow="hidden">

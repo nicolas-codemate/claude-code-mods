@@ -5,6 +5,7 @@ import type {
   GitHubReviewThread,
   DiffRow,
   PullRequestSummary,
+  PushState,
   ReviewThread,
   ReviewView,
   ViewedState,
@@ -40,7 +41,7 @@ export type ExplorerSnapshot = {
   baseBranchName: string | null
   hasUncommittedChanges: boolean
   unpushedCommitShas: string[]
-  pushState: 'idle' | 'armed' | 'pushing'
+  pushState: PushState
   commitListOffset: number | null
   errorNotices: Array<{ id: string; text: string }>
   isLoading: boolean

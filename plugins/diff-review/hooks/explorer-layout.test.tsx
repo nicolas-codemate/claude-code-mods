@@ -62,7 +62,7 @@ test('a narrow pane shows the code alone, the file list opening over it and clos
   const isDrawerOpen = async () => (await pane.find({ key: 'file-drawer-box' }))?.props.display === 'flex'
   expect(await pane.find({ key: 'file-divider' })).toBeUndefined()
   expect(await isDrawerOpen()).toBe(false)
-  expect((await pane.find({ key: 'file-drawer-toggle' }))?.text).toBe('☰ Files 2')
+  expect((await pane.find({ key: 'file-drawer-toggle' }))?.text).toBe('≡ Files 2')
   expect(await pane.find({ type: 'Text', text: 'notes.md' })).toBeDefined()
 
   await pane.press({ key: 'file-drawer-toggle' })
@@ -81,7 +81,7 @@ test('a narrow pane shows the code alone, the file list opening over it and clos
   await pane.input({ key: 'file-filter', text: 'total' })
   expect(await isDrawerOpen()).toBe(false)
   expect(await pane.find({ type: 'Text', text: 'src/Total.php' })).toBeDefined()
-  expect((await pane.find({ key: 'file-drawer-toggle' }))?.text).toBe('☰ Files 1 of 2')
+  expect((await pane.find({ key: 'file-drawer-toggle' }))?.text).toBe('≡ Files 1 of 2')
   expect(await pane.find({ type: 'Text', text: 'filtered' })).toBeDefined()
 
   await pane.press({ key: 'file-drawer-toggle' })
@@ -277,13 +277,12 @@ test('the wheel over the commit list scrolls it, and a commit picked there keeps
   await pane.unmount()
 })
 
-test('a failure stays framed on top of the pane until dismissed, a success says nothing', async ($, on) => {
-  let isPushRefused = true
+test('a failure stays framed on top of the pane until dismissed', async ($, on) => {
   stubWorld(on, {
     git: gitCommand => {
       if (gitCommand === 'rev-list @{upstream}..HEAD') return { exitCode: 0, stdout: 'c2\n' }
       if (gitCommand === 'rev-parse --abbrev-ref @{upstream}') return { exitCode: 0, stdout: 'origin/feat/tax\n' }
-      if (gitCommand === 'push') return isPushRefused ? { exitCode: 1, stdout: '', stderr: 'hint: x\n! [rejected] feat/tax (fetch first)' } : { exitCode: 0, stdout: '' }
+      if (gitCommand === 'push') return { exitCode: 1, stdout: '', stderr: 'fatal: unable to access the remote' }
       return undefined
     },
   })
@@ -292,17 +291,47 @@ test('a failure stays framed on top of the pane until dismissed, a success says 
   await pane.press({ key: 'view-commits' })
   await pane.press({ key: 'push-branch' })
   await pane.press({ key: 'push-branch' })
-  const notice = await pane.find({ type: 'Text', text: /Push failed: ! \[rejected\]/ })
-  expect(notice).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /Push failed: fatal: unable to access the remote/ })).toBeDefined()
   const noticeKey = await keyStartingWith(pane, 'Button', 'dismiss-error-')
   expect((await pane.find({ key: noticeKey.replace('dismiss-error-', 'error-notice-') }))?.props.borderColor).toBe('#ff8f8f')
 
   await pane.press({ key: noticeKey })
   expect(await pane.find({ type: 'Text', text: /Push failed/ })).toBeUndefined()
+  await pane.unmount()
+})
 
-  isPushRefused = false
+test('a push says when it is done, and a push the remote refused offers a force push with lease on a second press', async ($, on) => {
+  const pushCommands: string[] = []
+  const world = stubWorld(on, {
+    git: gitCommand => {
+      if (gitCommand === 'rev-list @{upstream}..HEAD') return { exitCode: 0, stdout: 'c2\n' }
+      if (gitCommand === 'rev-parse --abbrev-ref @{upstream}') return { exitCode: 0, stdout: 'origin/feat/tax\n' }
+      if (gitCommand.startsWith('push')) {
+        pushCommands.push(gitCommand)
+        return gitCommand === 'push'
+          ? { exitCode: 1, stdout: '', stderr: ' ! [rejected]        feat/tax -> feat/tax (non-fast-forward)' }
+          : { exitCode: 0, stdout: '' }
+      }
+      return undefined
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-commits' })
   await pane.press({ key: 'push-branch' })
   await pane.press({ key: 'push-branch' })
-  expect(await keyStartingWith(pane, 'Button', 'dismiss-error-')).toBe('')
+  expect(await pane.find({ type: 'Text', text: /Push rejected/ })).toBeDefined()
+  expect((await pane.find({ key: 'push-branch' }))?.text).toContain('force push (with lease)')
+
+  await pane.press({ key: 'push-branch' })
+  expect(pushCommands).toEqual(['push'])
+  expect((await pane.find({ key: 'push-branch' }))?.text).toContain('press again to force push')
+  await pane.press({ key: 'push-branch' })
+  expect(pushCommands).toEqual(['push', 'push --force-with-lease --force-if-includes'])
+  expect(await pane.find({ type: 'Text', text: '✓ pushed' })).toBeDefined()
+  expect(await pane.find({ key: 'push-branch' })).toBeUndefined()
+
+  await world.clock.advance(5000)
+  expect(await pane.find({ type: 'Text', text: '✓ pushed' })).toBeUndefined()
   await pane.unmount()
 })

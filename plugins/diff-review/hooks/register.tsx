@@ -29,6 +29,7 @@ import {
   GIT_PUSH_TIMEOUT_MS,
   GIT_TIMEOUT_MS,
   PUSH_CONFIRM_DELAY_MS,
+  PUSHED_NOTICE_MS,
   LINE_NUMBER_BUTTON_KEY_PREFIX,
   MAX_SAVED_THREADS_PER_BRANCH,
   MIN_PANE_COLUMNS,
@@ -654,17 +655,19 @@ async function loadView($: EngineInterface): Promise<void> {
   await loadSelectedFileDiff($)
 }
 
-// A plain push, never forced; a branch without an upstream gets one on origin.
+// The first press arms, the second pushes; the push runs on its own so the pane shows it under way and ignores presses.
 async function pushBranch($: EngineInterface): Promise<void> {
   const pushState = await read($, pushStateAtom)
   switch (pushState) {
     case 'pushing':
+    case 'pushed':
       return
     case 'idle':
-      await update($, pushStateAtom, () => 'armed')
-      await $.clock.after(PUSH_CONFIRM_DELAY_MS, () => update($, pushStateAtom, state => (state === 'armed' ? 'idle' : state)))
+    case 'rejected':
+      await armPush($, pushState === 'idle' ? 'armed' : 'forceArmed', pushState)
       return
     case 'armed':
+    case 'forceArmed':
       break
   }
   const branch = await read($, branchAtom)
@@ -674,11 +677,37 @@ async function pushBranch($: EngineInterface): Promise<void> {
     return
   }
   await update($, pushStateAtom, () => 'pushing')
+  void runPush($, branch, pushState === 'forceArmed').catch(async error => {
+    await update($, pushStateAtom, () => 'idle')
+    await reportError($, `Push failed: ${String(error)}`)
+  })
+}
+
+async function armPush($: EngineInterface, armedState: 'armed' | 'forceArmed', stateToComeBackTo: 'idle' | 'rejected'): Promise<void> {
+  await update($, pushStateAtom, () => armedState)
+  await $.clock.after(PUSH_CONFIRM_DELAY_MS, () => update($, pushStateAtom, state => (state === armedState ? stateToComeBackTo : state)))
+}
+
+// A plain push never overwrites the remote. A force push only replaces what this clone last fetched of it
+// (--force-with-lease) and only once that is part of the local history (--force-if-includes): commits pushed
+// meanwhile from elsewhere make it fail instead of vanishing.
+async function runPush($: EngineInterface, branch: string, isForced: boolean): Promise<void> {
   const hasUpstream = (await runGit($, ['rev-parse', '--abbrev-ref', '@{upstream}'])).isSuccess
-  const push = await runGit($, hasUpstream ? ['push'] : ['push', '--set-upstream', 'origin', branch], GIT_PUSH_TIMEOUT_MS)
-  await update($, pushStateAtom, () => 'idle')
-  if (!push.isSuccess) {
-    await reportError($, `Push failed: ${push.output.trim().split('\n').at(-1) ?? ''}`)
+  const pushArguments = isForced
+    ? ['push', '--force-with-lease', '--force-if-includes']
+    : hasUpstream
+      ? ['push']
+      : ['push', '--set-upstream', 'origin', branch]
+  const push = await runGit($, pushArguments, GIT_PUSH_TIMEOUT_MS)
+  if (push.isSuccess) {
+    await update($, pushStateAtom, () => 'pushed')
+    await $.clock.after(PUSHED_NOTICE_MS, () => update($, pushStateAtom, state => (state === 'pushed' ? 'idle' : state)))
+  } else if (!isForced && /\[rejected\]|\[remote rejected\]|non-fast-forward|fetch first/.test(push.output)) {
+    await update($, pushStateAtom, () => 'rejected')
+    await reportError($, 'Push rejected: the remote branch has commits the local one lacks, after a rebase for instance.')
+  } else {
+    await update($, pushStateAtom, () => 'idle')
+    await reportError($, `${isForced ? 'Force push' : 'Push'} failed: ${push.output.trim().split('\n').at(-1) ?? ''}`)
   }
   await refreshExplorer($)
 }

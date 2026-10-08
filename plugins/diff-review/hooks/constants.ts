@@ -70,6 +70,7 @@ export const GIT_TIMEOUT_MS = 15000
 export const GIT_PUSH_TIMEOUT_MS = 180000
 // The push button asks for a second press within this delay, so a stray click pushes nothing.
 export const PUSH_CONFIRM_DELAY_MS = 4000
+export const PUSHED_NOTICE_MS = 4000
 export const BROWSER_OPENERS = ['xdg-open', 'open']
 export const GH_TIMEOUT_MS = 20000
 

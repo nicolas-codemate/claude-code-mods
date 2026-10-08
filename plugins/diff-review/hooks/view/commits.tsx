@@ -1,4 +1,4 @@
-import type { CommitGraphLine } from '../../types'
+import type { CommitGraphLine, PushState } from '../../types'
 import { ROW_CLICK_TARGET_LENGTH } from '../constants'
 import { DESKTOP_PIXELS_PER_COLUMN, GRAPH_ROW_PIXELS, commitGraphRowSvg } from './drawings'
 import type { ExplorerActions, ViewElements } from './types'
@@ -13,7 +13,7 @@ export function renderCommitList(
     repositoryWebUrl: string | null
     selectedCommitSha: string | null
     unpushedCommitShas: string[]
-    pushState: 'idle' | 'armed' | 'pushing'
+    pushState: PushState
     actions: ExplorerActions
   },
 ) {
@@ -43,14 +43,9 @@ export function renderCommitList(
             Branch commits <Text color={ui.theme.muted}>{input.commitCount}</Text>
           </Text>
         </Box>
-        {input.unpushedCommitShas.length > 0 && (
+        {(input.unpushedCommitShas.length > 0 || input.pushState !== 'idle') && (
           <Box key="push-branch-box" flexShrink={0}>
-            <Button
-              key="push-branch"
-              variant={input.pushState === 'armed' ? 'primary' : undefined}
-              label={pushLabelOf(input.pushState, input.unpushedCommitShas.length)}
-              onPress={() => input.actions.pushBranch()}
-            />
+            {renderPushControl(ui, input.pushState, input.unpushedCommitShas.length, input.actions)}
           </Box>
         )}
       </Box>
@@ -107,13 +102,37 @@ export function renderCommitList(
   )
 }
 
-function pushLabelOf(pushState: 'idle' | 'armed' | 'pushing', unpushedCommitCount: number): string {
+function renderPushControl(ui: ViewElements, pushState: PushState, unpushedCommitCount: number, actions: ExplorerActions) {
+  const { Button, Text } = ui
+  switch (pushState) {
+    case 'pushing':
+      return <Text color={ui.theme.muted}>pushing…</Text>
+    case 'pushed':
+      return <Text color={ui.theme.added}>✓ pushed</Text>
+    case 'idle':
+    case 'armed':
+    case 'rejected':
+    case 'forceArmed':
+      return (
+        <Button
+          key="push-branch"
+          variant={pushState === 'armed' || pushState === 'forceArmed' ? 'primary' : undefined}
+          label={pushLabelOf(pushState, unpushedCommitCount)}
+          onPress={() => actions.pushBranch()}
+        />
+      )
+  }
+}
+
+function pushLabelOf(pushState: 'idle' | 'armed' | 'rejected' | 'forceArmed', unpushedCommitCount: number): string {
   switch (pushState) {
     case 'idle':
       return `↑ push ${unpushedCommitCount} commit${unpushedCommitCount > 1 ? 's' : ''}`
     case 'armed':
       return '↑ press again to push'
-    case 'pushing':
-      return 'pushing…'
+    case 'rejected':
+      return '⚠ force push (with lease)'
+    case 'forceArmed':
+      return '⚠ press again to force push'
   }
 }

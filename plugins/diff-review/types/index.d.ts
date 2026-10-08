@@ -66,6 +66,9 @@ export type ReviewThread = {
   isContextCleared: boolean
 }
 
+// Each push and each force push waits for a second press; a push the remote refused offers the force push.
+export type PushState = 'idle' | 'armed' | 'pushing' | 'pushed' | 'rejected' | 'forceArmed'
+
 declare module 'claude-code' {
   interface PluginState {
     'diff-review': {
@@ -75,7 +78,7 @@ declare module 'claude-code' {
       hasUncommittedChanges: boolean
       // The branch's commits its remote does not have yet, all of them while the branch was never pushed.
       unpushedCommitShas: string[]
-      pushState: 'idle' | 'armed' | 'pushing'
+      pushState: PushState
       commitListOffset: number | null
       errorNotices: Array<{ id: string; text: string }>
       commits: CommitSummary[]

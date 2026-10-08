@@ -11,7 +11,7 @@ is about.
 - **Three views**: uncommitted changes (new files included), the pull request of the branch, and the branch commits
   with their graph. A file list grouped by directory, each directory folding away, a filter, lockfiles and generated
   files folded away.
-- **A narrow pane**: under 120 columns the code takes the whole pane, a bar above it naming the file; `☰ Files` (or
+- **A narrow pane**: under 120 columns the code takes the whole pane, a bar above it naming the file; `≡ Files` (or
   `i`, which starts typing in the filter) opens the file list over the code, and it closes again as soon as a file is
   picked, or with Escape. A wider pane can collapse its file list the same way (`9`), and pin it back.
 - **A readable diff**: syntax highlighting, more context around each change or the whole file, side by side when the

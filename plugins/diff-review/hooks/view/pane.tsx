@@ -1,4 +1,4 @@
-import type { CommitGraphLine, PullRequestSummary, ReviewView } from '../../types'
+import type { CommitGraphLine, PullRequestSummary, PushState, ReviewView } from '../../types'
 import { COMMIT_PANEL_MAX_LINES, CURSOR_LINE_FOCUS_KEY, DIVIDER_KEY, MIN_PANE_COLUMNS, TWO_COLUMNS_MIN_WIDTH } from '../constants'
 import { SHORTCUTS } from '../keymap'
 import type { Keymap, ShortcutAction } from '../keymap'
@@ -25,7 +25,7 @@ export type PaneInput = {
   location: string
   hasUncommittedChanges: boolean
   unpushedCommitShas: string[]
-  pushState: 'idle' | 'armed' | 'pushing'
+  pushState: PushState
   help: HelpInput | null
   loadError: string | null
   errorNotices: Array<{ id: string; text: string }>
@@ -199,7 +199,7 @@ function renderFileBar(ui: ViewElements, input: PaneInput) {
           key="file-drawer-toggle"
           plain
           hover={{ color: ui.theme.accent, bold: true }}
-          label={`${input.geometry.isFileDrawerOpen ? '✕' : '☰'} Files ${isFiltered(fileList) ? `${fileList.shownFileCount} of ` : ''}${fileList.files.length}`}
+          label={`${input.geometry.isFileDrawerOpen ? '✕' : '≡'} Files ${isFiltered(fileList) ? `${fileList.shownFileCount} of ` : ''}${fileList.files.length}`}
           onPress={() => input.actions.toggleFileDrawer()}
         />
       </Box>
