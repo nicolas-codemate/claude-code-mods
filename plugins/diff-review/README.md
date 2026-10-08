@@ -117,7 +117,7 @@ claude plugin test .
 ```
 
 The hooks module is `hooks/register.tsx`; pure logic sits beside it, the drawing under `hooks/view/`. The pictures come
-from a fictional shop the `demo/` folder of the repository builds and records.
+from a fictional demo shop.
 
 ## License
 
