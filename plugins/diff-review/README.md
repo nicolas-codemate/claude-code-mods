@@ -17,17 +17,17 @@ Then run `/diff-review`. It needs `git`, and for the pull request features the [
 logged in (`gh auth login`).
 
 **Screen width.** The pane sits beside the conversation. From a Full HD screen (1920 pixels) it is comfortable with the
-file list collapsed behind a bar (`9`), as in the pictures here; on a wider screen the list stays pinned beside the
-code.
+file list collapsed behind its `≡ Files` bar, as in the pictures here; on a wider screen the list stays pinned beside
+the code.
 
 ## Ask Claude about a line
 
-Click a line number, or press `c` (or Enter) on the cursor's line, and type the question. It goes to the conversation
+Click a line number and type the question. It goes to the conversation
 with the code around the line, and Claude's answer streams into a thread under that line, its mark blinking until the
 answer is in. While it grows, the diff scrolls to keep its end in sight, without pushing the line itself off the top;
 scrolling or moving yourself stops the follow.
 
-- Reply in the thread with `r`, or dictate in the prompt instead of typing in the pane.
+- Reply in the thread, or dictate in the prompt instead of typing in the pane.
 - Threads are kept per branch, across `/clear` and across sessions.
 - A thread whose line left the diff, or whose part of the pull request description was rewritten, shows on top of its
   file or of the overview, still readable and closable.
@@ -35,8 +35,8 @@ scrolling or moving yourself stops the follow.
 
 ## Three views
 
-**Uncommitted**: what `git diff` shows, new untracked files included. Mark new files with `v` (or all of them with
-`m`) and `git add` them with `g`, or add everything with `e`. The tab dims when there is nothing uncommitted.
+**Uncommitted**: what `git diff` shows, new untracked files included. Tick new files and `git add` them, or add
+everything, from the file list. The tab dims when there is nothing uncommitted.
 
 ![The uncommitted changes, a new file](docs/media/uncommitted.png)
 
@@ -54,14 +54,14 @@ offers a force push protected by `--force-with-lease --force-if-includes`, again
 ## GitHub review comments
 
 The inline comments of the pull request appear under their lines, outdated ones on top of their file, resolved ones
-folded to one line. Resolve or unresolve a thread with `x`, open it on GitHub with `o`, or press `c` on it to have
-Claude change the code to settle it. `n` and `p` walk every thread of the view, Claude's and GitHub's alike.
+folded to one line. Resolve or unresolve a thread, open it on GitHub, or have Claude change the code to settle it,
+from the buttons of the thread. The header walks every thread of the view, Claude's and GitHub's alike.
 
 ![A GitHub review comment under its line](docs/media/review-comments.png)
 
 ## Review bookkeeping
 
-- The "viewed" box of GitHub on each file; `y` marks the file viewed and jumps to the next one to view.
+- The "viewed" box of GitHub on each file, ticked from the file list.
 - `○ unviewed` hides the files already viewed; a file you just marked stays a moment before it goes.
 - A file GitHub does not list yet, because it changed in a commit not pushed, shows `↑` instead of a box.
 - The header sums the view up in tiles: files, lines, a viewed bar and the open threads.
@@ -71,50 +71,20 @@ Claude change the code to settle it. `n` and `p` walk every thread of the view, 
 ## A readable diff
 
 Syntax highlighting (each block of a Vue component in its own language, Behat features as Gherkin), more context around
-each change (`u`) or the whole file (`l`), side by side (`t`) when the pane is wide enough, long lines wrapped and
-scrolled through line by line. The file list groups files by directory, each folding away (`0`), with a filter (`i`);
-lockfiles and generated files stay folded until asked.
+each change or the whole file, side by side when the pane is wide enough, long lines wrapped and scrolled through line
+by line. The file list groups files by directory, each folding away, with a filter; lockfiles and generated files stay
+folded until asked.
 
-## Keyboard first
+## Keyboard too
 
-Every action has a key, every key can be remapped, and `h` lists them all. The navigation keys follow the keyboard
-layout when the desktop settings tell it (AZERTY or QWERTY); otherwise both sets work.
-
-![The shortcuts, from h](docs/media/help.png)
-
-| Key | Action |
-| --- | --- |
-| `1` `2` `3` | Uncommitted changes, pull request, commits |
-| `q` / `d` | Previous / next view (`a` / `d` on a QWERTY keyboard) |
-| `z` / `s` | Previous / next file (`w` / `s` on a QWERTY keyboard) |
-| `i` | Filter the files; Enter goes back to the diff |
-| `5` | Clear the filters: the typed filter, the unviewed filter, the folded lockfiles and generated files |
-| `0` | Fold or unfold the directory of the file (or click its arrow) |
-| `9` | Collapse the file list behind a bar, or pin it back beside the code |
-| `j` / `k` | Line below / above |
-| `f` / `b` | Next / previous hunk |
-| `u` / `l` | More context / the whole file |
-| `t` | Side by side or unified |
-| `c` or Enter | Ask Claude about the line; on a GitHub thread, have Claude address it |
-| `r` | Reply in the thread of the line |
-| `n` / `p` | Next / previous thread |
-| `x` | Resolve or unresolve the GitHub thread |
-| `o` | Open the comment, the commit or the pull request on GitHub |
-| `y` | Mark the file viewed on GitHub and go to the next one to view |
-| `v` / `m` | Mark the new file / every new file for `git add` |
-| `g` / `e` | `git add` the marked files / everything |
-| `h` | Help |
-
-`ctrl+x` then Tab moves the keyboard between the prompt and the pane; Escape closes an open question, then the help,
-then the pane.
+Everything works with the mouse. Every action also has a key, which can be remapped in `/config`; the help button of the pane lists them all.
 
 ## Settings
 
 In `/config`, under diff-review:
 
 - **Theme**: `auto` (the Claude Code theme), `dark` or `light`.
-- **Key: …**: one field per action. One letter or digit, several comma separated; empty keeps the default. The help
-  reports a key it could not take, or two actions sharing one.
+- **Key: …**: one field per action, to remap its key.
 
 ## What it sends, and where
 
