@@ -39,6 +39,15 @@ export function scrolledByLines(
   return { rowIndex: 0, skippedLines: 0 }
 }
 
+// The top line that keeps a growing thread's end in sight: the diff only moves down, and never past the line the thread
+// is about, so a thread taller than the panel shows its question first.
+export function topLineFollowingRow(rowHeights: readonly number[], rowIndex: number, currentTopLine: number, visibleLines: number): number {
+  const linesAbove = rowHeights.slice(0, rowIndex).reduce((total, height) => total + height, 0)
+  const rowBottom = linesAbove + (rowHeights[rowIndex] ?? 0)
+
+  return Math.max(currentTopLine, Math.min(rowBottom - visibleLines, linesAbove))
+}
+
 export function clampFileListWidth(width: number, bodyColumns: number): number {
   return Math.max(MIN_FILE_LIST_WIDTH, Math.min(width, bodyColumns - MIN_DIFF_WIDTH))
 }

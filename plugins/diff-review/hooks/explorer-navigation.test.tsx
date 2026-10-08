@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { hasQuestionField, mountPane, openExplorer, questionFieldKey, reopenExplorer, stubWorld } from './test-support'
+import { hasQuestionField, mountPane, openExplorer, questionFieldKey, reopenExplorer, stubWorld, wheel } from './test-support'
 
 test('the explorer walks the three views and picks files and commits', async ($, on) => {
   stubWorld(on, { newFileContent: '# notes\nhello\n' })
@@ -260,5 +260,19 @@ test('a directory folds from its arrow or the shortcut, its files then stepped o
   await pane.press({ key: 'thread-next' })
   expect((await pane.find({ key: 'directory-src' }))?.text).toBe('▾ ')
   expect(await pane.find({ key: 'file-src/Total.php' })).toBeDefined()
+  await pane.unmount()
+})
+
+test('a help taller than the pane scrolls with the wheel, its footer staying in sight', async ($, on) => {
+  stubWorld(on)
+  await openExplorer($)
+  const pane = await mountPane($, { bodyRows: 24 })
+  await pane.press({ key: 'help' })
+  expect(await pane.find({ type: 'Text', text: /▼ scroll for more/ })).toBeDefined()
+
+  await wheel($, 60, 2, 24)
+  const scrolledGroups = (await pane.findAll({ type: 'Box' })).find(box => Number((box.props as { marginTop?: number }).marginTop) < 0)
+  expect((scrolledGroups?.props as { marginTop?: number } | undefined)?.marginTop).toBe(-6)
+  expect(await pane.find({ type: 'Text', text: /Remap a key in \/config/ })).toBeDefined()
   await pane.unmount()
 })

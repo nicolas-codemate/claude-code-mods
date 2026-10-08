@@ -337,3 +337,37 @@ test('a thread asked in the PR view stays under its line after a visit to the Co
   expect(await pane.find({ type: 'Text', text: /no longer in the diff/ })).toBeUndefined()
   await pane.unmount()
 })
+
+test('the diff follows a growing answer until its question line reaches the top, and stops following once scrolled', async ($, on) => {
+  const longDiff = ['@@ -1,0 +1,60 @@', ...Array.from({ length: 60 }, (_, index) => `+line ${index + 1}`)].join('\n')
+  const world = stubWorld(on, {
+    git: gitCommand => {
+      if (gitCommand.startsWith('diff --no-color')) return { exitCode: 0, stdout: longDiff }
+      if (gitCommand.startsWith('ls-files')) return { exitCode: 0, stdout: '' }
+      return undefined
+    },
+  })
+  await openExplorer($)
+  const firstShownCode = async () => {
+    const pane = await mountPane($, { bodyRows: 30 })
+    await world.clock.advance(1)
+    const codes = await pane.findAll({ type: 'Code' })
+    await pane.unmount()
+    return codes[0]?.text
+  }
+
+  let pane = await mountPane($, { bodyRows: 30 })
+  await pane.press({ key: 'ask-12' })
+  await pane.input({ key: await questionFieldKey(pane), text: 'Why line 12?' })
+  await pane.unmount()
+  expect(await firstShownCode()).toBe('line 1')
+
+  const longAnswer = Array.from({ length: 30 }, (_, index) => `answer line ${index + 1}`).join('\n\n')
+  await answerTurn($, 'turn-1', 'Why line 12?', longAnswer)
+  expect(await firstShownCode()).toBe('line 12')
+
+  await wheel($, 120, -1)
+  pane = await mountPane($, { bodyRows: 30 })
+  await pane.unmount()
+  expect(await firstShownCode()).not.toBe('line 12')
+})

@@ -122,7 +122,7 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
           pushState: input.pushState,
           actions: input.actions,
         })}
-      {input.help && renderHelp(ui, input.help, geometry.panelsHeight, input.actions)}
+      {input.help && renderHelp(ui, input.help, geometry.panelsHeight, input.bodyColumns, input.actions)}
       {geometry.isTwoColumns ? (
         <Box flexDirection="row" height={geometry.panelsHeight} display={input.help ? 'none' : 'flex'}>
           {renderFileList(ui, { ...input.fileList, width: geometry.fileListWidth, height: geometry.fileListBoxHeight, isDrawer: false, canPin: false })}

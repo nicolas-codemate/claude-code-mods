@@ -28,25 +28,29 @@ export function renderOverview(ui: ViewElements, input: OverviewInput) {
   return (
     <Box flexDirection="column">
       <Box flexDirection="row" flexShrink={0} backgroundColor={ui.theme.headerBackground} paddingX={1}>
-        <Box flexGrow={1}>
+        <Box flexGrow={1} flexShrink={1} minWidth={0}>
           <Text bold color={ui.theme.heading} wrap="truncate-end">
             {pullRequest.overviewHeadline}
           </Text>
         </Box>
         {renderThreadNavigation(ui, input.threadNavigation, input.hotkeyOf, input.actions)}
         {input.blocks.length > 1 && (
-          <Text color={ui.theme.muted}>
-            {input.blockOffset + 1}–{input.blocks.length}
-            {'   '}
-          </Text>
+          <Box flexShrink={0}>
+            <Text color={ui.theme.muted}>
+              {input.blockOffset + 1}–{input.blocks.length}
+              {'   '}
+            </Text>
+          </Box>
         )}
-        <Text>
-          {renderLineCounts(ui, pullRequest.additions, pullRequest.deletions)}
-          <Text color={ui.theme.muted}>
-            {'  ·  '}
-            {pullRequest.changedFiles} file{pullRequest.changedFiles > 1 ? 's' : ''}
+        <Box flexShrink={0}>
+          <Text>
+            {renderLineCounts(ui, pullRequest.additions, pullRequest.deletions)}
+            <Text color={ui.theme.muted}>
+              {'  ·  '}
+              {pullRequest.changedFiles} file{pullRequest.changedFiles > 1 ? 's' : ''}
+            </Text>
           </Text>
-        </Text>
+        </Box>
       </Box>
       {threadsOffDescription.map(thread => (
         <Box key={`thread-off-description-${thread.id}`} flexDirection="column" flexShrink={0}>

@@ -81,6 +81,9 @@ declare module 'claude-code' {
       pushState: PushState
       commitListOffset: number | null
       errorNotices: Array<{ id: string; text: string }>
+      helpScrolledLines: number
+      // The thread whose answer the diff follows as it grows, until the person scrolls, moves or changes file.
+      followedThreadId: string | null
       commits: CommitSummary[]
       commitGraph: CommitGraphLine[]
       selectedCommitSha: string | null

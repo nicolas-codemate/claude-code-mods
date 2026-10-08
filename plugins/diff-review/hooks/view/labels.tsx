@@ -68,7 +68,7 @@ export function renderThreadNavigation(
   const position = threadNavigation.position === null ? '–' : String(threadNavigation.position + 1)
 
   return (
-    <Box flexDirection="row" flexShrink={0} marginRight={3}>
+    <Box flexDirection="row" flexShrink={0} marginLeft={2} marginRight={3}>
       <Text color={ui.theme.accent}>
         thread {position}/{threadNavigation.count}{' '}
       </Text>

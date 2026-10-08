@@ -118,7 +118,7 @@ function renderFileHeader(ui: ViewElements, file: ChangedFile, input: DiffViewIn
           {typeBadge.badge}
         </Text>
       </Box>
-      <Box flexGrow={1}>
+      <Box flexGrow={1} flexShrink={1} minWidth={0}>
         <Text bold color={ui.theme.heading} wrap="truncate-start">
           {file.path}
         </Text>
@@ -135,12 +135,14 @@ function renderFileHeader(ui: ViewElements, file: ChangedFile, input: DiffViewIn
         />
       </Box>
       {rowCount > input.visibleDiffRows && (
-        <Text color={ui.theme.muted}>
-          {input.diffOffset + 1}–{Math.min(input.diffOffset + input.visibleDiffRows, rowCount)} / {rowCount}
-          {'   '}
-        </Text>
+        <Box flexShrink={0}>
+          <Text color={ui.theme.muted}>
+            {input.diffOffset + 1}–{Math.min(input.diffOffset + input.visibleDiffRows, rowCount)} / {rowCount}
+            {'   '}
+          </Text>
+        </Box>
       )}
-      {renderFileStats(ui, file)}
+      <Box flexShrink={0}>{renderFileStats(ui, file)}</Box>
     </Box>
   )
 }

@@ -82,6 +82,7 @@ import { viewedPathsToHide, visibleFilesOf } from './file-filter'
 import { KEYBOARD_LAYOUT_SOURCES, keyboardLayoutOf } from './keyboard'
 import { resolveKeymap } from './keymap'
 import { buildFileLines, clampFileListWidth, clampOffset, scrolledByLines } from './layout'
+import { helpContentLineCount, helpVisibleLineCount } from './view/help'
 import { parseEmojiCharacters, splitMarkdownBlocks } from './markdown'
 import {
   isLastExchangeDone,
@@ -122,6 +123,8 @@ const unpushedCommitShasAtom = atom({ plugin: 'diff-review', key: 'unpushedCommi
 const pushStateAtom = atom({ plugin: 'diff-review', key: 'pushState' } as const, 'idle')
 const commitListOffsetAtom = atom({ plugin: 'diff-review', key: 'commitListOffset' } as const, null)
 const errorNoticesAtom = atom({ plugin: 'diff-review', key: 'errorNotices' } as const, [])
+const helpScrolledLinesAtom = atom({ plugin: 'diff-review', key: 'helpScrolledLines' } as const, 0)
+const followedThreadIdAtom = atom({ plugin: 'diff-review', key: 'followedThreadId' } as const, null)
 const commitsAtom = atom({ plugin: 'diff-review', key: 'commits' } as const, [])
 const commitGraphAtom = atom({ plugin: 'diff-review', key: 'commitGraph' } as const, [])
 const gitHubReviewThreadsAtom = atom({ plugin: 'diff-review', key: 'gitHubReviewThreads' } as const, [])
@@ -200,6 +203,8 @@ const lastDrawnLayout = {
   cursorRowIndex: null as number | null,
   isScrollingPastEnd: false,
   commitPanelRows: 0,
+  panelsHeight: 0,
+  keymapProblemCount: 0,
   firstShownCommitLineIndex: 0,
   commitLineCount: 0,
   diffRowHeights: [] as number[],
@@ -723,6 +728,7 @@ async function refreshExplorer($: EngineInterface): Promise<void> {
 // --- Navigation -----------------------------------------------------------------------------------------------------
 
 async function switchView($: EngineInterface, view: ReviewView): Promise<void> {
+  await update($, followedThreadIdAtom, () => null)
   await update($, viewAtom, () => view)
   await update($, markedPathsAtom, () => [])
   await update($, fileListOffsetAtom, () => 0)
@@ -765,6 +771,7 @@ async function showOverview($: EngineInterface): Promise<void> {
 // The keyboard goes to the new file's first change, unless the caller puts it somewhere else on the same drawing: two
 // requests for one drawing leave the later one unanswered.
 async function selectFile($: EngineInterface, path: string, focus: 'first-change' | 'caller' = 'first-change'): Promise<void> {
+  await update($, followedThreadIdAtom, () => null)
   await update($, isOverviewShownAtom, () => false)
   await update($, selectedFilePathAtom, () => path)
   // A file reached from a thread or from the next one to view opens its folded directory.
@@ -1024,6 +1031,7 @@ async function findOverviewQuestionTarget($: EngineInterface, blockIndex: number
 
 async function sendToConversation($: EngineInterface, threadId: string, question: string, context: string): Promise<void> {
   await update($, threadIdAwaitingTurnAtom, () => threadId)
+  await update($, followedThreadIdAtom, () => threadId)
   // The location and its surroundings go in as a row only the model reads, so the transcript shows the question alone.
   try {
     await $.session.append({ message: { type: 'user', content: [{ type: 'text', text: context }] } })
@@ -1232,6 +1240,7 @@ type CursorMove = (stops: number[], diffRows: DiffRow[]) => (cursorRowIndex: num
 // The cursor starts where the last drawing showed it; a cursor scrolled out of sight by the wheel comes back to the
 // first line in view instead of dragging the diff back to where it was.
 async function moveCursor($: EngineInterface, move: CursorMove): Promise<void> {
+  await update($, followedThreadIdAtom, () => null)
   const cursorRowIndex = lastDrawnLayout.cursorRowIndex
   if ((await read($, isOverviewShownAtom)) || cursorRowIndex === null) {
     return
@@ -1358,6 +1367,8 @@ async function readExplorerSnapshot($: EngineInterface, options: PluginOptions):
     pushState: await read($, pushStateAtom),
     commitListOffset: await read($, commitListOffsetAtom),
     errorNotices: await read($, errorNoticesAtom),
+    helpScrolledLines: await read($, helpScrolledLinesAtom),
+    followedThreadId: await read($, followedThreadIdAtom),
     isLoading: await read($, isLoadingAtom),
     loadError: await read($, loadErrorAtom),
     commits: await read($, commitsAtom),
@@ -1526,6 +1537,7 @@ function explorerActions($: EngineInterface): ExplorerActions {
     },
     toggleHelp: async () => {
       await update($, isHelpShownAtom, isHelpShown => !isHelpShown)
+      await update($, helpScrolledLinesAtom, () => 0)
     },
     toggleGitHubThreadResolved: threadId => toggleGitHubThreadResolved($, threadId),
     addressGitHubThread: threadId => addressGitHubThread($, threadId),
@@ -1614,6 +1626,14 @@ export const register: Register = (on, options) => {
   on('ui.scroll', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
     const layout = lastDrawnLayout
     const pointer = e.pointer
+    await update($, followedThreadIdAtom, () => null)
+    if (await read($, isHelpShownAtom)) {
+      const helpContentLines = helpContentLineCount(layout.bodyColumns)
+      const helpVisibleLines = helpVisibleLineCount(layout.panelsHeight, layout.bodyColumns, layout.keymapProblemCount)
+      const linesToMove = pointer !== undefined ? e.by * WHEEL_TICK_ROWS : Math.sign(e.by) * helpVisibleLines
+      await update($, helpScrolledLinesAtom, scrolledLines => clampOffset(scrolledLines + linesToMove, helpContentLines, helpVisibleLines))
+      return {}
+    }
     const isOverCommitList =
       pointer !== undefined && pointer.row >= layout.panelsTop - layout.commitPanelRows && pointer.row < layout.panelsTop
     if (isOverCommitList) {
@@ -1747,6 +1767,7 @@ export const register: Register = (on, options) => {
       await update($, threadsAtom, threads => [...threads, thread])
       await saveThreads($)
       await update($, threadIdAwaitingTurnAtom, () => thread.id)
+      await update($, followedThreadIdAtom, () => thread.id)
     }
     return next({ ...e, context: [...(e.context ?? []), armedQuestion.context] })
   })
@@ -1857,9 +1878,21 @@ export const register: Register = (on, options) => {
       isScrollingPastEnd: model.isScrollingPastEnd,
       diffRowHeights: model.diffRowHeights,
       commitPanelRows: model.geometry.commitPanelRows,
+      panelsHeight: model.geometry.panelsHeight,
+      keymapProblemCount: model.keymapProblemCount,
       firstShownCommitLineIndex: model.geometry.firstShownCommitLineIndex,
       commitLineCount: model.commitLineCount,
     })
+
+    const { followPosition } = model
+    const selectedFilePath = await read($, selectedFilePathAtom)
+    if (followPosition !== null && selectedFilePath !== null) {
+      // A drawing may not write: the move comes right after it, and the pane is drawn again at the new place.
+      await $.clock.after(0, async () => {
+        await update($, diffOffsetAtom, () => followPosition.rowIndex)
+        await update($, diffSkippedLinesAtom, () => ({ path: selectedFilePath, rowIndex: followPosition.rowIndex, lines: followPosition.skippedLines }))
+      })
+    }
 
     return renderPane(ui, model.paneInput)
   })

@@ -21,12 +21,13 @@ import { viewedPathsToHide, visibleFilesOf } from '../file-filter'
 import { cursorStopsOf, firstChangeStop } from '../cursor'
 import { countViewedFiles, gitHubThreadNavigationEntries } from '../github-review'
 import type { Keymap, ShortcutAction } from '../keymap'
-import { buildFileLines, clampFileListWidth, computePaneGeometry } from '../layout'
+import { buildFileLines, clampFileListWidth, computePaneGeometry, scrolledByLines, topLineFollowingRow } from '../layout'
+import type { DiffScrollPosition } from '../layout'
 import type { PaneGeometry } from '../layout'
 import { splitMarkdownBlocks } from '../markdown'
-import { fileAnchorPrefixOf, openThreadsByPath, threadsInReadingOrder } from '../questions'
+import { anchorKeyOf, fileAnchorPrefixOf, openThreadsByPath, threadsInReadingOrder } from '../questions'
 import { groupFilesByDirectory } from '../git-parsing'
-import { pairRowsSideBySide } from '../split-rows'
+import { pairRowsSideBySide, splitIndexOfRow } from '../split-rows'
 import type { HeaderTile } from './drawings'
 import { estimatedRowHeights } from './row-height'
 import type { PaneInput } from './pane'
@@ -44,6 +45,8 @@ export type ExplorerSnapshot = {
   pushState: PushState
   commitListOffset: number | null
   errorNotices: Array<{ id: string; text: string }>
+  helpScrolledLines: number
+  followedThreadId: string | null
   isLoading: boolean
   loadError: string | null
   commits: CommitSummary[]
@@ -94,6 +97,7 @@ export type PaneModel = {
   fileLineIndexByPath: Record<string, number>
   fileLineCount: number
   commitLineCount: number
+  keymapProblemCount: number
   scrolledRowCount: number
   isOverviewShown: boolean
   isSplitView: boolean
@@ -101,6 +105,8 @@ export type PaneModel = {
   isScrollingPastEnd: boolean
   // Filled while a file's diff is shown, empty on the overview.
   diffRowHeights: number[]
+  // Where the diff should stand to keep the followed answer's end in sight, when it does not stand there yet.
+  followPosition: DiffScrollPosition | null
 }
 
 export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface, actions: ExplorerActions): PaneModel {
@@ -240,6 +246,21 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     firstShownRowHeight !== undefined
       ? Math.min(savedSkippedLines.lines, firstShownRowHeight - 1)
       : 0
+  const followedThread = threads.find(thread => thread.id === snapshot.followedThreadId)
+  const followedRowIndex =
+    followedThread && selectedFilePath !== null
+      ? snapshot.diffRows.findIndex(row => anchorKeyOf(view, selectedCommitSha, selectedFilePath, row) === followedThread.anchorKey)
+      : -1
+  let followPosition: DiffScrollPosition | null = null
+  if (followedRowIndex !== -1 && diffRowHeights.length > 0) {
+    const followedScrolledIndex = splitRows ? splitIndexOfRow(splitRows, followedRowIndex) : followedRowIndex
+    const currentTopLine = diffRowHeights.slice(0, geometry.diffOffset).reduce((total, height) => total + height, 0) + diffSkippedLines
+    const followingTopLine = topLineFollowingRow(diffRowHeights, followedScrolledIndex, currentTopLine, geometry.visibleDiffRows)
+    if (followingTopLine !== currentTopLine) {
+      const totalLines = diffRowHeights.reduce((total, height) => total + height, 0)
+      followPosition = scrolledByLines({ rowIndex: 0, skippedLines: 0 }, followingTopLine, diffRowHeights, totalLines - 1)
+    }
+  }
   const repositoryName = snapshot.repositoryRoot?.split('/').filter(Boolean).at(-1)
   const location = [
     snapshot.isLoading ? 'loading…' : null,
@@ -260,7 +281,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     hasUncommittedChanges: snapshot.hasUncommittedChanges,
     unpushedCommitShas: snapshot.unpushedCommitShas,
     pushState: snapshot.pushState,
-    help: snapshot.isHelpShown ? { keymap: snapshot.keymap, problems: snapshot.keymapProblems } : null,
+    help: snapshot.isHelpShown ? { keymap: snapshot.keymap, problems: snapshot.keymapProblems, scrolledLines: snapshot.helpScrolledLines } : null,
     loadError: snapshot.loadError,
     errorNotices: snapshot.errorNotices,
     pullRequest,
@@ -352,12 +373,14 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     ),
     fileLineCount: fileLines.length,
     commitLineCount: snapshot.commitGraph.length,
+    keymapProblemCount: snapshot.keymapProblems.length,
     scrolledRowCount,
     isOverviewShown,
     isSplitView: splitRows !== null,
     cursorRowIndex,
     isScrollingPastEnd,
     diffRowHeights,
+    followPosition,
   }
 }
 
