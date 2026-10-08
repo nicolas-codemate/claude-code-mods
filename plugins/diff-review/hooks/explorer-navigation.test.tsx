@@ -203,15 +203,6 @@ test('the help lists every shortcut and closes with its key or its button', asyn
   await pane.unmount()
 })
 
-test('a key remapped in the plugin options drives its shortcut', { options: { key_next_line: '8' } }, async ($, on) => {
-  stubWorld(on)
-  await openExplorer($)
-  const pane = await mountPane($)
-  await pane.press({ key: 'file-src/Total.php' })
-  expect((await pane.find({ key: 'cursor-down' }))?.props.hotkey).toBe('8')
-  await pane.unmount()
-})
-
 test('a directory folds from its arrow or the shortcut, its files then stepped over until a jump opens it again', async ($, on) => {
   stubWorld(on, {
     git: gitCommand => {
@@ -273,6 +264,5 @@ test('a help taller than the pane scrolls with the wheel, its footer staying in 
   await wheel($, 60, 2, 24)
   const scrolledGroups = (await pane.findAll({ type: 'Box' })).find(box => Number((box.props as { marginTop?: number }).marginTop) < 0)
   expect((scrolledGroups?.props as { marginTop?: number } | undefined)?.marginTop).toBe(-6)
-  expect(await pane.find({ type: 'Text', text: /Remap a key in \/config/ })).toBeDefined()
   await pane.unmount()
 })

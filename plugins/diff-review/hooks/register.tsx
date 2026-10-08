@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, PluginOptions, Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
 import type { ChangedFile, DiffRow, GitHubReviewThread, KeyboardLayout, ReviewView, ViewedState } from '../types'
 import {
@@ -80,7 +80,7 @@ import {
 import { cursorAtHunk, cursorStopsOf, firstChangeStop, movedCursor, offsetShowingCursor } from './cursor'
 import { viewedPathsToHide, visibleFilesOf } from './file-filter'
 import { KEYBOARD_LAYOUT_SOURCES, keyboardLayoutOf } from './keyboard'
-import { resolveKeymap } from './keymap'
+import { keymapOf } from './keymap'
 import { buildFileLines, clampFileListWidth, clampOffset, scrolledByLines } from './layout'
 import { helpContentLineCount, helpVisibleLineCount } from './view/help'
 import { parseEmojiCharacters, splitMarkdownBlocks } from './markdown'
@@ -205,7 +205,6 @@ const lastDrawnLayout = {
   isScrollingPastEnd: false,
   commitPanelRows: 0,
   panelsHeight: 0,
-  keymapProblemCount: 0,
   firstShownCommitLineIndex: 0,
   commitLineCount: 0,
   diffRowHeights: [] as number[],
@@ -1353,8 +1352,8 @@ async function appendToThreadOfTurn($: EngineInterface, turnId: string, text: st
 
 // --- What the drawing reads and can ask for -------------------------------------------------------------------------
 
-async function readExplorerSnapshot($: EngineInterface, options: PluginOptions): Promise<ExplorerSnapshot> {
-  const { keymap, problems } = resolveKeymap(options, await read($, keyboardLayoutAtom))
+async function readExplorerSnapshot($: EngineInterface): Promise<ExplorerSnapshot> {
+  const keymap = keymapOf(await read($, keyboardLayoutAtom))
 
   return {
     view: await read($, viewAtom),
@@ -1396,7 +1395,6 @@ async function readExplorerSnapshot($: EngineInterface, options: PluginOptions):
     isFileListCollapsed: await read($, isFileListCollapsedAtom),
     isSplitViewPreferred: await read($, isSplitViewPreferredAtom),
     keymap,
-    keymapProblems: problems,
     isHelpShown: await read($, isHelpShownAtom),
     cursorRowIndex: await read($, cursorRowIndexAtom),
     focusedElementKey: await read($, focusedElementKeyAtom),
@@ -1632,7 +1630,7 @@ export const register: Register = (on, options) => {
     await update($, followedThreadIdAtom, () => null)
     if (await read($, isHelpShownAtom)) {
       const helpContentLines = helpContentLineCount(layout.bodyColumns)
-      const helpVisibleLines = helpVisibleLineCount(layout.panelsHeight, layout.bodyColumns, layout.keymapProblemCount)
+      const helpVisibleLines = helpVisibleLineCount(layout.panelsHeight, layout.bodyColumns)
       const linesToMove = pointer !== undefined ? e.by * WHEEL_TICK_ROWS : Math.sign(e.by) * helpVisibleLines
       await update($, helpScrolledLinesAtom, scrolledLines => clampOffset(scrolledLines + linesToMove, helpContentLines, helpVisibleLines))
       return {}
@@ -1857,7 +1855,7 @@ export const register: Register = (on, options) => {
       return renderNarrowPane(ui, e.props.bodyColumns)
     }
     const model = buildPaneModel(
-      await readExplorerSnapshot($, options),
+      await readExplorerSnapshot($),
       {
         bodyRows: e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 40,
         bodyColumns: e.props.bodyColumns,
@@ -1884,7 +1882,6 @@ export const register: Register = (on, options) => {
       diffRowHeights: model.diffRowHeights,
       commitPanelRows: model.geometry.commitPanelRows,
       panelsHeight: model.geometry.panelsHeight,
-      keymapProblemCount: model.keymapProblemCount,
       firstShownCommitLineIndex: model.geometry.firstShownCommitLineIndex,
       commitLineCount: model.commitLineCount,
     })

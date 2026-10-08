@@ -4,7 +4,7 @@ import type { Keymap } from '../keymap'
 import { wrappedLineCount } from './row-height'
 import type { ExplorerActions, ViewElements } from './types'
 
-export type HelpInput = { keymap: Keymap; problems: string[]; scrolledLines: number }
+export type HelpInput = { keymap: Keymap; scrolledLines: number }
 
 const GROUP_WIDTH = 46
 const GROUP_GAP = 2
@@ -12,7 +12,6 @@ const KEY_COLUMN_WIDTH = 8
 const PADDING_COLUMNS = 2 * 2 + 2
 const FOOTER = [
   "Enter on the cursor's line asks about it; on a GitHub thread reached with n/p, c has Claude address it. Escape closes a question, then this help, then the pane.",
-  'Remap a key in /config, under diff-review (Key: …): one letter or digit, several comma separated.',
 ]
 // The title, the gap under it and the frame.
 const HELP_CHROME_ROWS = 1 + 1 + 2
@@ -34,15 +33,15 @@ export function helpContentLineCount(bodyColumns: number): number {
   return lineCount
 }
 
-export function helpVisibleLineCount(height: number, bodyColumns: number, problemCount: number): number {
+export function helpVisibleLineCount(height: number, bodyColumns: number): number {
   const footerRows = FOOTER.reduce((rows, line) => rows + wrappedLineCount(line, bodyColumns - PADDING_COLUMNS), 0)
 
-  return Math.max(1, height - HELP_CHROME_ROWS - footerRows - problemCount)
+  return Math.max(1, height - HELP_CHROME_ROWS - footerRows)
 }
 
 export function renderHelp(ui: ViewElements, input: HelpInput, height: number, bodyColumns: number, actions: ExplorerActions) {
   const { Box, Button, Text } = ui
-  const isMoreBelow = input.scrolledLines + helpVisibleLineCount(height, bodyColumns, input.problems.length) < helpContentLineCount(bodyColumns)
+  const isMoreBelow = input.scrolledLines + helpVisibleLineCount(height, bodyColumns) < helpContentLineCount(bodyColumns)
 
   return (
     <Box flexDirection="column" height={height} overflow="hidden" borderStyle="round" borderColor={ui.theme.accentBorder} backgroundColor={ui.theme.panelBackground} paddingX={2}>
@@ -84,11 +83,6 @@ export function renderHelp(ui: ViewElements, input: HelpInput, height: number, b
       {FOOTER.map(line => (
         <Box key={`help-footer-${line.slice(0, 12)}`} flexShrink={0}>
           <Text color={ui.theme.muted}>{line}</Text>
-        </Box>
-      ))}
-      {input.problems.map(problem => (
-        <Box key={`help-problem-${problem}`} flexShrink={0}>
-          <Text color={ui.theme.removed}>{problem}</Text>
         </Box>
       ))}
     </Box>

@@ -71,7 +71,6 @@ export type ExplorerSnapshot = {
   isFileListCollapsed: boolean
   isSplitViewPreferred: boolean
   keymap: Keymap
-  keymapProblems: string[]
   isHelpShown: boolean
   cursorRowIndex: number | null
   focusedElementKey: string | null
@@ -97,7 +96,6 @@ export type PaneModel = {
   fileLineIndexByPath: Record<string, number>
   fileLineCount: number
   commitLineCount: number
-  keymapProblemCount: number
   scrolledRowCount: number
   isOverviewShown: boolean
   isSplitView: boolean
@@ -281,7 +279,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     hasUncommittedChanges: snapshot.hasUncommittedChanges,
     unpushedCommitShas: snapshot.unpushedCommitShas,
     pushState: snapshot.pushState,
-    help: snapshot.isHelpShown ? { keymap: snapshot.keymap, problems: snapshot.keymapProblems, scrolledLines: snapshot.helpScrolledLines } : null,
+    help: snapshot.isHelpShown ? { keymap: snapshot.keymap, scrolledLines: snapshot.helpScrolledLines } : null,
     loadError: snapshot.loadError,
     errorNotices: snapshot.errorNotices,
     pullRequest,
@@ -373,7 +371,6 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     ),
     fileLineCount: fileLines.length,
     commitLineCount: snapshot.commitGraph.length,
-    keymapProblemCount: snapshot.keymapProblems.length,
     scrolledRowCount,
     isOverviewShown,
     isSplitView: splitRows !== null,

@@ -93,7 +93,7 @@ folded until asked.
 
 ## Keyboard too
 
-Everything works with the mouse. Every action also has a key, which can be remapped in `/config`; the help button of the pane lists them all.
+Everything works with the mouse. Every action also has a key; the help button of the pane lists them all.
 
 ## Settings
 
@@ -103,8 +103,6 @@ In `/config`, under diff-review:
   when Claude Code is: forced to the other mode, it leaves its backgrounds to the terminal so that text stays readable.
 
   ![The light theme](docs/media/light-theme.png)
-
-- **Key: …**: one field per action, to remap its key.
 
 ## What it sends, and where
 
