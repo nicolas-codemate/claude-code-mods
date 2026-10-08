@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { hasQuestionField, keyStartingWith, mountPane, openExplorer, stubWorld, wheel } from './test-support'
+import { hasQuestionField, keyStartingWith, mountPane, openExplorer, reopenExplorer, stubWorld, wheel } from './test-support'
 
 test('the pane asks for two thirds of the terminal', async ($, on) => {
   const world = stubWorld(on)
@@ -334,4 +334,22 @@ test('a push says when it is done, and a push the remote refused offers a force 
   await world.clock.advance(5000)
   expect(await pane.find({ type: 'Text', text: '✓ pushed' })).toBeUndefined()
   await pane.unmount()
+})
+
+test('a Claude Code theme changed during the session reaches the pane at its next opening', async ($, on) => {
+  stubWorld(on)
+  let claudeCodeTheme = 'dark'
+  on('config.list', async () => ({ value: [{ key: 'theme', value: claudeCodeTheme }] }) as never)
+  await openExplorer($)
+  const paneBackground = async () => {
+    const pane = await mountPane($)
+    const background = (await pane.findAll({ type: 'Box' }))[0]?.props.backgroundColor
+    await pane.unmount()
+    return background
+  }
+  const darkBackground = await paneBackground()
+
+  claudeCodeTheme = 'light'
+  await reopenExplorer($)
+  expect(await paneBackground()).not.toBe(darkBackground)
 })

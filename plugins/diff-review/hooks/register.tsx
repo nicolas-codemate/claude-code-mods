@@ -1598,6 +1598,8 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'diff-review' }, async ($, e) => {
+    // /theme changes the theme without going through config.set: it is read again at each opening.
+    await readClaudeCodeTheme($)
     await closeQuestion($)
     await update($, selectedFilePathAtom, () => null)
     await update($, isOverviewShownAtom, () => true)
