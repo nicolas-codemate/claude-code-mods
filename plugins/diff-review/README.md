@@ -1,46 +1,10 @@
 # diff-review
 
-A review pane for [Claude Code](https://code.claude.com): browse your uncommitted changes, the whole pull request or
-one commit at a time, and ask Claude about any line without leaving the terminal. The answer is drawn under the line it
-is about.
+A review pane inside [Claude Code](https://code.claude.com): browse your uncommitted changes, the pull request or one
+commit at a time, click any line and ask Claude about it. The answer streams in under that line, and the diff follows
+it.
 
-![Asking Claude about a line](docs/screenshots/ask-claude.png)
-
-## What it does
-
-- **Three views**: uncommitted changes (new files included), the pull request of the branch, and the branch commits
-  with their graph. A file list grouped by directory, each directory folding away, a filter, lockfiles and generated
-  files folded away.
-- **A narrow pane**: under 120 columns the code takes the whole pane, a bar above it naming the file; `≡ Files` (or
-  `i`, which starts typing in the filter) opens the file list over the code, and it closes again as soon as a file is
-  picked, or with Escape. A wider pane can collapse its file list the same way (`9`), and pin it back.
-- **A readable diff**: syntax highlighting, more context around each change or the whole file, side by side when the
-  pane is wide enough, long lines wrapped.
-- **Questions on any line**: press `c` (or Enter) on a line, or click its number, and type a question. It goes to the
-  conversation with the code around the line; Claude's answer streams into a thread under that line, its mark blinking
-  until the answer is in. Threads take replies, survive `/clear` and are kept per branch across sessions. Prefer
-  dictating? Send the question from the prompt instead.
-- **GitHub review threads**: the inline comments of the pull request appear under their lines, outdated ones on top of
-  their file, resolved ones folded. Resolve or unresolve a thread with `x`, open it on GitHub with `o`, or press `c` to
-  have Claude change the code to settle it.
-- **Review bookkeeping**: the "viewed" boxes of GitHub, `y` to mark a file viewed and jump to the next one, `git add`
-  of new files from the list.
-- **Keyboard first**: every action has a key, every key can be remapped, `h` lists them all.
-- **Dark and light**: follows the Claude Code theme.
-- **The view at a glance**: the header sums it up in tiles (files, lines, a viewed bar and the open threads of the
-  pull request), the last ones giving way on a narrow pane. On the Desktop they are drawn, and the commits view draws
-  the branch lanes instead of git's characters.
-
-![GitHub review threads under their lines, one addressed by Claude](docs/screenshots/review-threads.png)
-
-![The branch commits and their graph](docs/screenshots/commits.png)
-
-## Requirements
-
-- Claude Code with mods support (tested with 2.1.288), in the terminal or Desktop.
-- `git`.
-- For the pull request features: the [GitHub CLI](https://cli.github.com) `gh`, logged in (`gh auth login`).
-- To open pages on GitHub: `xdg-open` (Linux) or `open` (macOS).
+![Asking Claude about a line, the answer under it](docs/media/ask-claude.gif)
 
 ## Install
 
@@ -49,18 +13,82 @@ is about.
 /plugin install diff-review@codemate-mods
 ```
 
-Then run `/diff-review`. The pane takes two thirds of the terminal and the keyboard. `ctrl+x` then Tab moves the
-keyboard between the prompt and the pane; Escape closes an open question, then the help, then the pane.
+Then run `/diff-review`. It needs `git`, and for the pull request features the [GitHub CLI](https://cli.github.com)
+logged in (`gh auth login`).
 
-## Keys
+**Screen width.** The pane sits beside the conversation. From a Full HD screen (1920 pixels) it is comfortable with the
+file list collapsed behind a bar (`9`), as in the pictures here; on a wider screen the list stays pinned beside the
+code.
+
+## Ask Claude about a line
+
+Click a line number, or press `c` (or Enter) on the cursor's line, and type the question. It goes to the conversation
+with the code around the line, and Claude's answer streams into a thread under that line, its mark blinking until the
+answer is in. While it grows, the diff scrolls to keep its end in sight, without pushing the line itself off the top;
+scrolling or moving yourself stops the follow.
+
+- Reply in the thread with `r`, or dictate in the prompt instead of typing in the pane.
+- Threads are kept per branch, across `/clear` and across sessions.
+- A thread whose line left the diff, or whose part of the pull request description was rewritten, shows on top of its
+  file or of the overview, still readable and closable.
+- The file list marks the files holding threads: `◆` for Claude's, `💬` for GitHub review comments.
+
+## Three views
+
+**Uncommitted**: what `git diff` shows, new untracked files included. Mark new files with `v` (or all of them with
+`m`) and `git add` them with `g`, or add everything with `e`. The tab dims when there is nothing uncommitted.
+
+![The uncommitted changes, a new file](docs/media/uncommitted.png)
+
+**Pull request**: the whole branch against the base the pull request targets, opening on its description.
+
+![The pull request description](docs/media/overview.png)
+
+**Commits**: the branch commits with their graph, one commit's diff at a time. Commits not pushed yet carry
+`↑ not pushed`, their count shows on the tab (`Commits ↑2`), and a button pushes them: a second press confirms, a plain
+`git push` is used, never from `main` or `master`. When the remote refuses the push (after a rebase, say), the button
+offers a force push protected by `--force-with-lease --force-if-includes`, again on a second press.
+
+![The branch commits, one not pushed, and the push button](docs/media/commits.png)
+
+## GitHub review comments
+
+The inline comments of the pull request appear under their lines, outdated ones on top of their file, resolved ones
+folded to one line. Resolve or unresolve a thread with `x`, open it on GitHub with `o`, or press `c` on it to have
+Claude change the code to settle it. `n` and `p` walk every thread of the view, Claude's and GitHub's alike.
+
+![A GitHub review comment under its line](docs/media/review-comments.png)
+
+## Review bookkeeping
+
+- The "viewed" box of GitHub on each file; `y` marks the file viewed and jumps to the next one to view.
+- `○ unviewed` hides the files already viewed; a file you just marked stays a moment before it goes.
+- A file GitHub does not list yet, because it changed in a commit not pushed, shows `↑` instead of a box.
+- The header sums the view up in tiles: files, lines, a viewed bar and the open threads.
+
+![On a wide screen, the file list pinned beside the code](docs/media/wide-screen.png)
+
+## A readable diff
+
+Syntax highlighting (each block of a Vue component in its own language, Behat features as Gherkin), more context around
+each change (`u`) or the whole file (`l`), side by side (`t`) when the pane is wide enough, long lines wrapped and
+scrolled through line by line. The file list groups files by directory, each folding away (`0`), with a filter (`i`);
+lockfiles and generated files stay folded until asked.
+
+## Keyboard first
+
+Every action has a key, every key can be remapped, and `h` lists them all. The navigation keys follow the keyboard
+layout when the desktop settings tell it (AZERTY or QWERTY); otherwise both sets work.
+
+![The shortcuts, from h](docs/media/help.png)
 
 | Key | Action |
 | --- | --- |
 | `1` `2` `3` | Uncommitted changes, pull request, commits |
 | `q` / `d` | Previous / next view (`a` / `d` on a QWERTY keyboard) |
 | `z` / `s` | Previous / next file (`w` / `s` on a QWERTY keyboard) |
-| `i` | Filter the files; Enter goes back to the diff (on a narrow pane, opens the file list) |
-| `5` | Clear the filters: the typed filter, and lockfiles and generated files folded away |
+| `i` | Filter the files; Enter goes back to the diff |
+| `5` | Clear the filters: the typed filter, the unviewed filter, the folded lockfiles and generated files |
 | `0` | Fold or unfold the directory of the file (or click its arrow) |
 | `9` | Collapse the file list behind a bar, or pin it back beside the code |
 | `j` / `k` | Line below / above |
@@ -69,7 +97,7 @@ keyboard between the prompt and the pane; Escape closes an open question, then t
 | `t` | Side by side or unified |
 | `c` or Enter | Ask Claude about the line; on a GitHub thread, have Claude address it |
 | `r` | Reply in the thread of the line |
-| `n` / `p` | Next / previous thread, Claude's and GitHub's alike |
+| `n` / `p` | Next / previous thread |
 | `x` | Resolve or unresolve the GitHub thread |
 | `o` | Open the comment, the commit or the pull request on GitHub |
 | `y` | Mark the file viewed on GitHub and go to the next one to view |
@@ -77,26 +105,29 @@ keyboard between the prompt and the pane; Escape closes an open question, then t
 | `g` / `e` | `git add` the marked files / everything |
 | `h` | Help |
 
-The navigation keys follow the keyboard layout when the desktop settings tell it (AZERTY or QWERTY); otherwise both
-sets work.
-
-![The shortcuts, from h](docs/screenshots/help.png)
+`ctrl+x` then Tab moves the keyboard between the prompt and the pane; Escape closes an open question, then the help,
+then the pane.
 
 ## Settings
 
 In `/config`, under diff-review:
 
-- **Theme**: `auto` (the Claude Code theme), `dark` or `light`. Labels, code and Markdown keep the colors of the
-  terminal, so a theme opposite to Claude Code's leaves the backgrounds to the terminal.
-  ![The light theme](docs/screenshots/light-theme.png)
+- **Theme**: `auto` (the Claude Code theme), `dark` or `light`.
 - **Key: …**: one field per action. One letter or digit, several comma separated; empty keeps the default. The help
-  (`h`) reports a key it could not take or two actions sharing one.
+  reports a key it could not take, or two actions sharing one.
 
-## What it sends to Claude
+## What it sends, and where
 
 A question sends the line, the diff around it and the view it was asked from; a GitHub thread sends its comments. The
-context goes in as a part of the conversation the transcript does not show, the question as your message. Nothing is
-posted to GitHub, except the viewed boxes and the resolved state you change yourself.
+context goes in as a part of the conversation the transcript does not show, the question as your message. On GitHub,
+nothing is posted but what you change yourself: the viewed boxes, the resolved state of a thread, and a push from the
+commits view. A failure shows in a red frame on top of the pane until you dismiss it; nothing else interrupts you.
+
+## Requirements
+
+- Claude Code with mods support (tested with 2.1.294), in the terminal. The Desktop app draws the pane too, not
+  checked yet.
+- `git`; the GitHub CLI `gh` for the pull request features; `xdg-open` (Linux) or `open` (macOS) to open GitHub pages.
 
 ## Development
 
@@ -105,7 +136,8 @@ claude plugin validate .
 claude plugin test .
 ```
 
-The hooks module is `hooks/register.tsx`; pure logic sits beside it, the drawing under `hooks/view/`.
+The hooks module is `hooks/register.tsx`; pure logic sits beside it, the drawing under `hooks/view/`. The pictures come
+from a fictional shop the `demo/` folder of the repository builds and records.
 
 ## License
 
