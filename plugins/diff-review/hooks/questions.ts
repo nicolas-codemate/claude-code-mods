@@ -122,6 +122,11 @@ export function withLastExchange(thread: ReviewThread, change: (exchange: Thread
   return { ...thread, exchanges: thread.exchanges.map((exchange, index) => (index === lastIndex ? change(exchange) : exchange)) }
 }
 
+// Claude answers in several messages when it acts between them (reads, edits, runs): each message starts a paragraph.
+export function answerWithText(answer: string, text: string, isFirstTextOfItsMessage: boolean): string {
+  return isFirstTextOfItsMessage && answer.trim() !== '' ? `${answer.trimEnd()}\n\n${text.trimStart()}` : answer + text
+}
+
 export function isLastExchangeDone(thread: ReviewThread): boolean {
   return thread.exchanges[thread.exchanges.length - 1]?.status === 'done'
 }

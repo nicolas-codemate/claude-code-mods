@@ -3,6 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import type { ReviewThread } from '../types'
 import {
   anchorKeyOf,
+  answerWithText,
   fileAnchorPrefixOf,
   newThread,
   overviewAnchorKeyOf,
@@ -78,4 +79,10 @@ test('saved threads come back marked cleared, finished, and only when not alread
   expect(restored[0]?.isContextCleared).toBe(true)
   expect(restored[0]?.exchanges[0]?.status).toBe('done')
   expect(restoredThreads('not a list', new Set())).toEqual([])
+})
+
+test('an answer told in several messages keeps each message in its own paragraph', async () => {
+  expect(answerWithText('', 'Codes are now normalized.', true)).toBe('Codes are now normalized.')
+  expect(answerWithText('Codes are now', ' normalized.', false)).toBe('Codes are now normalized.')
+  expect(answerWithText('Next I am adding a test.', 'The comment was right.', true)).toBe('Next I am adding a test.\n\nThe comment was right.')
 })

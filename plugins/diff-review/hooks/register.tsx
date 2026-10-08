@@ -85,6 +85,7 @@ import { buildFileLines, clampFileListWidth, clampOffset, scrolledByLines } from
 import { helpContentLineCount, helpVisibleLineCount } from './view/help'
 import { parseEmojiCharacters, splitMarkdownBlocks } from './markdown'
 import {
+  answerWithText,
   isLastExchangeDone,
   newThread,
   overviewAnchorKeyOf,
@@ -1336,7 +1337,7 @@ async function dismissThread($: EngineInterface, threadId: string): Promise<void
   await saveThreads($)
 }
 
-async function appendToThreadOfTurn($: EngineInterface, turnId: string, text: string): Promise<void> {
+async function appendToThreadOfTurn($: EngineInterface, turnId: string, text: string, isFirstTextOfItsMessage: boolean): Promise<void> {
   const threadId = (await read($, threadIdByTurnIdAtom))[turnId]
   if (threadId === undefined) {
     return
@@ -1344,7 +1345,7 @@ async function appendToThreadOfTurn($: EngineInterface, turnId: string, text: st
   await update($, threadsAtom, threads =>
     threads.map(thread =>
       thread.id === threadId
-        ? withLastExchange(thread, exchange => ({ ...exchange, answer: exchange.answer + text, status: 'answering' }))
+        ? withLastExchange(thread, exchange => ({ ...exchange, answer: answerWithText(exchange.answer, text, isFirstTextOfItsMessage), status: 'answering' }))
         : thread,
     ),
   )
@@ -1810,9 +1811,11 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.step', async function* ($, e, next) {
+    let isFirstTextOfStep = true
     for await (const chunk of next(e)) {
       if (chunk.kind === 'text' && e.agentId === undefined) {
-        await appendToThreadOfTurn($, e.turnId, chunk.text)
+        await appendToThreadOfTurn($, e.turnId, chunk.text, isFirstTextOfStep)
+        isFirstTextOfStep = false
       }
       yield chunk
     }
