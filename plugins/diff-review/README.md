@@ -59,6 +59,12 @@ from the buttons of the thread. The header walks every thread of the view, Claud
 
 ![A GitHub review comment under its line](docs/media/review-comments.png)
 
+**Address with Claude.** One click hands a review comment to Claude, with the code around its line: Claude changes the
+code to settle it, or explains why it should not and suggests a reply. The answer lands under the comment as a thread
+you can reply to. Nothing is posted on GitHub: resolving the comment and pushing stay yours.
+
+![Claude addressing a review comment, the change it made listed under the comment](docs/media/address-with-claude.png)
+
 ## Review bookkeeping
 
 - The "viewed" box of GitHub on each file, ticked from the file list.
