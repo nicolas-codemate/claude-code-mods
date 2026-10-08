@@ -23,7 +23,9 @@ export type PaneInput = {
   geometry: PaneGeometry
   view: ReviewView
   location: string
-  activeViewCount: number
+  hasUncommittedChanges: boolean
+  unpushedCommitShas: string[]
+  pushState: 'idle' | 'armed' | 'pushing'
   help: HelpInput | null
   loadError: string | null
   pullRequest: PullRequestSummary | null
@@ -71,7 +73,8 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
       {renderHeader(ui, {
         view: input.view,
         location: input.location,
-        activeViewCount: input.activeViewCount,
+        hasUncommittedChanges: input.hasUncommittedChanges,
+        unpushedCommitCount: input.unpushedCommitShas.length,
         pullRequest: input.pullRequest,
         viewedCount: input.viewedCount,
         tiles: input.headerTiles,
@@ -89,6 +92,8 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
           shownGraphLines,
           repositoryWebUrl: input.repositoryWebUrl,
           selectedCommitSha: input.selectedCommitSha,
+          unpushedCommitShas: input.unpushedCommitShas,
+          pushState: input.pushState,
           actions: input.actions,
         })}
       {input.help && renderHelp(ui, input.help, geometry.panelsHeight, input.actions)}

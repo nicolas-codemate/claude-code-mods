@@ -3,7 +3,7 @@ import { CANCEL_QUESTION_KEY, DICTATE_QUESTION_KEY, DISMISS_THREAD_KEY_PREFIX, R
 import { isLastExchangeDone } from '../questions'
 import type { ExplorerActions, QuestionState, ViewElements } from './types'
 
-const THREAD_INDENT = 16
+export const THREAD_INDENT = 16
 
 export function renderThreadsAndQuestion(
   ui: ViewElements,
@@ -32,7 +32,7 @@ export function renderThreadsAndQuestion(
   )
 }
 
-function renderThread(ui: ViewElements, thread: ReviewThread, actions: ExplorerActions, isAnswerPulseLit: boolean) {
+export function renderThread(ui: ViewElements, thread: ReviewThread, actions: ExplorerActions, isAnswerPulseLit: boolean) {
   const { Box, Button, Input, Markdown, Text } = ui
 
   return (

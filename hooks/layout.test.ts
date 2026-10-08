@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { buildFileLines, clampFileListWidth, computePaneGeometry } from './layout'
+import { buildFileLines, clampFileListWidth, computePaneGeometry, scrolledByLines } from './layout'
 import type { GeometryInput } from './layout'
 
 const GEOMETRY: GeometryInput = {
@@ -11,6 +11,7 @@ const GEOMETRY: GeometryInput = {
   hasPullRequestLine: false,
   commitLineCount: 0,
   selectedCommitLineIndex: 0,
+  requestedCommitListOffset: null,
   fileLineCount: 10,
   hasStageActions: true,
   hasNoiseNotice: false,
@@ -70,4 +71,13 @@ test('a narrow pane gives the code the whole height under a bar, the file list o
   const collapsed = computePaneGeometry({ ...GEOMETRY, isFileListCollapsed: true, isFileDrawerOpen: true })
   expect(collapsed.isTwoColumns).toBe(false)
   expect(collapsed.isFileDrawerOpen).toBe(true)
+})
+
+test('the diff scrolls line by line through a tall row, then on to the next, and stops with the last line on top', async () => {
+  const rowHeights = [1, 1, 10, 1]
+  expect(scrolledByLines({ rowIndex: 0, skippedLines: 0 }, 3, rowHeights)).toEqual({ rowIndex: 2, skippedLines: 1 })
+  expect(scrolledByLines({ rowIndex: 2, skippedLines: 1 }, 3, rowHeights)).toEqual({ rowIndex: 2, skippedLines: 4 })
+  expect(scrolledByLines({ rowIndex: 2, skippedLines: 8 }, 3, rowHeights)).toEqual({ rowIndex: 3, skippedLines: 0 })
+  expect(scrolledByLines({ rowIndex: 3, skippedLines: 0 }, 3, rowHeights)).toEqual({ rowIndex: 3, skippedLines: 0 })
+  expect(scrolledByLines({ rowIndex: 2, skippedLines: 1 }, -3, rowHeights)).toEqual({ rowIndex: 0, skippedLines: 0 })
 })

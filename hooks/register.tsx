@@ -25,8 +25,11 @@ import {
   FILE_LIST_WIDTH_STORE_KEY,
   SPLIT_VIEW_MIN_DIFF_WIDTH,
   SPLIT_VIEW_STORE_KEY,
+  COMMIT_PANEL_MAX_LINES,
   GH_TIMEOUT_MS,
+  GIT_PUSH_TIMEOUT_MS,
   GIT_TIMEOUT_MS,
+  PUSH_CONFIRM_DELAY_MS,
   LINE_NUMBER_BUTTON_KEY_PREFIX,
   MAX_SAVED_THREADS_PER_BRANCH,
   MIN_PANE_COLUMNS,
@@ -36,6 +39,7 @@ import {
   PERSON_PROMPT_ORIGINS,
   PULL_REQUEST_OVERVIEW_KEY,
   QUESTION_FOCUS_RETRY_MS,
+  VIEWED_FILE_HIDE_DELAY_MS,
   QUESTION_INPUT_KEY_PREFIX,
   REPLY_INPUT_KEY_PREFIX,
   THREADS_STORE_KEY_PREFIX,
@@ -74,14 +78,15 @@ import {
   withPreviousPathsOfRenames,
 } from './github-review'
 import { cursorAtHunk, cursorStopsOf, firstChangeStop, movedCursor, offsetShowingCursor } from './cursor'
-import { visibleFilesOf } from './file-filter'
+import { viewedPathsToHide, visibleFilesOf } from './file-filter'
 import { KEYBOARD_LAYOUT_SOURCES, keyboardLayoutOf } from './keyboard'
 import { resolveKeymap } from './keymap'
-import { buildFileLines, clampFileListWidth, clampOffset } from './layout'
+import { buildFileLines, clampFileListWidth, clampOffset, scrolledByLines } from './layout'
 import { parseEmojiCharacters, splitMarkdownBlocks } from './markdown'
 import {
   isLastExchangeDone,
   newThread,
+  overviewAnchorKeyOf,
   overviewQuestionTarget,
   openThreadsByPath,
   parseAnchorKey,
@@ -112,6 +117,10 @@ const repositoryWebUrlAtom = atom({ plugin: 'diff-review', key: 'repositoryWebUr
 const branchAtom = atom({ plugin: 'diff-review', key: 'branch' } as const, null)
 const baseRefAtom = atom({ plugin: 'diff-review', key: 'baseRef' } as const, null)
 const baseBranchNameAtom = atom({ plugin: 'diff-review', key: 'baseBranchName' } as const, null)
+const hasUncommittedChangesAtom = atom({ plugin: 'diff-review', key: 'hasUncommittedChanges' } as const, false)
+const unpushedCommitShasAtom = atom({ plugin: 'diff-review', key: 'unpushedCommitShas' } as const, [])
+const pushStateAtom = atom({ plugin: 'diff-review', key: 'pushState' } as const, 'idle')
+const commitListOffsetAtom = atom({ plugin: 'diff-review', key: 'commitListOffset' } as const, null)
 const commitsAtom = atom({ plugin: 'diff-review', key: 'commits' } as const, [])
 const commitGraphAtom = atom({ plugin: 'diff-review', key: 'commitGraph' } as const, [])
 const gitHubReviewThreadsAtom = atom({ plugin: 'diff-review', key: 'gitHubReviewThreads' } as const, [])
@@ -134,6 +143,7 @@ const requestedPaneColumnsAtom = atom({ plugin: 'diff-review', key: 'requestedPa
 const fileListWidthAtom = atom({ plugin: 'diff-review', key: 'fileListWidth' } as const, DEFAULT_FILE_LIST_WIDTH)
 const fileListOffsetAtom = atom({ plugin: 'diff-review', key: 'fileListOffset' } as const, 0)
 const diffOffsetAtom = atom({ plugin: 'diff-review', key: 'diffOffset' } as const, 0)
+const diffSkippedLinesAtom = atom({ plugin: 'diff-review', key: 'diffSkippedLines' } as const, null)
 
 // Keyboard.
 const keyboardLayoutAtom = atom({ plugin: 'diff-review', key: 'keyboardLayout' } as const, 'unknown')
@@ -143,6 +153,8 @@ const focusedElementKeyAtom = atom({ plugin: 'diff-review', key: 'focusedElement
 const fileFilterAtom = atom({ plugin: 'diff-review', key: 'fileFilter' } as const, '')
 const contextLinesByPathAtom = atom({ plugin: 'diff-review', key: 'contextLinesByPath' } as const, {})
 const isNoiseShownAtom = atom({ plugin: 'diff-review', key: 'isNoiseShown' } as const, false)
+const isViewedHiddenAtom = atom({ plugin: 'diff-review', key: 'isViewedHidden' } as const, false)
+const recentlyViewedPathsAtom = atom({ plugin: 'diff-review', key: 'recentlyViewedPaths' } as const, [])
 const foldedDirectoriesAtom = atom({ plugin: 'diff-review', key: 'foldedDirectories' } as const, [])
 const isFileDrawerOpenAtom = atom({ plugin: 'diff-review', key: 'isFileDrawerOpen' } as const, false)
 const isFileListCollapsedAtom = atom({ plugin: 'diff-review', key: 'isFileListCollapsed' } as const, false)
@@ -186,17 +198,21 @@ const lastDrawnLayout = {
   isSplitView: false,
   cursorRowIndex: null as number | null,
   isScrollingPastEnd: false,
+  commitPanelRows: 0,
+  firstShownCommitLineIndex: 0,
+  commitLineCount: 0,
+  diffRowHeights: [] as number[],
   fileListWidthAtDragStart: 0,
 }
 
 // --- Commands on the host -------------------------------------------------------------------------------------------
 
-async function runGit($: EngineInterface, gitArguments: string[]): Promise<CommandResult> {
+async function runGit($: EngineInterface, gitArguments: string[], timeoutMs = GIT_TIMEOUT_MS): Promise<CommandResult> {
   const repositoryRoot = await read($, repositoryRootAtom)
   try {
     const { exitCode, stdout, stderr } = await $.process.run(
       ['git', ...(repositoryRoot ? ['-C', repositoryRoot] : []), ...gitArguments],
-      { timeoutMs: GIT_TIMEOUT_MS },
+      { timeoutMs },
     )
 
     return { isSuccess: exitCode === 0, output: exitCode === 0 ? stdout : stderr }
@@ -386,6 +402,12 @@ async function toggleViewed($: EngineInterface, path: string): Promise<void> {
     }))
   }
   const isMarkingViewed = previousState !== 'VIEWED'
+  if (isMarkingViewed && (await read($, isViewedHiddenAtom))) {
+    await update($, recentlyViewedPathsAtom, paths => [...paths, ...pathsSharingTheBox])
+    await $.clock.after(VIEWED_FILE_HIDE_DELAY_MS, () =>
+      update($, recentlyViewedPathsAtom, paths => paths.filter(recentPath => !pathsSharingTheBox.includes(recentPath))),
+    )
+  }
   await setStateOfPathsSharingTheBox(isMarkingViewed ? 'VIEWED' : 'UNVIEWED')
   const mutation = await runGh($, [
     'api',
@@ -532,6 +554,24 @@ async function loadBranchCommits($: EngineInterface, baseRef: string | null): Pr
   }
 }
 
+async function loadBranchState($: EngineInterface, branch: string | null, baseRef: string | null): Promise<void> {
+  const status = await runGit($, ['status', '--porcelain'])
+  await update($, hasUncommittedChangesAtom, () => status.isSuccess && status.output.trim() !== '')
+  const remoteCandidates = ['@{upstream}', ...(branch ? [`origin/${branch}`] : [])]
+  let unpushedCommitShas: string[] = []
+  for (const remoteRef of [...remoteCandidates, baseRef]) {
+    if (remoteRef === null) {
+      continue
+    }
+    const revList = await runGit($, ['rev-list', `${remoteRef}..HEAD`])
+    if (revList.isSuccess) {
+      unpushedCommitShas = revList.output.split('\n').filter(sha => sha !== '')
+      break
+    }
+  }
+  await update($, unpushedCommitShasAtom, () => unpushedCommitShas)
+}
+
 async function loadChangedFiles($: EngineInterface, view: ReviewView, baseRef: string | null): Promise<ChangedFile[]> {
   const range = diffRangeArguments(view, baseRef, await read($, selectedCommitShaAtom))
   let files: ChangedFile[] = []
@@ -553,7 +593,12 @@ async function loadChangedFiles($: EngineInterface, view: ReviewView, baseRef: s
 }
 
 async function shownFilesOf($: EngineInterface, files: ChangedFile[]): Promise<ChangedFile[]> {
-  return visibleFilesOf(files, { filter: await read($, fileFilterAtom), isNoiseShown: await read($, isNoiseShownAtom) }).files
+  const isViewedHidden = (await read($, viewAtom)) === 'pr' && (await read($, isViewedHiddenAtom))
+  const hiddenPaths = isViewedHidden
+    ? viewedPathsToHide(await read($, viewedStateByPathAtom), await read($, recentlyViewedPathsAtom))
+    : undefined
+
+  return visibleFilesOf(files, { filter: await read($, fileFilterAtom), isNoiseShown: await read($, isNoiseShownAtom), hiddenPaths }).files
 }
 
 async function widenContext($: EngineInterface, path: string, contextLines: (current: number) => number): Promise<void> {
@@ -592,6 +637,7 @@ async function loadView($: EngineInterface): Promise<void> {
   if (view === 'commits') {
     await loadBranchCommits($, baseRef)
   }
+  await loadBranchState($, branch.isSuccess ? branch.output.trim() : null, baseRef)
   const files = await loadChangedFiles($, view, baseRef)
   await update($, filesAtom, () => files)
   const selectedFilePath = await read($, selectedFilePathAtom)
@@ -600,6 +646,33 @@ async function loadView($: EngineInterface): Promise<void> {
     await update($, selectedFilePathAtom, () => groupFilesByDirectory(shownFiles)[0]?.files[0]?.path ?? null)
   }
   await loadSelectedFileDiff($)
+}
+
+// A plain push, never forced; a branch without an upstream gets one on origin.
+async function pushBranch($: EngineInterface): Promise<void> {
+  const pushState = await read($, pushStateAtom)
+  switch (pushState) {
+    case 'pushing':
+      return
+    case 'idle':
+      await update($, pushStateAtom, () => 'armed')
+      await $.clock.after(PUSH_CONFIRM_DELAY_MS, () => update($, pushStateAtom, state => (state === 'armed' ? 'idle' : state)))
+      return
+    case 'armed':
+      break
+  }
+  const branch = await read($, branchAtom)
+  if (branch === null || branch === 'HEAD' || ['main', 'master'].includes(branch)) {
+    await update($, pushStateAtom, () => 'idle')
+    $.ui.toast(`diff-review: no push from ${branch ?? 'a detached HEAD'}`)
+    return
+  }
+  await update($, pushStateAtom, () => 'pushing')
+  const hasUpstream = (await runGit($, ['rev-parse', '--abbrev-ref', '@{upstream}'])).isSuccess
+  const push = await runGit($, hasUpstream ? ['push'] : ['push', '--set-upstream', 'origin', branch], GIT_PUSH_TIMEOUT_MS)
+  await update($, pushStateAtom, () => 'idle')
+  $.ui.toast(push.isSuccess ? `diff-review: ${branch} pushed` : `diff-review: push failed (${push.output.trim().split('\n').at(-1) ?? ''})`)
+  await refreshExplorer($)
 }
 
 async function refreshExplorer($: EngineInterface): Promise<void> {
@@ -636,6 +709,12 @@ async function moveView($: EngineInterface, offset: number): Promise<void> {
 
 async function selectCommit($: EngineInterface, commitSha: string): Promise<void> {
   await update($, selectedCommitShaAtom, () => commitSha)
+  // A commit picked among the lines the wheel brought keeps them in place; one out of sight brings the list back to it.
+  const lineIndex = (await read($, commitGraphAtom)).findIndex(line => !line.isBoundary && line.commit?.sha === commitSha)
+  const firstShownLineIndex = lastDrawnLayout.firstShownCommitLineIndex
+  if (lineIndex < firstShownLineIndex || lineIndex >= firstShownLineIndex + COMMIT_PANEL_MAX_LINES) {
+    await update($, commitListOffsetAtom, () => null)
+  }
   await loadView($)
 }
 
@@ -681,6 +760,15 @@ async function focusFirstChange($: EngineInterface): Promise<void> {
         ? PULL_REQUEST_OVERVIEW_KEY
         : `${FILE_BUTTON_KEY_PREFIX}${selectedFilePath}`
   focusAfterNextDrawing($, key)
+}
+
+async function scrollDiffByLines($: EngineInterface, path: string, linesToMove: number, rowHeights: readonly number[]): Promise<void> {
+  const rowIndex = await read($, diffOffsetAtom)
+  const saved = await read($, diffSkippedLinesAtom)
+  const skippedLines = saved !== null && saved.path === path && saved.rowIndex === rowIndex ? saved.lines : 0
+  const position = scrolledByLines({ rowIndex, skippedLines }, linesToMove, rowHeights)
+  await update($, diffOffsetAtom, () => position.rowIndex)
+  await update($, diffSkippedLinesAtom, () => ({ path, rowIndex: position.rowIndex, lines: position.skippedLines }))
 }
 
 async function scrollFileListTo($: EngineInterface, path: string): Promise<void> {
@@ -1040,7 +1128,11 @@ async function goToThread($: EngineInterface, target: { id: string; anchorKey: s
   await update($, currentThreadIdAtom, () => target.id)
   if (anchor.kind === 'overview') {
     await showOverview($)
-    await update($, diffOffsetAtom, () => anchor.blockIndex)
+    const pullRequest = await read($, pullRequestAtom)
+    const block = pullRequest ? splitMarkdownBlocks(pullRequest.overviewMarkdown)[anchor.blockIndex] : undefined
+    const isBlockStillThere =
+      pullRequest !== null && block !== undefined && overviewAnchorKeyOf(pullRequest.number, anchor.blockIndex, block) === target.anchorKey
+    await update($, diffOffsetAtom, () => (isBlockStillThere ? anchor.blockIndex : 0))
     return
   }
   if ((await read($, selectedFilePathAtom)) !== anchor.path || (await read($, isOverviewShownAtom))) {
@@ -1221,6 +1313,10 @@ async function readExplorerSnapshot($: EngineInterface, options: PluginOptions):
     branch: await read($, branchAtom),
     baseRef: await read($, baseRefAtom),
     baseBranchName: await read($, baseBranchNameAtom),
+    hasUncommittedChanges: await read($, hasUncommittedChangesAtom),
+    unpushedCommitShas: await read($, unpushedCommitShasAtom),
+    pushState: await read($, pushStateAtom),
+    commitListOffset: await read($, commitListOffsetAtom),
     isLoading: await read($, isLoadingAtom),
     loadError: await read($, loadErrorAtom),
     commits: await read($, commitsAtom),
@@ -1240,6 +1336,8 @@ async function readExplorerSnapshot($: EngineInterface, options: PluginOptions):
       Object.entries(await read($, contextLinesByPathAtom)).map(([path, lines]) => [path, lines >= WHOLE_FILE_CONTEXT_LINES]),
     ),
     isNoiseShown: await read($, isNoiseShownAtom),
+    isViewedHidden: await read($, isViewedHiddenAtom),
+    recentlyViewedPaths: await read($, recentlyViewedPathsAtom),
     foldedDirectories: await read($, foldedDirectoriesAtom),
     isFileDrawerOpen: await read($, isFileDrawerOpenAtom),
     isFileListCollapsed: await read($, isFileListCollapsedAtom),
@@ -1252,6 +1350,7 @@ async function readExplorerSnapshot($: EngineInterface, options: PluginOptions):
     fileListWidth: await read($, fileListWidthAtom),
     fileListOffset: await read($, fileListOffsetAtom),
     diffOffset: await read($, diffOffsetAtom),
+    diffSkippedLines: await read($, diffSkippedLinesAtom),
     threads: await read($, threadsAtom),
     anchorWithOpenInput: await read($, anchorWithOpenInputAtom),
     questionFieldNumber: await read($, questionFieldNumberAtom),
@@ -1268,6 +1367,7 @@ function explorerActions($: EngineInterface): ExplorerActions {
     switchView: view => switchView($, view),
     moveView: offset => moveView($, offset),
     refresh: () => refreshExplorer($),
+    pushBranch: () => pushBranch($),
     close: () => $.ui.close({ id: PANE_ID }),
     selectCommit: commitSha => selectCommit($, commitSha),
     showOverview: async () => {
@@ -1306,8 +1406,14 @@ function explorerActions($: EngineInterface): ExplorerActions {
     toggleNoiseShown: async () => {
       await update($, isNoiseShownAtom, isNoiseShown => !isNoiseShown)
     },
+    toggleViewedHidden: async () => {
+      await update($, isViewedHiddenAtom, isViewedHidden => !isViewedHidden)
+      await update($, recentlyViewedPathsAtom, () => [])
+      await update($, fileListOffsetAtom, () => 0)
+    },
     clearFileFilters: async () => {
       await update($, fileFilterAtom, () => '')
+      await update($, isViewedHiddenAtom, () => false)
       await update($, isNoiseShownAtom, () => true)
       await update($, fileListOffsetAtom, () => 0)
     },
@@ -1468,6 +1574,14 @@ export const register: Register = (on, options) => {
   on('ui.scroll', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
     const layout = lastDrawnLayout
     const pointer = e.pointer
+    const isOverCommitList =
+      pointer !== undefined && pointer.row >= layout.panelsTop - layout.commitPanelRows && pointer.row < layout.panelsTop
+    if (isOverCommitList) {
+      await update($, commitListOffsetAtom, () =>
+        clampOffset(layout.firstShownCommitLineIndex + e.by * WHEEL_TICK_ROWS, layout.commitLineCount, COMMIT_PANEL_MAX_LINES),
+      )
+      return {}
+    }
     const isOverFileList =
       pointer !== undefined &&
       pointer.row >= layout.panelsTop &&
@@ -1482,6 +1596,11 @@ export const register: Register = (on, options) => {
     const rowsPerTick = layout.isOverviewShown ? 1 : WHEEL_TICK_ROWS
     const pageRows = layout.isOverviewShown ? 3 : layout.visibleDiffRows
     const rowsToMove = pointer !== undefined ? e.by * rowsPerTick : Math.sign(e.by) * Math.min(Math.abs(e.by), pageRows)
+    const selectedFilePath = await read($, selectedFilePathAtom)
+    if (layout.diffRowHeights.length > 0 && selectedFilePath !== null) {
+      await scrollDiffByLines($, selectedFilePath, rowsToMove, layout.diffRowHeights)
+      return {}
+    }
     const visibleForClamp = layout.isScrollingPastEnd ? 1 : layout.visibleDiffRows
     await update($, diffOffsetAtom, offset => clampOffset(offset + rowsToMove, layout.scrolledRowCount, visibleForClamp))
 
@@ -1696,6 +1815,10 @@ export const register: Register = (on, options) => {
       isSplitView: model.isSplitView,
       cursorRowIndex: model.cursorRowIndex,
       isScrollingPastEnd: model.isScrollingPastEnd,
+      diffRowHeights: model.diffRowHeights,
+      commitPanelRows: model.geometry.commitPanelRows,
+      firstShownCommitLineIndex: model.geometry.firstShownCommitLineIndex,
+      commitLineCount: model.commitLineCount,
     })
 
     return renderPane(ui, model.paneInput)

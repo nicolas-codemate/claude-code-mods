@@ -182,6 +182,78 @@ test('with a thread under its last lines, the diff scrolls past its end to show 
   await pane.unmount()
 })
 
+test('a long answer under the last line scrolls a few lines at a time until its end is on top', async ($, on) => {
+  const longDiff = ['@@ -1,0 +1,60 @@', ...Array.from({ length: 60 }, (_, index) => `+line ${index + 1}`)].join('\n')
+  stubWorld(on, {
+    git: gitCommand => {
+      if (gitCommand.startsWith('diff --no-color')) return { exitCode: 0, stdout: longDiff }
+      if (gitCommand.startsWith('ls-files')) return { exitCode: 0, stdout: '' }
+      return undefined
+    },
+  })
+  await openExplorer($)
+  const longAnswer = Array.from({ length: 40 }, (_, index) => `answer line ${index + 1}`).join('\n\n')
+  const skippedLinesOf = async (pane: Awaited<ReturnType<typeof mountPane>>) =>
+    Math.max(0, ...(await pane.findAll({ type: 'Box' })).map(box => -Number((box.props as { marginTop?: number }).marginTop ?? 0)))
+
+  let pane = await mountPane($, { bodyRows: 30 })
+  await pane.unmount()
+  for (let tick = 0; tick < 3; tick += 1) await wheel($, 120, 10)
+  pane = await mountPane($, { bodyRows: 30 })
+  await pane.press({ key: 'ask-60' })
+  await pane.input({ key: await questionFieldKey(pane), text: 'Why the last line?' })
+  await answerTurn($, 'turn-1', 'Why the last line?', longAnswer)
+  await pane.unmount()
+
+  const scrollOneTick = async () => {
+    await wheel($, 120, 1)
+    const scrolledPane = await mountPane($, { bodyRows: 30 })
+    const skippedLines = await skippedLinesOf(scrolledPane)
+    const isLastLineShown = (await scrolledPane.find({ type: 'Code', text: /^line 60$/ })) !== undefined
+    await scrolledPane.unmount()
+    return { skippedLines, isLastLineShown }
+  }
+  let scrolled = await scrollOneTick()
+  for (let tick = 0; tick < 20 && scrolled.skippedLines === 0; tick += 1) scrolled = await scrollOneTick()
+  expect(scrolled.isLastLineShown).toBe(true)
+  const nextScrolled = await scrollOneTick()
+  expect(nextScrolled).toEqual({ skippedLines: scrolled.skippedLines + 3, isLastLineShown: true })
+
+  for (let tick = 0; tick < 60; tick += 1) await wheel($, 120, 1)
+  pane = await mountPane($, { bodyRows: 30 })
+  expect(await pane.find({ type: 'Markdown', text: /answer line 40/ })).toBeDefined()
+  expect(await skippedLinesOf(pane)).toBeGreaterThan(80)
+  await pane.unmount()
+
+  await wheel($, 120, -1)
+  pane = await mountPane($, { bodyRows: 30 })
+  expect(await skippedLinesOf(pane)).toBeGreaterThan(77)
+  await pane.unmount()
+})
+
+test('a thread whose line left the diff shows on top of its file, marked for Claude, and can still be closed', async ($, on) => {
+  let changedDiff: string | undefined
+  stubWorld(on, {
+    git: gitCommand => (gitCommand.startsWith('diff --no-color') && changedDiff ? { exitCode: 0, stdout: changedDiff } : undefined),
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'file-src/Total.php' })
+  await pane.press({ key: 'ask-3' })
+  await pane.input({ key: await questionFieldKey(pane), text: 'Why 2?' })
+  expect((await pane.find({ key: 'threads-src/Total.php' }))?.text).toBe('◆ 1')
+
+  changedDiff = ['@@ -100,1 +100,1 @@', ' unrelated'].join('\n')
+  await pane.press({ key: 'refresh' })
+  expect(await pane.find({ type: 'Text', text: /no longer in the diff/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /› Why 2\?/ })).toBeDefined()
+
+  await pane.press({ key: await keyStartingWith(pane, 'Button', 'dismiss-') })
+  expect(await pane.find({ type: 'Text', text: /no longer in the diff/ })).toBeUndefined()
+  expect(await pane.find({ key: 'threads-src/Total.php' })).toBeUndefined()
+  await pane.unmount()
+})
+
 test('j and k walk the threads of the view in reading order, opening their file', async ($, on) => {
   stubWorld(on, { newFileContent: 'hello\n' })
   await openExplorer($)
@@ -246,5 +318,22 @@ test('the mark of a thread blinks while Claude answers it and goes once the answ
   await answerTurn($, 'turn-1', 'Why 2?', 'Because the total doubled.')
   await world.clock.advance(600)
   expect(await mark()).toBeUndefined()
+  await pane.unmount()
+})
+
+test('a thread asked in the PR view stays under its line after a visit to the Commits view', async ($, on) => {
+  stubWorld(on)
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-pr' })
+  await pane.press({ key: 'file-src/Total.php' })
+  await pane.press({ key: 'ask-3' })
+  await pane.input({ key: await questionFieldKey(pane), text: 'Why 2?' })
+
+  await pane.press({ key: 'view-commits' })
+  await pane.press({ key: 'view-pr' })
+  await pane.press({ key: 'file-src/Total.php' })
+  expect(await pane.find({ type: 'Text', text: /› Why 2\?/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /no longer in the diff/ })).toBeUndefined()
   await pane.unmount()
 })

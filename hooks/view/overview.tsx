@@ -2,9 +2,9 @@ import type { PullRequestSummary, ReviewThread } from '../../types'
 import { ASK_BUTTON_KEY_PREFIX } from '../constants'
 import type { ShortcutAction } from '../keymap'
 import { isListItemBlock, splitListItemIndentation } from '../markdown'
-import { overviewAnchorKeyOf } from '../questions'
+import { overviewAnchorKeyOf, overviewThreadsOffTheDescription } from '../questions'
 import { renderLineCounts, renderMarkdownWithImages, renderThreadNavigation } from './labels'
-import { renderThreadsAndQuestion } from './threads'
+import { renderThread, renderThreadsAndQuestion, THREAD_INDENT } from './threads'
 import type { ExplorerActions, QuestionState, ThreadNavigation, ViewElements } from './types'
 
 export type OverviewInput = {
@@ -23,6 +23,7 @@ export function renderOverview(ui: ViewElements, input: OverviewInput) {
   const { Box, Button, Text } = ui
   const { pullRequest } = input
   const shownBlocks = input.blocks.slice(input.blockOffset, input.blockOffset + input.visibleBlocks)
+  const threadsOffDescription = input.blockOffset === 0 ? overviewThreadsOffTheDescription(input.threads, pullRequest.number, input.blocks) : []
 
   return (
     <Box flexDirection="column">
@@ -47,6 +48,14 @@ export function renderOverview(ui: ViewElements, input: OverviewInput) {
           </Text>
         </Text>
       </Box>
+      {threadsOffDescription.map(thread => (
+        <Box key={`thread-off-description-${thread.id}`} flexDirection="column" flexShrink={0}>
+          <Box marginLeft={THREAD_INDENT} marginTop={1} flexShrink={0}>
+            <Text color={ui.theme.muted}>Its part of the description was rewritten since:</Text>
+          </Box>
+          {renderThread(ui, thread, input.actions, input.questionState.isAnswerPulseLit)}
+        </Box>
+      ))}
       {shownBlocks.map((block, shownBlockIndex) => {
         const blockIndex = input.blockOffset + shownBlockIndex
         const anchorKey = overviewAnchorKeyOf(pullRequest.number, blockIndex, block)

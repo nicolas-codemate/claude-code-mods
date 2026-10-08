@@ -7,7 +7,8 @@ import type { FileLine } from '../layout'
 import { renderFileStats, renderLineCounts, renderShortcutHint } from './labels'
 import type { ExplorerActions, ViewElements } from './types'
 
-const COMMENT_MARK = '\u{1F4AC}'
+const GITHUB_COMMENT_MARK = '\u{1F4AC}'
+const CLAUDE_THREAD_MARK = '◆'
 const PIN_MARK = '\u{1F4CC}'
 
 export type FileListInput = {
@@ -16,6 +17,9 @@ export type FileListInput = {
   hiddenNoiseCount: number
   fileFilter: string
   isNoiseShown: boolean
+  isViewedHidden: boolean
+  // A file GitHub does not list in the pull request yet most likely changed in a commit not pushed.
+  hasUnpushedCommits: boolean
   fileLines: FileLine[]
   shownFileLines: FileLine[]
   fileListOffset: number
@@ -30,7 +34,7 @@ export type FileListInput = {
   isOverviewShown: boolean
   pullRequest: PullRequestSummary | null
   viewedStateByPath: Record<string, ViewedState>
-  openThreadCountByPath: Record<string, number>
+  openThreadCountByPath: Record<string, { claudeCount: number; gitHubCount: number }>
   hasUntrackedFiles: boolean
   hasStageActions: boolean
   markedPaths: string[]
@@ -67,6 +71,18 @@ export function renderFileList(ui: ViewElements, input: FileListInput) {
             )}
           </Text>
         </Box>
+        {input.pullRequest && (
+          <Box key="toggle-viewed-hidden-box" flexShrink={0} marginRight={1}>
+            <Button
+              key="toggle-viewed-hidden"
+              plain
+              dimColor={!input.isViewedHidden}
+              hover={{ color: ui.theme.accent }}
+              label={input.isViewedHidden ? '◉ unviewed' : '○ unviewed'}
+              onPress={() => input.actions.toggleViewedHidden()}
+            />
+          </Box>
+        )}
         <Text color={ui.theme.muted}>
           {hasMoreAbove ? '▲' : ' '}
           {hasMoreBelow ? '▼' : ' '}
@@ -239,7 +255,13 @@ function renderChangedFileLine(ui: ViewElements, file: ChangedFile, input: FileL
   const { Box, Button, Text } = ui
   const isSelected = !input.isOverviewShown && file.path === input.selectedFilePath
   const viewedState = input.viewedStateByPath[file.path]
-  const openThreadCount = input.openThreadCountByPath[file.path] ?? 0
+  const { claudeCount = 0, gitHubCount = 0 } = input.openThreadCountByPath[file.path] ?? {}
+  const openThreadsLabel = [
+    claudeCount > 0 ? `${CLAUDE_THREAD_MARK} ${claudeCount}` : null,
+    gitHubCount > 0 ? `${GITHUB_COMMENT_MARK} ${gitHubCount}` : null,
+  ]
+    .filter(part => part !== null)
+    .join(' ')
   const change = changeLetterOf(file)
 
   return (
@@ -272,13 +294,13 @@ function renderChangedFileLine(ui: ViewElements, file: ChangedFile, input: FileL
           onPress={() => input.actions.selectFile(file.path)}
         />
       </Box>
-      {openThreadCount > 0 && (
+      {openThreadsLabel !== '' && (
         <Box key={`threads-box-${file.path}`} flexShrink={0} marginLeft={1}>
           <Button
             key={`threads-${file.path}`}
             plain
             hover={{ color: ui.theme.accent, bold: true }}
-            label={`${COMMENT_MARK} ${openThreadCount}`}
+            label={openThreadsLabel}
             onPress={() => input.actions.openFirstThreadOfFile(file.path)}
           />
         </Box>
@@ -298,7 +320,7 @@ function renderChangedFileLine(ui: ViewElements, file: ChangedFile, input: FileL
               onPress={() => input.actions.toggleViewed(file.path)}
             />
           ) : (
-            <Text color={ui.theme.lineNumber}> · </Text>
+            <Text color={ui.theme.lineNumber}>{input.hasUnpushedCommits ? ' ↑ ' : ' · '}</Text>
           )}
         </Box>
       )}

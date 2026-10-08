@@ -17,6 +17,25 @@ export function clampOffset(offset: number, itemCount: number, visibleCount: num
   return Math.max(0, Math.min(offset, itemCount - visibleCount))
 }
 
+// The diff's first shown row, and how many of its drawn lines are already above the top: a thread taller than the
+// panel is read a few lines at a time instead of leaving at once with its row.
+export type DiffScrollPosition = { rowIndex: number; skippedLines: number }
+
+// Scrolls until the last line of the last row is on top, as the rows do when a thread or a question is in the file.
+export function scrolledByLines(position: DiffScrollPosition, linesToMove: number, rowHeights: readonly number[]): DiffScrollPosition {
+  const totalLines = rowHeights.reduce((total, height) => total + height, 0)
+  const linesAbove = rowHeights.slice(0, position.rowIndex).reduce((total, height) => total + height, 0)
+  let remainingLines = Math.max(0, Math.min(linesAbove + position.skippedLines + linesToMove, totalLines - 1))
+  for (const [rowIndex, height] of rowHeights.entries()) {
+    if (remainingLines < height) {
+      return { rowIndex, skippedLines: remainingLines }
+    }
+    remainingLines -= height
+  }
+
+  return { rowIndex: 0, skippedLines: 0 }
+}
+
 export function clampFileListWidth(width: number, bodyColumns: number): number {
   return Math.max(MIN_FILE_LIST_WIDTH, Math.min(width, bodyColumns - MIN_DIFF_WIDTH))
 }
@@ -44,6 +63,8 @@ export type GeometryInput = {
   hasPullRequestLine: boolean
   commitLineCount: number
   selectedCommitLineIndex: number
+  // Set by the wheel over the commit list; absent, the list follows the selected commit.
+  requestedCommitListOffset: number | null
   fileLineCount: number
   hasStageActions: boolean
   hasNoiseNotice: boolean
@@ -66,6 +87,7 @@ export type PaneGeometry = {
   panelsTop: number
   panelsHeight: number
   firstShownCommitLineIndex: number
+  commitPanelRows: number
   fileListWidth: number
   fileListBoxHeight: number
   visibleFileLines: number
@@ -88,7 +110,11 @@ const FILE_BAR_ROWS = 1
 // The pane is drawn to exactly its height so the engine never scrolls it; each panel scrolls on its own instead.
 export function computePaneGeometry(input: GeometryInput): PaneGeometry {
   const isTwoColumns = !input.isFileListCollapsed && input.bodyColumns >= TWO_COLUMNS_MIN_WIDTH
-  const firstShownCommitLineIndex = clampOffset(input.selectedCommitLineIndex - 2, input.commitLineCount, COMMIT_PANEL_MAX_LINES)
+  const firstShownCommitLineIndex = clampOffset(
+    input.requestedCommitListOffset ?? input.selectedCommitLineIndex - 2,
+    input.commitLineCount,
+    COMMIT_PANEL_MAX_LINES,
+  )
   const shownCommitLineCount = Math.min(COMMIT_PANEL_MAX_LINES, input.commitLineCount)
   const commitPanelRows = input.view === 'commits' ? BORDER_ROWS + PANEL_TITLE_ROWS + Math.max(1, shownCommitLineCount) + 1 : 0
   const panelsTop =
@@ -119,6 +145,7 @@ export function computePaneGeometry(input: GeometryInput): PaneGeometry {
     panelsTop,
     panelsHeight,
     firstShownCommitLineIndex,
+    commitPanelRows,
     fileListWidth: clampFileListWidth(input.requestedFileListWidth, input.bodyColumns),
     fileListBoxHeight,
     visibleFileLines,

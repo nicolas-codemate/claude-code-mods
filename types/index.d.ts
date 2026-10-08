@@ -72,6 +72,11 @@ declare module 'claude-code' {
       view: ReviewView
       baseRef: string | null
       baseBranchName: string | null
+      hasUncommittedChanges: boolean
+      // The branch's commits its remote does not have yet, all of them while the branch was never pushed.
+      unpushedCommitShas: string[]
+      pushState: 'idle' | 'armed' | 'pushing'
+      commitListOffset: number | null
       commits: CommitSummary[]
       commitGraph: CommitGraphLine[]
       selectedCommitSha: string | null
@@ -89,6 +94,8 @@ declare module 'claude-code' {
       keyboardLayout: KeyboardLayout
       fileListOffset: number
       diffOffset: number
+      // Lines of the first shown row scrolled above the top, kept for the file and the row they were scrolled on.
+      diffSkippedLines: { path: string; rowIndex: number; lines: number } | null
       isOverviewShown: boolean
       isLoading: boolean
       repositoryRoot: string | null
@@ -99,6 +106,8 @@ declare module 'claude-code' {
       contextLinesByPath: Record<string, number>
       currentThreadId: string | null
       isNoiseShown: boolean
+      isViewedHidden: boolean
+      recentlyViewedPaths: string[]
       foldedDirectories: string[]
       isFileDrawerOpen: boolean
       isFileListCollapsed: boolean

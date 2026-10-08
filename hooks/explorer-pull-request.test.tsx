@@ -450,3 +450,82 @@ test('c on a GitHub thread reached with n has Claude address it', async ($, on) 
   expect(world.submittedPrompts.at(-1)?.text).toBe('Address the review comment of @reviewer on src/Total.php, line 2.')
   await pane.unmount()
 })
+
+test('the unviewed filter hides the viewed files, one just marked viewed staying a moment before it goes', async ($, on) => {
+  const world = stubWorld(on, {
+    gh: ghCommand => {
+      if (ghCommand.startsWith('pr view')) {
+        return { exitCode: 0, stdout: JSON.stringify(PULL_REQUEST) }
+      }
+      if (ghCommand.includes('markFileAsViewed')) {
+        return { exitCode: 0, stdout: '{}' }
+      }
+      const files = {
+        nodes: [
+          { path: 'src/Tax.php', viewerViewedState: 'VIEWED' },
+          { path: 'src/Total.php', viewerViewedState: 'UNVIEWED' },
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }
+      return { exitCode: 0, stdout: JSON.stringify({ data: { node: { files } } }) }
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-pr' })
+  expect(await pane.find({ key: 'file-src/Tax.php' })).toBeDefined()
+
+  await pane.press({ key: 'toggle-viewed-hidden' })
+  expect(await pane.find({ key: 'file-src/Tax.php' })).toBeUndefined()
+  expect(await pane.find({ type: 'Text', text: '1 of 2' })).toBeDefined()
+
+  await pane.press({ key: 'viewed-src/Total.php' })
+  expect(await pane.find({ key: 'file-src/Total.php' })).toBeDefined()
+  await world.clock.advance(2000)
+  expect(await pane.find({ key: 'file-src/Total.php' })).toBeUndefined()
+
+  await pane.press({ key: 'toggle-viewed-hidden' })
+  expect(await pane.find({ key: 'file-src/Tax.php' })).toBeDefined()
+  expect(await pane.find({ key: 'file-src/Total.php' })).toBeDefined()
+  await pane.unmount()
+})
+
+test('a file GitHub does not list yet shows the not-pushed mark while commits wait to be pushed', async ($, on) => {
+  stubWorld(on, {
+    git: gitCommand => (gitCommand === 'rev-list @{upstream}..HEAD' ? { exitCode: 0, stdout: 'c2\n' } : undefined),
+    gh: ghCommand => {
+      if (ghCommand.startsWith('pr view')) {
+        return { exitCode: 0, stdout: JSON.stringify(PULL_REQUEST) }
+      }
+      const files = { nodes: [{ path: 'src/Total.php', viewerViewedState: 'UNVIEWED' }], pageInfo: { hasNextPage: false, endCursor: null } }
+      return { exitCode: 0, stdout: JSON.stringify({ data: { node: { files } } }) }
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-pr' })
+  expect((await pane.find({ key: 'viewed-box-src/Tax.php' }))?.text).toBe(' ↑ ')
+  expect((await pane.find({ key: 'viewed-box-src/Total.php' }))?.text).toBe(' ○ ')
+  await pane.unmount()
+})
+
+test('a thread on a part of the description rewritten since shows on top of the overview, and the thread walk leads there', async ($, on) => {
+  let pullRequest = PULL_REQUEST
+  stubWorld(on, {
+    gh: ghCommand => (ghCommand.startsWith('pr view') ? { exitCode: 0, stdout: JSON.stringify(pullRequest) } : undefined),
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-pr' })
+  await pane.press({ key: 'ask-overview-2' })
+  await pane.input({ key: await questionFieldKey(pane), text: 'Why every invoice?' })
+
+  pullRequest = { ...PULL_REQUEST, body: 'Adds the VAT on the invoices of the EU only.' }
+  await pane.press({ key: 'refresh' })
+  expect(await pane.find({ type: 'Text', text: /description was rewritten/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /› Why every invoice\?/ })).toBeDefined()
+
+  await pane.press({ key: 'thread-next' })
+  expect(await pane.find({ type: 'Text', text: /› Why every invoice\?/ })).toBeDefined()
+  await pane.unmount()
+})

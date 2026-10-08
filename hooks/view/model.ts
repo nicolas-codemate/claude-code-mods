@@ -16,7 +16,7 @@ import {
   SPLIT_VIEW_MIN_DIFF_WIDTH,
   TWO_COLUMNS_MIN_WIDTH,
 } from '../constants'
-import { visibleFilesOf } from '../file-filter'
+import { viewedPathsToHide, visibleFilesOf } from '../file-filter'
 import { cursorStopsOf, firstChangeStop } from '../cursor'
 import { countViewedFiles, gitHubThreadNavigationEntries } from '../github-review'
 import type { Keymap, ShortcutAction } from '../keymap'
@@ -27,6 +27,7 @@ import { fileAnchorPrefixOf, openThreadsByPath, threadsInReadingOrder } from '..
 import { groupFilesByDirectory } from '../git-parsing'
 import { pairRowsSideBySide } from '../split-rows'
 import type { HeaderTile } from './drawings'
+import { estimatedRowHeights } from './row-height'
 import type { PaneInput } from './pane'
 import type { ExplorerActions, GitHubPage, QuestionState, ThreadNavigation } from './types'
 
@@ -37,6 +38,10 @@ export type ExplorerSnapshot = {
   branch: string | null
   baseRef: string | null
   baseBranchName: string | null
+  hasUncommittedChanges: boolean
+  unpushedCommitShas: string[]
+  pushState: 'idle' | 'armed' | 'pushing'
+  commitListOffset: number | null
   isLoading: boolean
   loadError: string | null
   commits: CommitSummary[]
@@ -54,6 +59,8 @@ export type ExplorerSnapshot = {
   fileFilter: string
   isWholeFileByPath: Record<string, boolean>
   isNoiseShown: boolean
+  isViewedHidden: boolean
+  recentlyViewedPaths: string[]
   foldedDirectories: string[]
   isFileDrawerOpen: boolean
   isFileListCollapsed: boolean
@@ -66,6 +73,7 @@ export type ExplorerSnapshot = {
   fileListWidth: number
   fileListOffset: number
   diffOffset: number
+  diffSkippedLines: { path: string; rowIndex: number; lines: number } | null
   threads: ReviewThread[]
   anchorWithOpenInput: string | null
   questionFieldNumber: number
@@ -83,11 +91,14 @@ export type PaneModel = {
   geometry: PaneGeometry
   fileLineIndexByPath: Record<string, number>
   fileLineCount: number
+  commitLineCount: number
   scrolledRowCount: number
   isOverviewShown: boolean
   isSplitView: boolean
   cursorRowIndex: number | null
   isScrollingPastEnd: boolean
+  // Filled only while the diff scrolls by lines, with a thread or a question in the file.
+  diffRowHeights: number[]
 }
 
 export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface, actions: ExplorerActions): PaneModel {
@@ -134,7 +145,12 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
         (anchorKey ?? '').startsWith(fileAnchorPrefix),
       ))
 
-  const shown = visibleFilesOf(files, { filter: snapshot.fileFilter, isNoiseShown: snapshot.isNoiseShown })
+  const isViewedHidden = pullRequest !== null && snapshot.isViewedHidden
+  const shown = visibleFilesOf(files, {
+    filter: snapshot.fileFilter,
+    isNoiseShown: snapshot.isNoiseShown,
+    hiddenPaths: isViewedHidden ? viewedPathsToHide(viewedStateByPath, snapshot.recentlyViewedPaths) : undefined,
+  })
   const fileLines = buildFileLines(shown.files, pullRequest !== null, snapshot.foldedDirectories)
   const threadsOfScreen = threadsInReadingOrder([...threads, ...gitHubThreadNavigationEntries(gitHubThreads)], {
     view,
@@ -143,8 +159,12 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     hasOverview: pullRequest !== null,
   })
   const resolvedGitHubThreadIds = new Set(gitHubThreads.filter(thread => thread.isResolved).map(thread => thread.id))
+  const gitHubThreadIds = new Set(gitHubThreads.map(thread => thread.id))
   const openThreadCountByPath = Object.fromEntries(
-    Object.entries(openThreadsByPath(threadsOfScreen, resolvedGitHubThreadIds)).map(([path, threadsOfFile]) => [path, threadsOfFile.length]),
+    Object.entries(openThreadsByPath(threadsOfScreen, resolvedGitHubThreadIds)).map(([path, threadsOfFile]) => {
+      const gitHubCount = threadsOfFile.filter(thread => gitHubThreadIds.has(thread.id)).length
+      return [path, { claudeCount: threadsOfFile.length - gitHubCount, gitHubCount }]
+    }),
   )
   const currentThreadIndex = threadsOfScreen.findIndex(thread => thread.id === snapshot.currentThreadId)
   const threadNavigation: ThreadNavigation = {
@@ -173,6 +193,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     hasLoadError: snapshot.loadError !== null,
     hasPullRequestLine: pullRequest !== null,
     commitLineCount: snapshot.commitGraph.length,
+    requestedCommitListOffset: snapshot.commitListOffset,
     selectedCommitLineIndex: Math.max(
       0,
       snapshot.commitGraph.findIndex(line => !line.isBoundary && line.commit?.sha === selectedCommitSha),
@@ -189,6 +210,32 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     isFileDrawerOpen: snapshot.isFileDrawerOpen,
     isFileListCollapsed: snapshot.isFileListCollapsed,
   })
+  const isScrollingByLines = isScrollingPastEnd && !isOverviewShown && selectedFilePath !== null
+  // The divider beside the file list is left out of the width too: a narrower guess only counts more lines.
+  const diffContentWidth = diffWidth - 3
+  const diffRowHeights =
+    isScrollingByLines && selectedFilePath !== null
+      ? estimatedRowHeights(snapshot.diffRows, splitRows, {
+          view,
+          selectedCommitSha,
+          path: selectedFilePath,
+          diffContentWidth,
+          threads,
+          gitHubThreads: gitHubThreadsOfFile,
+          expandedGitHubThreadIds: snapshot.expandedGitHubThreadIds,
+          currentThreadId: snapshot.currentThreadId,
+          questionState,
+        })
+      : []
+  const savedSkippedLines = snapshot.diffSkippedLines
+  const firstShownRowHeight = diffRowHeights[geometry.diffOffset]
+  const diffSkippedLines =
+    savedSkippedLines !== null &&
+    savedSkippedLines.path === selectedFilePath &&
+    savedSkippedLines.rowIndex === geometry.diffOffset &&
+    firstShownRowHeight !== undefined
+      ? Math.min(savedSkippedLines.lines, firstShownRowHeight - 1)
+      : 0
   const repositoryName = snapshot.repositoryRoot?.split('/').filter(Boolean).at(-1)
   const location = [
     snapshot.isLoading ? 'loading…' : null,
@@ -206,7 +253,9 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     geometry,
     view,
     location,
-    activeViewCount: view === 'commits' ? snapshot.commits.length : files.length,
+    hasUncommittedChanges: snapshot.hasUncommittedChanges,
+    unpushedCommitShas: snapshot.unpushedCommitShas,
+    pushState: snapshot.pushState,
     help: snapshot.isHelpShown ? { keymap: snapshot.keymap, problems: snapshot.keymapProblems } : null,
     loadError: snapshot.loadError,
     pullRequest,
@@ -229,6 +278,8 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
       hiddenNoiseCount: shown.hiddenNoiseCount,
       fileFilter: snapshot.fileFilter,
       isNoiseShown: snapshot.isNoiseShown,
+      isViewedHidden,
+      hasUnpushedCommits: snapshot.unpushedCommitShas.length > 0,
       fileLines,
       shownFileLines: fileLines.slice(geometry.fileListOffset, geometry.fileListOffset + geometry.visibleFileLines),
       fileListOffset: geometry.fileListOffset,
@@ -274,6 +325,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
       keymap: snapshot.keymap,
       isWholeFile: selectedFilePath !== null && snapshot.isWholeFileByPath[selectedFilePath] === true,
       diffOffset: geometry.diffOffset,
+      diffSkippedLines,
       visibleDiffRows: geometry.visibleDiffRows,
       threads,
       gitHubThreads: gitHubThreadsOfFile,
@@ -294,11 +346,13 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
       fileLines.flatMap((fileLine, index) => (fileLine.kind === 'file' ? [[fileLine.file.path, index]] : [])),
     ),
     fileLineCount: fileLines.length,
+    commitLineCount: snapshot.commitGraph.length,
     scrolledRowCount,
     isOverviewShown,
     isSplitView: splitRows !== null,
     cursorRowIndex,
     isScrollingPastEnd,
+    diffRowHeights,
   }
 }
 

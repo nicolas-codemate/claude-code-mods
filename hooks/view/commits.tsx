@@ -12,6 +12,8 @@ export function renderCommitList(
     shownGraphLines: CommitGraphLine[]
     repositoryWebUrl: string | null
     selectedCommitSha: string | null
+    unpushedCommitShas: string[]
+    pushState: 'idle' | 'armed' | 'pushing'
     actions: ExplorerActions
   },
 ) {
@@ -35,9 +37,23 @@ export function renderCommitList(
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={ui.theme.border} backgroundColor={ui.theme.panelBackground} paddingX={1} marginBottom={1}>
-      <Text bold color={ui.theme.heading}>
-        Branch commits <Text color={ui.theme.muted}>{input.commitCount}</Text>
-      </Text>
+      <Box flexDirection="row">
+        <Box flexGrow={1}>
+          <Text bold color={ui.theme.heading}>
+            Branch commits <Text color={ui.theme.muted}>{input.commitCount}</Text>
+          </Text>
+        </Box>
+        {input.unpushedCommitShas.length > 0 && (
+          <Box key="push-branch-box" flexShrink={0}>
+            <Button
+              key="push-branch"
+              variant={input.pushState === 'armed' ? 'primary' : undefined}
+              label={pushLabelOf(input.pushState, input.unpushedCommitShas.length)}
+              onPress={() => input.actions.pushBranch()}
+            />
+          </Box>
+        )}
+      </Box>
       {input.commitCount === 0 && <Text color={ui.theme.muted}>No commit since the base.</Text>}
       {input.shownGraphLines.map((line, lineIndex) => {
         const { commit } = line
@@ -62,6 +78,7 @@ export function renderCommitList(
               {renderGraph(lineIndex, isSelected, line.graph)}
               <Text color={ui.theme.commitSha}>{shortSha} </Text>
               {commit.refs.length > 0 && <Text color={ui.theme.directory}>({commit.refs.join(', ')}) </Text>}
+              {!line.isBoundary && input.unpushedCommitShas.includes(commit.sha) && <Text color={ui.theme.accent}>↑ not pushed </Text>}
             </Box>
             <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
               {line.isBoundary ? (
@@ -88,4 +105,15 @@ export function renderCommitList(
       })}
     </Box>
   )
+}
+
+function pushLabelOf(pushState: 'idle' | 'armed' | 'pushing', unpushedCommitCount: number): string {
+  switch (pushState) {
+    case 'idle':
+      return `↑ push ${unpushedCommitCount} commit${unpushedCommitCount > 1 ? 's' : ''}`
+    case 'armed':
+      return '↑ press again to push'
+    case 'pushing':
+      return 'pushing…'
+  }
 }

@@ -30,7 +30,7 @@ export const WHOLE_FILE_CONTEXT_LINES = 1000000
 export const ROW_CLICK_TARGET_LENGTH = 400
 
 export const VIEW_ORDER: readonly ReviewView[] = ['uncommitted', 'pr', 'commits']
-export const VIEW_LABELS: Record<ReviewView, string> = { uncommitted: 'Uncommitted', pr: 'PR', commits: 'Commits' }
+export const VIEW_LABELS: Record<ReviewView, string> = { uncommitted: 'Uncommitted', pr: 'Pull Request', commits: 'Commits' }
 export const VIEW_SHORTCUTS: Record<ReviewView, ShortcutAction> = {
   uncommitted: 'uncommittedView',
   pr: 'pullRequestView',
@@ -58,12 +58,18 @@ export const PULL_REQUEST_OVERVIEW_KEY = 'pr-overview'
 export const HELP_CLOSE_KEY = 'help-close'
 
 export const QUESTION_FOCUS_RETRY_MS = 120
+// A file just marked viewed stays listed this long while viewed files are hidden, so the click does not make it vanish.
+export const VIEWED_FILE_HIDE_DELAY_MS = 1500
 // A session attached from another terminal (claude attach) or reached through Remote Control sends the person's
 // prompts unstamped or as the bridge's: they are the person's own all the same.
 export const PERSON_PROMPT_ORIGINS: readonly string[] = ['composer', 'unclassified', 'bridge']
 
 export const BASE_REF_CANDIDATES = ['origin/main', 'origin/master', 'origin/develop', 'main', 'master']
 export const GIT_TIMEOUT_MS = 15000
+// A push may run the repository's pre-push hook, tests included.
+export const GIT_PUSH_TIMEOUT_MS = 180000
+// The push button asks for a second press within this delay, so a stray click pushes nothing.
+export const PUSH_CONFIRM_DELAY_MS = 4000
 export const BROWSER_OPENERS = ['xdg-open', 'open']
 export const GH_TIMEOUT_MS = 20000
 

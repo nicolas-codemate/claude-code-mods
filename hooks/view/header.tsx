@@ -10,7 +10,8 @@ export function renderHeader(
   input: {
     view: ReviewView
     location: string
-    activeViewCount: number
+    hasUncommittedChanges: boolean
+    unpushedCommitCount: number
     pullRequest: PullRequestSummary | null
     viewedCount: { viewed: number; total: number }
     tiles: HeaderTile[]
@@ -34,9 +35,10 @@ export function renderHeader(
           return renderPill(ui, {
             key: `view-${view}`,
             hotkey: input.hotkeyOf(VIEW_SHORTCUTS[view]),
-            text: isActive ? `${VIEW_LABELS[view]} ${input.activeViewCount}` : VIEW_LABELS[view],
+            text: viewTabTextOf(view, input.unpushedCommitCount),
             isActive,
             isDim: !isActive,
+            isEmpty: view === 'uncommitted' && !input.hasUncommittedChanges,
             onPress: () => input.actions.switchView(view),
             marginRight: 1,
           })
@@ -106,10 +108,22 @@ type Pill = {
   text: string
   isActive?: boolean
   isDim?: boolean
+  // Drawn without its fill: the view holds nothing.
+  isEmpty?: boolean
   isHidden?: boolean
   onPress: () => Promise<void>
   marginLeft?: number
   marginRight?: number
+}
+
+function viewTabTextOf(view: ReviewView, unpushedCommitCount: number): string {
+  switch (view) {
+    case 'commits':
+      return unpushedCommitCount > 0 ? `${VIEW_LABELS[view]} ↑${unpushedCommitCount}` : VIEW_LABELS[view]
+    case 'uncommitted':
+    case 'pr':
+      return VIEW_LABELS[view]
+  }
 }
 
 // The terminal takes a Button's click on its label alone: the pill is that label on a fill, with no border or padding
@@ -123,7 +137,7 @@ function renderPill(ui: ViewElements, pill: Pill) {
       display={pill.isHidden ? 'none' : 'flex'}
       flexShrink={0}
       height={1}
-      backgroundColor={pill.isActive ? ui.theme.accentBorder : ui.theme.border}
+      backgroundColor={pill.isActive ? ui.theme.accentBorder : pill.isEmpty ? undefined : ui.theme.border}
       marginLeft={pill.marginLeft}
       marginRight={pill.marginRight}
     >

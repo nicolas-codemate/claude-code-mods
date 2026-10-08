@@ -9,11 +9,18 @@ const GITHUB_THREAD_INDENT = 16
 export type GitHubThreadInput = { expandedThreadIds: string[]; currentThreadId: string | null; actions: ExplorerActions }
 
 // A resolved conversation folds to one line, as GitHub shows it, until opened or reached with the keyboard.
+export function isGitHubThreadFolded(
+  thread: GitHubReviewThread,
+  input: { expandedGitHubThreadIds: string[]; currentThreadId: string | null },
+): boolean {
+  return thread.isResolved && thread.id !== input.currentThreadId && !input.expandedGitHubThreadIds.includes(thread.id)
+}
+
 export function renderGitHubThread(ui: ViewElements, thread: GitHubReviewThread, input: GitHubThreadInput) {
   const { Box, Button, Link, Text } = ui
   const firstComment = thread.comments[0]
   const isCurrent = thread.id === input.currentThreadId
-  const isFolded = thread.isResolved && !isCurrent && !input.expandedThreadIds.includes(thread.id)
+  const isFolded = isGitHubThreadFolded(thread, { expandedGitHubThreadIds: input.expandedThreadIds, currentThreadId: input.currentThreadId })
   const borderColor = isCurrent ? ui.theme.accent : ui.theme.gitHubThreadBorder
   const status = [
     thread.isResolved ? 'resolved' : null,

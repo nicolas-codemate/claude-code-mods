@@ -3,11 +3,22 @@ import type { DiffRow, GitHubReviewThread, ReviewThread, ReviewView, ThreadExcha
 export type QuestionTarget = { anchorDescription: string; context: string }
 
 export function anchorKeyOf(view: ReviewView, commitSha: string | null, path: string, row: DiffRow): string {
-  return [view, commitSha ?? '', path, row.kind, row.oldNumber ?? '', row.newNumber ?? ''].join('|')
+  return [view, anchoredCommitShaOf(view, commitSha), path, row.kind, row.oldNumber ?? '', row.newNumber ?? ''].join('|')
 }
 
 export function fileAnchorPrefixOf(view: ReviewView, commitSha: string | null, path: string): string {
-  return `${view}|${commitSha ?? ''}|${path}|`
+  return `${view}|${anchoredCommitShaOf(view, commitSha)}|${path}|`
+}
+
+// The commit picked in the Commits view stays selected after leaving it: only that view's lines belong to a commit.
+function anchoredCommitShaOf(view: ReviewView, commitSha: string | null): string {
+  switch (view) {
+    case 'commits':
+      return commitSha ?? ''
+    case 'uncommitted':
+    case 'pr':
+      return ''
+  }
 }
 
 export function overviewAnchorKeyOf(pullRequestNumber: number, blockIndex: number, block: string): string {
@@ -136,6 +147,17 @@ export function parseAnchorKey(anchorKey: string): ParsedAnchor | null {
   const lineNumber = Number(rowKind === 'removed' ? oldNumber : newNumber)
 
   return { kind: 'row', view, commitSha, path, lineNumber: Number.isNaN(lineNumber) ? 0 : lineNumber }
+}
+
+export function overviewThreadsOffTheDescription(threads: ReviewThread[], pullRequestNumber: number, blocks: readonly string[]): ReviewThread[] {
+  const blockAnchorKeys = new Set(blocks.map((block, blockIndex) => overviewAnchorKeyOf(pullRequestNumber, blockIndex, block)))
+
+  return threads.filter(thread => thread.anchorKey.startsWith(`overview|${pullRequestNumber}|`) && !blockAnchorKeys.has(thread.anchorKey))
+}
+
+// A file that changed since the question may no longer hold the line it was asked on.
+export function threadsOffTheDiff(threads: ReviewThread[], fileAnchorPrefix: string, rowAnchorKeys: ReadonlySet<string>): ReviewThread[] {
+  return threads.filter(thread => thread.anchorKey.startsWith(fileAnchorPrefix) && !rowAnchorKeys.has(thread.anchorKey))
 }
 
 // The threads still waiting on each file, in the order given: a GitHub conversation already resolved is settled.

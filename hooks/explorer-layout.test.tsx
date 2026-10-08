@@ -191,11 +191,88 @@ test('the header buttons are pills: no border or padding around the label a clic
 
   expect(await pillOf('view-uncommitted')).toEqual({ key: 'view-uncommitted-box', display: 'flex', flexShrink: 0, height: 1, backgroundColor: '#2b4a6e', marginRight: 1 })
   expect(await pillOf('refresh')).toEqual({ key: 'refresh-box', display: 'flex', flexShrink: 0, height: 1, backgroundColor: '#2a2f3a', marginLeft: 1 })
-  expect((await pane.find({ key: 'view-pr' }))?.text).toBe('PR ')
+  expect((await pane.find({ key: 'view-pr' }))?.text).toBe('Pull Request ')
   expect((await pane.find({ key: 'refresh' }))?.text).toBe(' refresh ')
 
   await pane.press({ key: 'view-pr' })
   expect((await pillOf('view-pr'))?.backgroundColor).toBe('#2b4a6e')
   expect((await pillOf('view-uncommitted'))?.backgroundColor).toBe('#2a2f3a')
+  await pane.unmount()
+})
+
+test('an empty Uncommitted tab loses its fill, and the commits the remote lacks are counted on the Commits tab and marked', async ($, on) => {
+  stubWorld(on, {
+    git: gitCommand => {
+      if (gitCommand === 'status --porcelain') return { exitCode: 0, stdout: '' }
+      if (gitCommand === 'rev-list @{upstream}..HEAD') return { exitCode: 0, stdout: 'c2\n' }
+      return undefined
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-commits' })
+  expect((await pane.find({ key: 'view-uncommitted-box' }))?.props.backgroundColor).toBeUndefined()
+  expect((await pane.find({ key: 'view-commits' }))?.text).toBe('Commits ↑1 ')
+  expect(await pane.findAll({ type: 'Text', text: /↑ not pushed/ })).toHaveLength(1)
+  await pane.unmount()
+})
+
+test('the push button pushes on a second press only, plainly, and forgets the first press after a moment', async ($, on) => {
+  const pushCommands: string[] = []
+  const world = stubWorld(on, {
+    git: gitCommand => {
+      if (gitCommand === 'rev-list @{upstream}..HEAD') return { exitCode: 0, stdout: pushCommands.length > 0 ? '' : 'c2\nc1\n' }
+      if (gitCommand === 'rev-parse --abbrev-ref @{upstream}') return { exitCode: 0, stdout: 'origin/feat/tax\n' }
+      if (gitCommand.startsWith('push')) {
+        pushCommands.push(gitCommand)
+        return { exitCode: 0, stdout: '' }
+      }
+      return undefined
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-commits' })
+  expect((await pane.find({ key: 'push-branch' }))?.text).toContain('↑ push 2 commits')
+
+  await pane.press({ key: 'push-branch' })
+  expect((await pane.find({ key: 'push-branch' }))?.text).toContain('press again')
+  await world.clock.advance(5000)
+  expect((await pane.find({ key: 'push-branch' }))?.text).toContain('↑ push 2 commits')
+  expect(pushCommands).toEqual([])
+
+  await pane.press({ key: 'push-branch' })
+  await pane.press({ key: 'push-branch' })
+  expect(pushCommands).toEqual(['push'])
+  expect(await pane.find({ key: 'push-branch' })).toBeUndefined()
+  expect((await pane.find({ key: 'view-commits' }))?.text).toBe('Commits ')
+  await pane.unmount()
+})
+
+test('the wheel over the commit list scrolls it, and a commit picked there keeps the lines in place', async ($, on) => {
+  const longLog = Array.from({ length: 20 }, (_, index) => `* c${index + 1}\u001fc${index + 1}s\u001fCommit ${index + 1}\u001fSomeone\u001f1 hour ago\u001f`).join('\n')
+  stubWorld(on, { git: gitCommand => (gitCommand.startsWith('log ') ? { exitCode: 0, stdout: longLog } : undefined) })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-commits' })
+  expect(await pane.find({ key: 'commit-c1' })).toBeDefined()
+  expect(await pane.find({ key: 'commit-c11' })).toBeUndefined()
+
+  await $.ui.scroll({
+    component: 'Pane',
+    requestId: 'diff-review',
+    offset: 0,
+    by: 1,
+    bodyRows: 30,
+    contentRows: 30,
+    origin: { kind: 'person' },
+    pointer: { column: 20, row: 8 },
+  } as never)
+  expect(await pane.find({ key: 'commit-c1' })).toBeUndefined()
+  expect(await pane.find({ key: 'commit-c11' })).toBeDefined()
+
+  await pane.press({ key: 'commit-c10' })
+  expect(await pane.find({ key: 'commit-c4' })).toBeDefined()
+  expect(await pane.find({ key: 'commit-c11' })).toBeDefined()
   await pane.unmount()
 })

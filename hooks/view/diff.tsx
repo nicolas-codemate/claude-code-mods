@@ -2,14 +2,14 @@ import type { ChangedFile, DiffRow, GitHubReviewThread, ReviewThread, ReviewView
 import { ASK_BUTTON_KEY_PREFIX, ASK_ON_LINE_KEY, LINE_NUMBER_BUTTON_KEY_PREFIX } from '../constants'
 import { isGitHubThreadOnRow, unplacedGitHubThreadsOf } from '../github-review'
 import type { Keymap, ShortcutAction } from '../keymap'
-import { anchorKeyOf } from '../questions'
+import { anchorKeyOf, fileAnchorPrefixOf, parseAnchorKey, threadsOffTheDiff } from '../questions'
 import type { SplitRow, SplitSide } from '../split-rows'
 import { languageOfPath } from '../syntax-language'
 import { fileTypeBadgeOf } from './file-badges'
 import { renderFileStats, renderShortcutHint, renderThreadNavigation } from './labels'
 import { renderGitHubThread } from './github-threads'
 import { ROW_MARKS, rowBackgroundOf, rowColorOf } from './theme'
-import { renderThreadsAndQuestion } from './threads'
+import { renderThread, renderThreadsAndQuestion, THREAD_INDENT } from './threads'
 import type { ExplorerActions, QuestionState, ThreadNavigation, ViewElements } from './types'
 
 // Wider than any pane: its box cuts it to the room left beside the hunk's heading.
@@ -32,6 +32,7 @@ export type DiffViewInput = {
   keymap: Keymap
   isWholeFile: boolean
   diffOffset: number
+  diffSkippedLines: number
   visibleDiffRows: number
   threads: ReviewThread[]
   // The GitHub review conversations of the shown file, in the PR view.
@@ -56,6 +57,14 @@ export function renderDiffView(ui: ViewElements, input: DiffViewInput) {
   }
   const shownEnd = input.diffOffset + input.visibleDiffRows
   const unplacedGitHubThreads = input.diffOffset === 0 ? unplacedGitHubThreadsOf(input.gitHubThreads, selectedFile.path, input.diffRows) : []
+  const threadsOffDiff =
+    input.diffOffset === 0
+      ? threadsOffTheDiff(
+          input.threads,
+          fileAnchorPrefixOf(input.view, input.selectedCommitSha, selectedFile.path),
+          new Set(input.diffRows.map(row => anchorKeyOf(input.view, input.selectedCommitSha, selectedFile.path, row))),
+        )
+      : []
 
   return (
     <Box flexDirection="column">
@@ -66,13 +75,33 @@ export function renderDiffView(ui: ViewElements, input: DiffViewInput) {
         </Box>
       )}
       {unplacedGitHubThreads.map(thread => renderGitHubThread(ui, thread, gitHubThreadInputOf(input)))}
-      {input.splitRows
-        ? input.splitRows
-            .slice(input.diffOffset, shownEnd)
-            .map((splitRow, shownRowIndex) => renderSplitRow(ui, splitRow, input.diffOffset + shownRowIndex, selectedFile, input))
-        : input.diffRows
-            .slice(input.diffOffset, shownEnd)
-            .map((row, shownRowIndex) => renderRow(ui, row, input.diffOffset + shownRowIndex, selectedFile, input))}
+      {threadsOffDiff.map(thread => renderThreadOffDiff(ui, thread, input))}
+      <Box flexDirection="column" flexShrink={0} overflow="hidden">
+        <Box flexDirection="column" flexShrink={0} marginTop={-input.diffSkippedLines}>
+          {input.splitRows
+            ? input.splitRows
+                .slice(input.diffOffset, shownEnd)
+                .map((splitRow, shownRowIndex) => renderSplitRow(ui, splitRow, input.diffOffset + shownRowIndex, selectedFile, input))
+            : input.diffRows
+                .slice(input.diffOffset, shownEnd)
+                .map((row, shownRowIndex) => renderRow(ui, row, input.diffOffset + shownRowIndex, selectedFile, input))}
+        </Box>
+      </Box>
+    </Box>
+  )
+}
+
+function renderThreadOffDiff(ui: ViewElements, thread: ReviewThread, input: DiffViewInput) {
+  const { Box, Text } = ui
+  const anchor = parseAnchorKey(thread.anchorKey)
+  const lineNumber = anchor?.kind === 'row' ? anchor.lineNumber : null
+
+  return (
+    <Box key={`thread-off-diff-${thread.id}`} flexDirection="column" flexShrink={0}>
+      <Box marginLeft={THREAD_INDENT} marginTop={1} flexShrink={0}>
+        <Text color={ui.theme.muted}>{lineNumber ? `Line ${lineNumber} is` : 'Its line is'} no longer in the diff:</Text>
+      </Box>
+      {renderThread(ui, thread, input.actions, input.questionState.isAnswerPulseLit)}
     </Box>
   )
 }

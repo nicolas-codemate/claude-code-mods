@@ -1,4 +1,4 @@
-import type { ChangedFile } from '../types'
+import type { ChangedFile, ViewedState } from '../types'
 
 // Files a reviewer rarely reads line by line: lockfiles, minified or generated output, snapshots, vendored code.
 const NOISE_PATTERNS: readonly RegExp[] = [
@@ -27,13 +27,21 @@ export function matchesFileFilter(path: string, filter: string): boolean {
 
 export function visibleFilesOf(
   files: ChangedFile[],
-  options: { filter: string; isNoiseShown: boolean },
+  options: { filter: string; isNoiseShown: boolean; hiddenPaths?: ReadonlySet<string> },
 ): { files: ChangedFile[]; hiddenNoiseCount: number } {
-  const matchingFiles = files.filter(file => matchesFileFilter(file.path, options.filter))
+  const matchingFiles = files.filter(file => matchesFileFilter(file.path, options.filter) && !options.hiddenPaths?.has(file.path))
   if (options.isNoiseShown) {
     return { files: matchingFiles, hiddenNoiseCount: 0 }
   }
   const shownFiles = matchingFiles.filter(file => !isNoiseFile(file.path))
 
   return { files: shownFiles, hiddenNoiseCount: matchingFiles.length - shownFiles.length }
+}
+
+export function viewedPathsToHide(viewedStateByPath: Record<string, ViewedState>, recentlyViewedPaths: readonly string[]): Set<string> {
+  return new Set(
+    Object.entries(viewedStateByPath)
+      .filter(([path, viewedState]) => viewedState === 'VIEWED' && !recentlyViewedPaths.includes(path))
+      .map(([path]) => path),
+  )
 }
