@@ -1,0 +1,47 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Claude Code and TypeScript
+        run: npm install -g @anthropic-ai/claude-code typescript@5.9.3
+
+      - name: Validate the marketplace and each plugin
+        run: |
+          claude plugin validate .
+          for plugin in plugins/*/; do
+            claude plugin validate "$plugin"
+          done
+
+      # types/claude-code.d.ts is the API a mod is written against, as Claude Code writes it for a mod it loads;
+      # refresh it from a recent session when the API moves.
+      - name: Typecheck each plugin
+        run: tsc -p tsconfig.json
+
+      - name: Run each plugin's tests
+        run: |
+          status=0
+          for plugin in plugins/*/; do
+            claude plugin test "$plugin" || status=1
+          done
+          exit $status
+        env:
+          CLAUDE_CODE_ENABLE_FUNCTION_HOOKS: "1"
