@@ -3,8 +3,9 @@
   "version": "0.2.0",
   "description": "Review pane for uncommitted changes, the pull request or one commit at a time: ask Claude about any line, read and settle GitHub review threads, all from the keyboard",
   "author": {
-    "name": "Nicolas",
-    "url": "https://github.com/nicolas-codemate"
+    "name": "Nicolas DEMAY",
+    "email": "nicolas@codemate.consulting",
+    "url": "https://codemate.consulting"
   },
   "homepage": "https://github.com/nicolas-codemate/claude-code-mods/tree/main/plugins/diff-review",
   "repository": "https://github.com/nicolas-codemate/claude-code-mods",

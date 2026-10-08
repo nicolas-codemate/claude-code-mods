@@ -1,8 +1,9 @@
 {
   "name": "codemate-mods",
   "owner": {
-    "name": "Nicolas",
-    "url": "https://github.com/nicolas-codemate"
+    "name": "Nicolas DEMAY — CodeMate EURL",
+    "email": "nicolas@codemate.consulting",
+    "url": "https://codemate.consulting"
   },
   "metadata": {
     "description": "Mods for Claude Code"
