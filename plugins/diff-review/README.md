@@ -6,6 +6,11 @@ it.
 
 ![Asking Claude about a line, the answer under it](docs/media/ask-claude.gif)
 
+Claude Code's built-in `/diff` shows the session's uncommitted changes and lets you ask about a file's hunks.
+diff-review goes on from there to a whole review: the pull request and each commit besides uncommitted changes,
+questions answered under the very line they are about, the GitHub review comments and their resolving, the viewed
+boxes, and pushing.
+
 ## Install
 
 ```
