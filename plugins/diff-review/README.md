@@ -74,6 +74,8 @@ each change or the whole file, side by side when the pane is wide enough, long l
 by line. The file list groups files by directory, each folding away, with a filter; lockfiles and generated files stay
 folded until asked.
 
+![The diff side by side](docs/media/split-view.png)
+
 ## Keyboard too
 
 Everything works with the mouse. Every action also has a key, which can be remapped in `/config`; the help button of the pane lists them all.
@@ -82,7 +84,11 @@ Everything works with the mouse. Every action also has a key, which can be remap
 
 In `/config`, under diff-review:
 
-- **Theme**: `auto` (the Claude Code theme), `dark` or `light`.
+- **Theme**: `auto` follows the theme of Claude Code (`/theme`), `dark` or `light` force one. The pane is fully light
+  when Claude Code is: forced to the other mode, it leaves its backgrounds to the terminal so that text stays readable.
+
+  ![The light theme](docs/media/light-theme.png)
+
 - **Key: …**: one field per action, to remap its key.
 
 ## What it sends, and where
@@ -94,8 +100,7 @@ commits view. A failure shows in a red frame on top of the pane until you dismis
 
 ## Requirements
 
-- Claude Code with mods support (tested with 2.1.294), in the terminal. The Desktop app draws the pane too, not
-  checked yet.
+- Claude Code with mods support (tested with 2.1.294), in the terminal.
 - `git`; the GitHub CLI `gh` for the pull request features; `xdg-open` (Linux) or `open` (macOS) to open GitHub pages.
 
 ## Development
