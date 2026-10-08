@@ -102,7 +102,6 @@ export function stubWorld(on: On, options: WorldOptions = {}): World {
   on('command.register', async (_, e) => ({ value: { command: e.name } }) as never)
   on('session.start', async () => ({ cwd: ROOT }) as never)
   on('session.end', async (_, e) => ({ sessionId: e.sessionId }) as never)
-  on('session.append', async (_, e) => ({ value: { message: e.message, uuid: 'row' } }) as never)
   on('ui.open', async (_, e) => {
     world.requestedPaneColumns.push(e.columns)
     return { value: { isPlaced: true } } as never

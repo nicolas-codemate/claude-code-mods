@@ -11,8 +11,8 @@ test('the default keys follow the keyboard layout, and a layout not read keeps b
 })
 
 test('a remapped key replaces the default, a refused one keeps it and says why, a shared one is reported', async () => {
-  const remapped = resolveKeymap({ key_next_line: '9', key_previous_line: 'up', key_ask_on_line: '7, 8' }, 'azerty')
-  expect(remapped.keymap.nextLine).toEqual(['9'])
+  const remapped = resolveKeymap({ key_next_line: '6', key_previous_line: 'up', key_ask_on_line: '7, 8' }, 'azerty')
+  expect(remapped.keymap.nextLine).toEqual(['6'])
   expect(remapped.keymap.previousLine).toEqual(['k'])
   expect(remapped.keymap.askOnLine).toEqual(['7', '8'])
   expect(remapped.problems).toEqual(['key_previous_line: "up" is not one letter or digit, the default stays.'])
