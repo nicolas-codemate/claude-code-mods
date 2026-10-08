@@ -17,8 +17,8 @@ Then run `/diff-review`. It needs `git`, and for the pull request features the [
 logged in (`gh auth login`).
 
 **Screen width.** The pane sits beside the conversation. From a Full HD screen (1920 pixels) it is comfortable with the
-file list collapsed behind its `≡ Files` bar, as in the pictures here; on a wider screen the list stays pinned beside
-the code.
+file list collapsed behind its `≡ Files` bar, as in the animation above; on a wider screen the list stays pinned beside
+the code, as in the pictures below.
 
 ## Ask Claude about a line
 
@@ -66,7 +66,6 @@ from the buttons of the thread. The header walks every thread of the view, Claud
 - A file GitHub does not list yet, because it changed in a commit not pushed, shows `↑` instead of a box.
 - The header sums the view up in tiles: files, lines, a viewed bar and the open threads.
 
-![On a wide screen, the file list pinned beside the code](docs/media/wide-screen.png)
 
 ## A readable diff
 
