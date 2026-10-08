@@ -16,6 +16,10 @@ it.
 Then run `/diff-review`. It needs `git`, and for the pull request features the [GitHub CLI](https://cli.github.com)
 logged in (`gh auth login`).
 
+**Updates.** Claude Code does not update a marketplace on its own until you ask it to: turn on auto-update under
+**Marketplaces** in `/plugin`, or run `/plugin marketplace update codemate-mods` now and then. Each release is listed
+on the [releases page](https://github.com/nicolas-codemate/claude-code-mods/releases).
+
 **Screen width.** The pane sits beside the conversation. From a Full HD screen (1920 pixels) it is comfortable with the
 file list collapsed behind its `≡ Files` bar, as in the animation above; on a wider screen the list stays pinned beside
 the code, as in the pictures below.

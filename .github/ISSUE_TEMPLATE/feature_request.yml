@@ -1,0 +1,23 @@
+name: Feature request
+description: Something a mod could do, or do better.
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: mod
+    attributes:
+      label: Mod
+      options:
+        - diff-review
+    validations:
+      required: true
+  - type: textarea
+    id: need
+    attributes:
+      label: What you are trying to do
+      description: The situation and the need, before any solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: An idea of how it could work

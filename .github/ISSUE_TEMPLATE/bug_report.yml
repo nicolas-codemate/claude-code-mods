@@ -1,0 +1,49 @@
+name: Bug report
+description: Something in a mod does not work as it should.
+labels: [bug]
+body:
+  - type: dropdown
+    id: mod
+    attributes:
+      label: Mod
+      options:
+        - diff-review
+    validations:
+      required: true
+  - type: input
+    id: claude-code-version
+    attributes:
+      label: Claude Code version
+      description: What `claude --version` prints.
+    validations:
+      required: true
+  - type: input
+    id: mod-version
+    attributes:
+      label: Mod version
+      description: Shown by `/plugin`, under the mod.
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal and system
+      description: For example "Ghostty on macOS 15", "GNOME Terminal on Ubuntu 24.04".
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you did
+      description: The steps that lead to the problem, from opening the pane.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: A picture of the pane helps a lot. Leave out any code you cannot share.
