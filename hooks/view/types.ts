@@ -18,6 +18,7 @@ export type ExplorerActions = {
   moveView: (offset: number) => Promise<void>
   refresh: () => Promise<void>
   pushBranch: () => Promise<void>
+  dismissErrorNotice: (noticeId: string) => Promise<void>
   close: () => Promise<void>
   selectCommit: (commitSha: string) => Promise<void>
   showOverview: () => Promise<void>

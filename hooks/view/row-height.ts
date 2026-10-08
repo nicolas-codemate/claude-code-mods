@@ -13,6 +13,8 @@ const THREAD_HORIZONTAL_CHROME = 16 + 2 + 2 + 2
 // Its top and bottom margins and its border.
 const THREAD_VERTICAL_CHROME = 2 + 2
 const TAB_WIDTH = 4
+// Code wraps between words, leaving the end of each line short: a tenth of the width is counted as lost.
+const WORD_WRAP_LOSS = 0.9
 
 export type RowHeightInput = {
   view: ReviewView
@@ -32,10 +34,10 @@ export type RowHeightInput = {
 export function estimatedRowHeights(rows: DiffRow[], splitRows: SplitRow[] | null, input: RowHeightInput): number[] {
   if (splitRows === null) {
     return rows.map(row =>
-      row.kind === 'hunk' ? 1 : wrappedLineCount(row.text, input.diffContentWidth - UNIFIED_CODE_GUTTER) + inlineContentHeight(row, input),
+      row.kind === 'hunk' ? 1 : wrappedLineCount(row.text, Math.floor((input.diffContentWidth - UNIFIED_CODE_GUTTER) * WORD_WRAP_LOSS)) + inlineContentHeight(row, input),
     )
   }
-  const sideCodeWidth = Math.floor((input.diffContentWidth - 1) / 2) - SPLIT_CODE_GUTTER
+  const sideCodeWidth = Math.floor((Math.floor((input.diffContentWidth - 1) / 2) - SPLIT_CODE_GUTTER) * WORD_WRAP_LOSS)
 
   return splitRows.map(splitRow => {
     if (splitRow.kind === 'hunk') {

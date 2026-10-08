@@ -42,6 +42,7 @@ export type ExplorerSnapshot = {
   unpushedCommitShas: string[]
   pushState: 'idle' | 'armed' | 'pushing'
   commitListOffset: number | null
+  errorNotices: Array<{ id: string; text: string }>
   isLoading: boolean
   loadError: string | null
   commits: CommitSummary[]
@@ -97,7 +98,7 @@ export type PaneModel = {
   isSplitView: boolean
   cursorRowIndex: number | null
   isScrollingPastEnd: boolean
-  // Filled only while the diff scrolls by lines, with a thread or a question in the file.
+  // Filled while a file's diff is shown, empty on the overview.
   diffRowHeights: number[]
 }
 
@@ -186,11 +187,13 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
   const hasLineShortcuts = !isOverviewShown && selectedFilePath !== null
   const scrolledRowCount = isOverviewShown ? overviewBlocks.length : (splitRows ?? snapshot.diffRows).length
   const isScrollingPastEnd = isOverviewShown || hasInlineContentInFile
+  const isScrollingByLines = !isOverviewShown && selectedFilePath !== null
   const geometry = computePaneGeometry({
     bodyRows: surface.bodyRows,
     bodyColumns: surface.bodyColumns,
     view,
     hasLoadError: snapshot.loadError !== null,
+    errorNoticeCount: snapshot.errorNotices.length,
     hasPullRequestLine: pullRequest !== null,
     commitLineCount: snapshot.commitGraph.length,
     requestedCommitListOffset: snapshot.commitListOffset,
@@ -205,12 +208,12 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     requestedFileListOffset: snapshot.fileListOffset,
     scrolledRowCount,
     isScrollingPastEnd,
+    isScrollingByLines,
     requestedDiffOffset: snapshot.diffOffset,
     hasLineShortcuts,
     isFileDrawerOpen: snapshot.isFileDrawerOpen,
     isFileListCollapsed: snapshot.isFileListCollapsed,
   })
-  const isScrollingByLines = isScrollingPastEnd && !isOverviewShown && selectedFilePath !== null
   // The divider beside the file list is left out of the width too: a narrower guess only counts more lines.
   const diffContentWidth = diffWidth - 3
   const diffRowHeights =
@@ -258,6 +261,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     pushState: snapshot.pushState,
     help: snapshot.isHelpShown ? { keymap: snapshot.keymap, problems: snapshot.keymapProblems } : null,
     loadError: snapshot.loadError,
+    errorNotices: snapshot.errorNotices,
     pullRequest,
     viewedCount,
     headerTiles: headerTilesOf(files, pullRequest, viewedCount, gitHubThreads),

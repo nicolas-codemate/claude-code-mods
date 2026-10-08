@@ -23,7 +23,6 @@ import {
   FILE_BUTTON_KEY_PREFIX,
   FILE_LIST_COLLAPSED_STORE_KEY,
   FILE_LIST_WIDTH_STORE_KEY,
-  SPLIT_VIEW_MIN_DIFF_WIDTH,
   SPLIT_VIEW_STORE_KEY,
   COMMIT_PANEL_MAX_LINES,
   GH_TIMEOUT_MS,
@@ -121,6 +120,7 @@ const hasUncommittedChangesAtom = atom({ plugin: 'diff-review', key: 'hasUncommi
 const unpushedCommitShasAtom = atom({ plugin: 'diff-review', key: 'unpushedCommitShas' } as const, [])
 const pushStateAtom = atom({ plugin: 'diff-review', key: 'pushState' } as const, 'idle')
 const commitListOffsetAtom = atom({ plugin: 'diff-review', key: 'commitListOffset' } as const, null)
+const errorNoticesAtom = atom({ plugin: 'diff-review', key: 'errorNotices' } as const, [])
 const commitsAtom = atom({ plugin: 'diff-review', key: 'commits' } as const, [])
 const commitGraphAtom = atom({ plugin: 'diff-review', key: 'commitGraph' } as const, [])
 const gitHubReviewThreadsAtom = atom({ plugin: 'diff-review', key: 'gitHubReviewThreads' } as const, [])
@@ -203,6 +203,12 @@ const lastDrawnLayout = {
   commitLineCount: 0,
   diffRowHeights: [] as number[],
   fileListWidthAtDragStart: 0,
+}
+
+// Stays on top of the pane until dismissed: a failure must not slip by while the eyes are on the code.
+async function reportError($: EngineInterface, text: string): Promise<void> {
+  const noticeId = `${await $.clock.now()}-${text.length}`
+  await update($, errorNoticesAtom, notices => [...notices.filter(notice => notice.text !== text), { id: noticeId, text }])
 }
 
 // --- Commands on the host -------------------------------------------------------------------------------------------
@@ -318,7 +324,7 @@ async function loadPullRequest($: EngineInterface): Promise<void> {
       ...(cursor ? ['-f', `cursor=${cursor}`] : []),
     ])
     if (!page.isSuccess) {
-      $.ui.toast(`diff-review: could not read the viewed state from GitHub (${shortOutput(page)})`)
+      await reportError($, `Could not read the viewed state from GitHub (${shortOutput(page)})`)
       break
     }
     const parsedPage = parseViewedStatesPage(page.output)
@@ -346,7 +352,7 @@ async function loadGitHubReviewThreads($: EngineInterface, pullRequestId: string
       ...(cursor ? ['-f', `cursor=${cursor}`] : []),
     ])
     if (!page.isSuccess) {
-      $.ui.toast(`diff-review: could not read the review comments from GitHub (${shortOutput(page)})`)
+      await reportError($, `Could not read the review comments from GitHub (${shortOutput(page)})`)
       break
     }
     const parsedPage = parseReviewThreadsPage(page.output, emojiCharacterByShortcode)
@@ -379,7 +385,7 @@ async function toggleGitHubThreadResolved($: EngineInterface, threadId: string):
   ])
   if (!mutation.isSuccess) {
     await setResolved(thread.isResolved)
-    $.ui.toast(`diff-review: GitHub refused to ${thread.isResolved ? 'unresolve' : 'resolve'} the thread (${shortOutput(mutation)})`)
+    await reportError($, `GitHub refused to ${thread.isResolved ? 'unresolve' : 'resolve'} the thread (${shortOutput(mutation)})`)
   }
 }
 
@@ -421,7 +427,7 @@ async function toggleViewed($: EngineInterface, path: string): Promise<void> {
   ])
   if (!mutation.isSuccess) {
     await setStateOfPathsSharingTheBox(previousState)
-    $.ui.toast(`diff-review: GitHub refused to change the viewed state of ${path}`)
+    await reportError($, `GitHub refused to change the viewed state of ${path}`)
   }
 }
 
@@ -664,14 +670,16 @@ async function pushBranch($: EngineInterface): Promise<void> {
   const branch = await read($, branchAtom)
   if (branch === null || branch === 'HEAD' || ['main', 'master'].includes(branch)) {
     await update($, pushStateAtom, () => 'idle')
-    $.ui.toast(`diff-review: no push from ${branch ?? 'a detached HEAD'}`)
+    await reportError($, `No push from ${branch ?? 'a detached HEAD'}`)
     return
   }
   await update($, pushStateAtom, () => 'pushing')
   const hasUpstream = (await runGit($, ['rev-parse', '--abbrev-ref', '@{upstream}'])).isSuccess
   const push = await runGit($, hasUpstream ? ['push'] : ['push', '--set-upstream', 'origin', branch], GIT_PUSH_TIMEOUT_MS)
   await update($, pushStateAtom, () => 'idle')
-  $.ui.toast(push.isSuccess ? `diff-review: ${branch} pushed` : `diff-review: push failed (${push.output.trim().split('\n').at(-1) ?? ''})`)
+  if (!push.isSuccess) {
+    await reportError($, `Push failed: ${push.output.trim().split('\n').at(-1) ?? ''}`)
+  }
   await refreshExplorer($)
 }
 
@@ -762,11 +770,17 @@ async function focusFirstChange($: EngineInterface): Promise<void> {
   focusAfterNextDrawing($, key)
 }
 
-async function scrollDiffByLines($: EngineInterface, path: string, linesToMove: number, rowHeights: readonly number[]): Promise<void> {
+async function scrollDiffByLines(
+  $: EngineInterface,
+  path: string,
+  linesToMove: number,
+  rowHeights: readonly number[],
+  lastTopLine: number,
+): Promise<void> {
   const rowIndex = await read($, diffOffsetAtom)
   const saved = await read($, diffSkippedLinesAtom)
   const skippedLines = saved !== null && saved.path === path && saved.rowIndex === rowIndex ? saved.lines : 0
-  const position = scrolledByLines({ rowIndex, skippedLines }, linesToMove, rowHeights)
+  const position = scrolledByLines({ rowIndex, skippedLines }, linesToMove, rowHeights, lastTopLine)
   await update($, diffOffsetAtom, () => position.rowIndex)
   await update($, diffSkippedLinesAtom, () => ({ path, rowIndex: position.rowIndex, lines: position.skippedLines }))
 }
@@ -852,16 +866,14 @@ async function stageMarkedFiles($: EngineInterface): Promise<void> {
   const isSelectedFileNew = selectedFilePath !== null && untrackedPaths.includes(selectedFilePath)
   const pathsToStage = markedPaths.length > 0 ? markedPaths : isSelectedFileNew ? [selectedFilePath] : []
   if (pathsToStage.length === 0) {
-    $.ui.toast('diff-review: no new file marked or selected to add')
     return
   }
   const gitAdd = await runGit($, ['add', '--', ...pathsToStage])
   if (!gitAdd.isSuccess) {
-    $.ui.toast(`diff-review: git add failed (${shortOutput(gitAdd)})`)
+    await reportError($, `Git add failed (${shortOutput(gitAdd)})`)
     return
   }
   await update($, markedPathsAtom, () => [])
-  $.ui.toast(`diff-review: ${pathsToStage.length} file${pathsToStage.length > 1 ? 's' : ''} added to the index`)
   await loadView($)
 }
 
@@ -869,11 +881,10 @@ async function stageMarkedFiles($: EngineInterface): Promise<void> {
 async function stageAllChanges($: EngineInterface): Promise<void> {
   const gitAdd = await runGit($, ['add', '--all'])
   if (!gitAdd.isSuccess) {
-    $.ui.toast(`diff-review: git add --all failed (${shortOutput(gitAdd)})`)
+    await reportError($, `Git add --all failed (${shortOutput(gitAdd)})`)
     return
   }
   await update($, markedPathsAtom, () => [])
-  $.ui.toast('diff-review: every change added to the index')
   await loadView($)
 }
 
@@ -988,7 +999,7 @@ async function sendToConversation($: EngineInterface, threadId: string, question
   try {
     await $.session.append({ message: { type: 'user', content: [{ type: 'text', text: context }] } })
   } catch (error) {
-    $.ui.toast(`diff-review: the context of the question was not sent (${String(error)})`)
+    await reportError($, `The context of the question was not sent (${String(error)})`)
   }
   await $.prompt.submit({ text: question })
   // The field that held the keyboard is gone once the question leaves: the keyboard would fall back to the prompt, so
@@ -1317,6 +1328,7 @@ async function readExplorerSnapshot($: EngineInterface, options: PluginOptions):
     unpushedCommitShas: await read($, unpushedCommitShasAtom),
     pushState: await read($, pushStateAtom),
     commitListOffset: await read($, commitListOffsetAtom),
+    errorNotices: await read($, errorNoticesAtom),
     isLoading: await read($, isLoadingAtom),
     loadError: await read($, loadErrorAtom),
     commits: await read($, commitsAtom),
@@ -1368,6 +1380,9 @@ function explorerActions($: EngineInterface): ExplorerActions {
     moveView: offset => moveView($, offset),
     refresh: () => refreshExplorer($),
     pushBranch: () => pushBranch($),
+    dismissErrorNotice: async noticeId => {
+      await update($, errorNoticesAtom, notices => notices.filter(notice => notice.id !== noticeId))
+    },
     close: () => $.ui.close({ id: PANE_ID }),
     selectCommit: commitSha => selectCommit($, commitSha),
     showOverview: async () => {
@@ -1391,12 +1406,8 @@ function explorerActions($: EngineInterface): ExplorerActions {
     },
     expandContext: path => widenContext($, path, current => current + DIFF_CONTEXT_STEP_LINES),
     showWholeFile: path => widenContext($, path, () => WHOLE_FILE_CONTEXT_LINES),
-    explainIdleShortcut: async description => {
-      $.ui.toast(`diff-review: "${description}" does nothing here`)
-    },
-    explainSplitViewWidth: async () => {
-      $.ui.toast(`diff-review: side by side needs a diff of ${SPLIT_VIEW_MIN_DIFF_WIDTH} columns; widen the pane (ctrl+x then left) or drag the divider`)
-    },
+    explainIdleShortcut: async () => {},
+    explainSplitViewWidth: async () => {},
     toggleSplitView: async () => {
       const isSplitViewPreferred = !(await read($, isSplitViewPreferredAtom))
       await update($, isSplitViewPreferredAtom, () => isSplitViewPreferred)
@@ -1497,7 +1508,7 @@ function explorerActions($: EngineInterface): ExplorerActions {
     openOnGitHub: async page => {
       const opened = await openInBrowser($, page.url)
       if (!opened.isSuccess) {
-        $.ui.toast(`diff-review: could not open ${page.url} (${shortOutput(opened)})`)
+        await reportError($, `Could not open ${page.url} (${shortOutput(opened)})`)
       }
     },
   }
@@ -1598,7 +1609,9 @@ export const register: Register = (on, options) => {
     const rowsToMove = pointer !== undefined ? e.by * rowsPerTick : Math.sign(e.by) * Math.min(Math.abs(e.by), pageRows)
     const selectedFilePath = await read($, selectedFilePathAtom)
     if (layout.diffRowHeights.length > 0 && selectedFilePath !== null) {
-      await scrollDiffByLines($, selectedFilePath, rowsToMove, layout.diffRowHeights)
+      const totalLines = layout.diffRowHeights.reduce((total, height) => total + height, 0)
+      const lastTopLine = layout.isScrollingPastEnd ? totalLines - 1 : Math.max(0, totalLines - layout.visibleDiffRows)
+      await scrollDiffByLines($, selectedFilePath, rowsToMove, layout.diffRowHeights, lastTopLine)
       return {}
     }
     const visibleForClamp = layout.isScrollingPastEnd ? 1 : layout.visibleDiffRows
@@ -1706,8 +1719,6 @@ export const register: Register = (on, options) => {
       await saveThreads($)
       await update($, threadIdAwaitingTurnAtom, () => thread.id)
     }
-    $.ui.toast(`diff-review: question sent about ${armedQuestion.anchorDescription.slice(0, 80)}`)
-
     return next({ ...e, context: [...(e.context ?? []), armedQuestion.context] })
   })
 

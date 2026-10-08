@@ -8,6 +8,7 @@ const GEOMETRY: GeometryInput = {
   bodyColumns: 200,
   view: 'uncommitted',
   hasLoadError: false,
+  errorNoticeCount: 0,
   hasPullRequestLine: false,
   commitLineCount: 0,
   selectedCommitLineIndex: 0,
@@ -19,6 +20,7 @@ const GEOMETRY: GeometryInput = {
   requestedFileListOffset: 0,
   scrolledRowCount: 100,
   isScrollingPastEnd: false,
+  isScrollingByLines: false,
   requestedDiffOffset: 0,
   hasLineShortcuts: false,
   isFileDrawerOpen: false,
@@ -75,9 +77,13 @@ test('a narrow pane gives the code the whole height under a bar, the file list o
 
 test('the diff scrolls line by line through a tall row, then on to the next, and stops with the last line on top', async () => {
   const rowHeights = [1, 1, 10, 1]
-  expect(scrolledByLines({ rowIndex: 0, skippedLines: 0 }, 3, rowHeights)).toEqual({ rowIndex: 2, skippedLines: 1 })
-  expect(scrolledByLines({ rowIndex: 2, skippedLines: 1 }, 3, rowHeights)).toEqual({ rowIndex: 2, skippedLines: 4 })
-  expect(scrolledByLines({ rowIndex: 2, skippedLines: 8 }, 3, rowHeights)).toEqual({ rowIndex: 3, skippedLines: 0 })
-  expect(scrolledByLines({ rowIndex: 3, skippedLines: 0 }, 3, rowHeights)).toEqual({ rowIndex: 3, skippedLines: 0 })
-  expect(scrolledByLines({ rowIndex: 2, skippedLines: 1 }, -3, rowHeights)).toEqual({ rowIndex: 0, skippedLines: 0 })
+  expect(scrolledByLines({ rowIndex: 0, skippedLines: 0 }, 3, rowHeights, 12)).toEqual({ rowIndex: 2, skippedLines: 1 })
+  expect(scrolledByLines({ rowIndex: 2, skippedLines: 1 }, 3, rowHeights, 12)).toEqual({ rowIndex: 2, skippedLines: 4 })
+  expect(scrolledByLines({ rowIndex: 2, skippedLines: 8 }, 3, rowHeights, 12)).toEqual({ rowIndex: 3, skippedLines: 0 })
+  expect(scrolledByLines({ rowIndex: 3, skippedLines: 0 }, 3, rowHeights, 12)).toEqual({ rowIndex: 3, skippedLines: 0 })
+  expect(scrolledByLines({ rowIndex: 2, skippedLines: 1 }, -3, rowHeights, 12)).toEqual({ rowIndex: 0, skippedLines: 0 })
+})
+
+test('without a thread the diff stops once its last drawn line reaches the bottom', async () => {
+  expect(scrolledByLines({ rowIndex: 0, skippedLines: 0 }, 30, [1, 4, 4, 1], 10 - 6)).toEqual({ rowIndex: 1, skippedLines: 3 })
 })

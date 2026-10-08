@@ -28,6 +28,7 @@ export type PaneInput = {
   pushState: 'idle' | 'armed' | 'pushing'
   help: HelpInput | null
   loadError: string | null
+  errorNotices: Array<{ id: string; text: string }>
   pullRequest: PullRequestSummary | null
   viewedCount: { viewed: number; total: number }
   headerTiles: HeaderTile[]
@@ -83,6 +84,31 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
         hotkeyOf: input.hotkeyOf,
         actions: input.actions,
       })}
+      {input.errorNotices.map(notice => (
+        <Box
+          key={`error-notice-${notice.id}`}
+          flexDirection="row"
+          flexShrink={0}
+          height={3}
+          marginX={1}
+          borderStyle="round"
+          borderColor={ui.theme.removed}
+          paddingX={1}
+        >
+          <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
+            <Text wrap="truncate-end">{notice.text}</Text>
+          </Box>
+          <Box key={`dismiss-error-box-${notice.id}`} flexShrink={0} marginLeft={1}>
+            <Button
+              key={`dismiss-error-${notice.id}`}
+              plain
+              hover={{ color: ui.theme.removed }}
+              label="× dismiss"
+              onPress={() => input.actions.dismissErrorNotice(notice.id)}
+            />
+          </Box>
+        </Box>
+      ))}
       {input.loadError && <Text color={ui.theme.removed}>{input.loadError}</Text>}
       {input.view === 'commits' &&
         renderCommitList(ui, {

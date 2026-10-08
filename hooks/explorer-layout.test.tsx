@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { hasQuestionField, mountPane, openExplorer, stubWorld, wheel } from './test-support'
+import { hasQuestionField, keyStartingWith, mountPane, openExplorer, stubWorld, wheel } from './test-support'
 
 test('the pane asks for two thirds of the terminal', async ($, on) => {
   const world = stubWorld(on)
@@ -274,5 +274,35 @@ test('the wheel over the commit list scrolls it, and a commit picked there keeps
   await pane.press({ key: 'commit-c10' })
   expect(await pane.find({ key: 'commit-c4' })).toBeDefined()
   expect(await pane.find({ key: 'commit-c11' })).toBeDefined()
+  await pane.unmount()
+})
+
+test('a failure stays framed on top of the pane until dismissed, a success says nothing', async ($, on) => {
+  let isPushRefused = true
+  stubWorld(on, {
+    git: gitCommand => {
+      if (gitCommand === 'rev-list @{upstream}..HEAD') return { exitCode: 0, stdout: 'c2\n' }
+      if (gitCommand === 'rev-parse --abbrev-ref @{upstream}') return { exitCode: 0, stdout: 'origin/feat/tax\n' }
+      if (gitCommand === 'push') return isPushRefused ? { exitCode: 1, stdout: '', stderr: 'hint: x\n! [rejected] feat/tax (fetch first)' } : { exitCode: 0, stdout: '' }
+      return undefined
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-commits' })
+  await pane.press({ key: 'push-branch' })
+  await pane.press({ key: 'push-branch' })
+  const notice = await pane.find({ type: 'Text', text: /Push failed: ! \[rejected\]/ })
+  expect(notice).toBeDefined()
+  const noticeKey = await keyStartingWith(pane, 'Button', 'dismiss-error-')
+  expect((await pane.find({ key: noticeKey.replace('dismiss-error-', 'error-notice-') }))?.props.borderColor).toBe('#ff8f8f')
+
+  await pane.press({ key: noticeKey })
+  expect(await pane.find({ type: 'Text', text: /Push failed/ })).toBeUndefined()
+
+  isPushRefused = false
+  await pane.press({ key: 'push-branch' })
+  await pane.press({ key: 'push-branch' })
+  expect(await keyStartingWith(pane, 'Button', 'dismiss-error-')).toBe('')
   await pane.unmount()
 })

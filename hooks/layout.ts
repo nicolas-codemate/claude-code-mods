@@ -17,15 +17,18 @@ export function clampOffset(offset: number, itemCount: number, visibleCount: num
   return Math.max(0, Math.min(offset, itemCount - visibleCount))
 }
 
-// The diff's first shown row, and how many of its drawn lines are already above the top: a thread taller than the
-// panel is read a few lines at a time instead of leaving at once with its row.
+// The diff's first shown row, and how many of its drawn lines are already above the top: a wrapped line or a thread
+// taller than the panel is read a few lines at a time instead of leaving at once with its row.
 export type DiffScrollPosition = { rowIndex: number; skippedLines: number }
 
-// Scrolls until the last line of the last row is on top, as the rows do when a thread or a question is in the file.
-export function scrolledByLines(position: DiffScrollPosition, linesToMove: number, rowHeights: readonly number[]): DiffScrollPosition {
-  const totalLines = rowHeights.reduce((total, height) => total + height, 0)
+export function scrolledByLines(
+  position: DiffScrollPosition,
+  linesToMove: number,
+  rowHeights: readonly number[],
+  lastTopLine: number,
+): DiffScrollPosition {
   const linesAbove = rowHeights.slice(0, position.rowIndex).reduce((total, height) => total + height, 0)
-  let remainingLines = Math.max(0, Math.min(linesAbove + position.skippedLines + linesToMove, totalLines - 1))
+  let remainingLines = Math.max(0, Math.min(linesAbove + position.skippedLines + linesToMove, lastTopLine))
   for (const [rowIndex, height] of rowHeights.entries()) {
     if (remainingLines < height) {
       return { rowIndex, skippedLines: remainingLines }
@@ -60,6 +63,7 @@ export type GeometryInput = {
   bodyColumns: number
   view: ReviewView
   hasLoadError: boolean
+  errorNoticeCount: number
   hasPullRequestLine: boolean
   commitLineCount: number
   selectedCommitLineIndex: number
@@ -73,6 +77,8 @@ export type GeometryInput = {
   scrolledRowCount: number
   // A thread or a question under the last rows would stay cut off: the diff then scrolls until its last row is on top.
   isScrollingPastEnd: boolean
+  // The diff of a file scrolls by drawn lines and clamps itself, its long lines wrapping on several.
+  isScrollingByLines: boolean
   requestedDiffOffset: number
   // The row of line shortcuts under a file's diff.
   hasLineShortcuts: boolean
@@ -106,6 +112,8 @@ const NAVIGATION_HINT_ROWS = 2
 const FILTER_ROWS = 1
 const MIN_PANELS_HEIGHT = 8
 const FILE_BAR_ROWS = 1
+// One line of text in a frame.
+const ERROR_NOTICE_ROWS = 3
 
 // The pane is drawn to exactly its height so the engine never scrolls it; each panel scrolls on its own instead.
 export function computePaneGeometry(input: GeometryInput): PaneGeometry {
@@ -123,6 +131,7 @@ export function computePaneGeometry(input: GeometryInput): PaneGeometry {
     (input.hasPullRequestLine ? 1 : 0) +
     HEADER_BOTTOM_PADDING_ROWS +
     (input.hasLoadError ? 1 : 0) +
+    input.errorNoticeCount * ERROR_NOTICE_ROWS +
     commitPanelRows
   const panelsHeight = Math.max(MIN_PANELS_HEIGHT, input.bodyRows - panelsTop)
 
@@ -152,6 +161,6 @@ export function computePaneGeometry(input: GeometryInput): PaneGeometry {
     fileListOffset: clampOffset(input.requestedFileListOffset, input.fileLineCount, visibleFileLines),
     diffBoxHeight,
     visibleDiffRows,
-    diffOffset: clampOffset(input.requestedDiffOffset, input.scrolledRowCount, input.isScrollingPastEnd ? 1 : visibleDiffRows),
+    diffOffset: clampOffset(input.requestedDiffOffset, input.scrolledRowCount, input.isScrollingPastEnd || input.isScrollingByLines ? 1 : visibleDiffRows),
   }
 }

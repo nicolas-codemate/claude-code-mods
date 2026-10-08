@@ -77,6 +77,7 @@ declare module 'claude-code' {
       unpushedCommitShas: string[]
       pushState: 'idle' | 'armed' | 'pushing'
       commitListOffset: number | null
+      errorNotices: Array<{ id: string; text: string }>
       commits: CommitSummary[]
       commitGraph: CommitGraphLine[]
       selectedCommitSha: string | null
