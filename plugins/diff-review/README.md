@@ -103,7 +103,7 @@ Select a variable name or any text with the mouse and press `8`, or the header's
 searched for it. A bar opens under the header, over the file list and the code alike, every occurrence is lit, and each
 file shows how many it holds (`🔍 3`). The bar's `↑` and `↓` (or `6` and `7`) walk them back and forth, from file to
 file, its field changes the term, and `🧹 clear` ends the search. The counts follow Claude's edits. Where the selection
-cannot be read (the Desktop app, fullscreen off), the bar opens empty, to type the term in. A line holding the term is
+cannot be read (fullscreen off), the bar opens empty, to type the term in. A line holding the term is
 drawn without its syntax colors, so that the term itself can be lit.
 
 ## Keyboard too
@@ -128,7 +128,8 @@ commits view. A failure shows in a red frame on top of the pane until you dismis
 
 ## Requirements
 
-- Claude Code with mods support (tested with 2.1.294), in the terminal.
+- Claude Code with mods support (tested with 2.1.294), in the terminal. The Desktop app, VS Code and mobile show a
+  notice instead of the pane.
 - `git`; the GitHub CLI `gh` for the pull request features; `xdg-open` (Linux) or `open` (macOS) to open GitHub pages.
 
 ## Development

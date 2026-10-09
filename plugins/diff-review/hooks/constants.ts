@@ -16,7 +16,7 @@ export const MIN_DIFF_WIDTH = 40
 // Each half of the side-by-side view needs about as much room as the narrowest unified diff.
 export const SPLIT_VIEW_MIN_DIFF_WIDTH = 140
 export const COMMIT_PANEL_MAX_LINES = 8
-// What the header holds besides the Desktop's tiles: the view tabs, the buttons and a little of the location.
+// What the header holds besides its tiles: the view tabs, the buttons and a little of the location.
 export const HEADER_COLUMNS_WITHOUT_TILES = 142
 export const WHEEL_TICK_ROWS = 3
 export const ANSWER_PULSE_MS = 600

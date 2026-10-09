@@ -31,8 +31,7 @@ export type Theme = {
   gitHubThreadBackground: string | undefined
   watched: string
   watchedMatchBackground: string
-  // The fill of the drawings the Desktop shows: kept when the backgrounds go back to the terminal, since a drawing
-  // brings its own text colors and needs its own surface under them.
+  // Kept when the backgrounds go back to the terminal: the file drawer opens over the diff and needs its own surface.
   tileFill: string
 }
 
