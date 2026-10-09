@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { buildPullRequestOverview, countLinesToView, countViewedFiles, parsePullRequest, parseViewedStatesPage } from './github-review'
+import { buildPullRequestOverview, countLinesToView, countViewedFiles, dismissChangedFiles, parsePullRequest, parseViewedStatesPage } from './github-review'
 import { isListItemBlock, parseEmojiCharacters, replaceEmojiShortcodes, splitListItemIndentation, splitMarkdownBlocks } from './markdown'
 
 test('a page of PR files gives each path its viewed state and the cursor of the next page', async () => {
@@ -83,4 +83,13 @@ test('the lines to view add up the PR files not viewed, a file changed since it 
   const viewedStateByPath = { viewed: 'VIEWED', unviewed: 'UNVIEWED', dismissed: 'DISMISSED', binary: 'UNVIEWED' } as const
 
   expect(countLinesToView(files, viewedStateByPath)).toEqual({ addedLines: 7, removedLines: 2 })
+})
+
+test('a change unticks only the viewed files it touches', async () => {
+  expect(dismissChangedFiles({ a: 'VIEWED', b: 'UNVIEWED', c: 'DISMISSED', d: 'VIEWED' }, ['a', 'b', 'c', 'local-only'])).toEqual({
+    a: 'DISMISSED',
+    b: 'UNVIEWED',
+    c: 'DISMISSED',
+    d: 'VIEWED',
+  })
 })
