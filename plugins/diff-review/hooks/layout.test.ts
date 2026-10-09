@@ -16,6 +16,7 @@ const GEOMETRY: GeometryInput = {
   fileLineCount: 10,
   hasStageActions: true,
   hasNoiseNotice: false,
+  hasWatchBar: false,
   requestedFileListWidth: 50,
   requestedFileListOffset: 0,
   scrolledRowCount: 100,
@@ -35,6 +36,12 @@ test('a wide pane puts the list beside the diff, both as tall as the space under
   expect(geometry.visibleFileLines).toBe(35 - 7)
   expect(geometry.diffBoxHeight).toBe(35)
   expect(geometry.visibleDiffRows).toBe(32)
+})
+
+test('the search bar takes its framed rows above the panels', async () => {
+  const geometry = computePaneGeometry({ ...GEOMETRY, hasWatchBar: true })
+  expect(geometry.panelsTop).toBe(3 + 1 + 1 + 3)
+  expect(geometry.diffBoxHeight).toBe(32)
 })
 
 test('the line of the pull request under the tabs takes one more row above the panels', async () => {

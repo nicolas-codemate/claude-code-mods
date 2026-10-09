@@ -16,6 +16,8 @@ import type { HelpInput } from './help'
 import { renderOverview } from './overview'
 import type { OverviewInput } from './overview'
 import type { ExplorerActions, GitHubPage, ViewElements } from './types'
+import { renderWatchBar } from './watch-bar'
+import type { WatchBarInput } from './watch-bar'
 
 export type PaneInput = {
   bodyRows: number
@@ -41,6 +43,8 @@ export type PaneInput = {
   selectedCommitSha: string | null
   hotkeyOf: (action: ShortcutAction) => string | undefined
   idleShortcuts: { keymap: Keymap; claimedActions: ReadonlySet<ShortcutAction> } | null
+  // Null while nothing is watched or being typed.
+  watchBar: WatchBarInput | null
   fileList: Omit<FileListInput, 'width' | 'height' | 'isDrawer' | 'canPin'>
   overview: OverviewInput | null
   diff: DiffViewInput
@@ -88,6 +92,7 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
         hotkeyOf: input.hotkeyOf,
         actions: input.actions,
       })}
+      {input.watchBar && renderWatchBar(ui, input.watchBar, input.hotkeyOf, input.actions)}
       {input.errorNotices.map(notice => (
         <Box
           key={`error-notice-${notice.id}`}

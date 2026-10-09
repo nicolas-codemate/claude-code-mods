@@ -112,6 +112,11 @@ declare module 'claude-code' {
       branch: string | null
       markedPaths: string[]
       fileFilter: string
+      watchedTerm: string
+      isWatchFieldOpen: boolean
+      // The rows of every file of the view, read once a term is watched, so typing it searches them without git.
+      watchedSourceRowsByPath: Record<string, DiffRow[]>
+      watchedMatchCountByPath: Record<string, number>
       contextLinesByPath: Record<string, number>
       currentThreadId: string | null
       isNoiseShown: boolean

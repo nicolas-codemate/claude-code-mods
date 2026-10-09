@@ -101,7 +101,8 @@ test('on the Desktop the header shows tiles of figures and a viewed bar, fewer w
   await pane.unmount()
 
   const narrowPane = await mountDesktopPane($, { bodyColumns: 180 })
-  expect((await tilesOf(narrowPane))?.alt).toBe('Files 2, Lines 7 added, 1 removed, Viewed 1 of 2')
+  expect((await tilesOf(narrowPane))?.alt).toBe('Files 2, Lines 7 added, 1 removed')
+  expect(await narrowPane.find({ type: 'Text', text: /1\/2 files viewed on GitHub/ })).toBeDefined()
   expect(await narrowPane.find({ type: 'Text', text: /to view/ })).toBeDefined()
   await narrowPane.unmount()
 

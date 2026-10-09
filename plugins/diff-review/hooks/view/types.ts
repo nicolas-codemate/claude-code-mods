@@ -68,6 +68,11 @@ export type ExplorerActions = {
   markViewedAndNext: () => Promise<void>
   focusFileFilter: () => Promise<void>
   submitFileFilter: (filter: string) => Promise<void>
+  watchSelection: () => Promise<void>
+  updateWatchedTerm: (term: string) => Promise<void>
+  submitWatchedTerm: (term: string) => Promise<void>
+  clearWatchedTerm: () => Promise<void>
+  moveToWatchedMatch: (direction: 1 | -1) => Promise<void>
 }
 
 // Where the thread the keyboard last went to stands among the threads of what is on screen.

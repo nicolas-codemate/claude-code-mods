@@ -17,6 +17,7 @@ import {
   DISMISS_THREAD_KEY_PREFIX,
   DIVIDER_KEY,
   FILE_FILTER_KEY,
+  WATCH_FIELD_KEY,
   EMOJI_CACHE_DURATION_MS,
   EMOJI_STORE_KEY,
   BROWSER_OPENERS,
@@ -82,6 +83,7 @@ import {
   withPreviousPathsOfRenames,
 } from './github-review'
 import { cursorAtHunk, cursorStopsOf, firstChangeStop, movedCursor, offsetShowingCursor, stopOnNewLines } from './cursor'
+import { fileWithMatchesFrom, matchCountByPathOf, matchStopFrom, rowsByPathOfViewDiff, watchedTermOf } from './watch'
 import { viewedPathsToHide, visibleFilesOf } from './file-filter'
 import { KEYBOARD_LAYOUT_SOURCES, keyboardLayoutOf } from './keyboard'
 import { keymapOf } from './keymap'
@@ -162,6 +164,10 @@ const focusedElementKeyAtom = atom({ plugin: 'diff-review', key: 'focusedElement
 
 // The file list's filter, and whether lockfiles and generated files are listed.
 const fileFilterAtom = atom({ plugin: 'diff-review', key: 'fileFilter' } as const, '')
+const watchedTermAtom = atom({ plugin: 'diff-review', key: 'watchedTerm' } as const, '')
+const isWatchFieldOpenAtom = atom({ plugin: 'diff-review', key: 'isWatchFieldOpen' } as const, false)
+const watchedSourceRowsByPathAtom = atom({ plugin: 'diff-review', key: 'watchedSourceRowsByPath' } as const, {})
+const watchedMatchCountByPathAtom = atom({ plugin: 'diff-review', key: 'watchedMatchCountByPath' } as const, {})
 const contextLinesByPathAtom = atom({ plugin: 'diff-review', key: 'contextLinesByPath' } as const, {})
 const isNoiseShownAtom = atom({ plugin: 'diff-review', key: 'isNoiseShown' } as const, false)
 const isViewedHiddenAtom = atom({ plugin: 'diff-review', key: 'isViewedHidden' } as const, false)
@@ -497,10 +503,7 @@ async function placeCursorOnChangesSinceViewed($: EngineInterface, path: string)
   if (target === null) {
     return false
   }
-  const drawnIndex = splitRows ? splitIndexOfRow(splitRows, target) : target
-  await update($, cursorRowIndexAtom, () => target)
-  await update($, diffOffsetAtom, offset => offsetShowingCursor(drawnIndex, offset, lastDrawnLayout.visibleDiffRows))
-  focusAfterNextDrawing($, CURSOR_LINE_FOCUS_KEY)
+  await placeCursorOnRow($, target)
 
   return true
 }
@@ -728,6 +731,7 @@ async function loadView($: EngineInterface): Promise<void> {
     await update($, selectedFilePathAtom, () => groupFilesByDirectory(shownFiles)[0]?.files[0]?.path ?? null)
   }
   await loadSelectedFileDiff($)
+  await loadWatchedSource($)
 }
 
 // The first press arms, the second pushes; the push runs on its own so the pane shows it under way and ignores presses.
@@ -1306,7 +1310,98 @@ async function readClaudeCodeTheme($: EngineInterface): Promise<void> {
   await update($, claudeCodeThemeAtom, () => (typeof themeRow?.value === 'string' ? themeRow.value : null))
 }
 
+// --- Watched term ---------------------------------------------------------------------------------------------------
+
+async function loadWatchedSource($: EngineInterface): Promise<void> {
+  if ((await read($, watchedTermAtom)) === '') {
+    await update($, watchedSourceRowsByPathAtom, () => ({}))
+    await update($, watchedMatchCountByPathAtom, () => ({}))
+    return
+  }
+  const range = diffRangeArguments(await read($, viewAtom), await read($, baseRefAtom), await read($, selectedCommitShaAtom))
+  const diff = range ? await runGit($, ['diff', '--no-color', '--no-renames', `-U${DEFAULT_DIFF_CONTEXT_LINES}`, ...range]) : null
+  const rowsByPath = diff?.isSuccess ? rowsByPathOfViewDiff(diff.output) : {}
+  for (const file of await read($, filesAtom)) {
+    if (file.isUntracked) {
+      rowsByPath[file.path] = await readUntrackedFileRows($, file.path)
+    }
+  }
+  await update($, watchedSourceRowsByPathAtom, () => rowsByPath)
+  await recountWatchedMatches($)
+}
+
+async function recountWatchedMatches($: EngineInterface): Promise<void> {
+  const term = await read($, watchedTermAtom)
+  const rowsByPath = await read($, watchedSourceRowsByPathAtom)
+  await update($, watchedMatchCountByPathAtom, () => matchCountByPathOf(rowsByPath, term))
+}
+
+async function watchTerm($: EngineInterface, term: string): Promise<void> {
+  const wasWatching = (await read($, watchedTermAtom)) !== ''
+  await update($, watchedTermAtom, () => term)
+  if (wasWatching && term !== '') {
+    await recountWatchedMatches($)
+  } else {
+    await loadWatchedSource($)
+  }
+}
+
+// The terminal hands over what the mouse selected; with nothing selected, or on a surface that does not tell, the term
+// is typed instead.
+async function watchSelection($: EngineInterface): Promise<void> {
+  const selection = await $.ui.selection().catch(() => undefined)
+  const term = watchedTermOf(selection?.text ?? '')
+  if (term === '') {
+    await update($, isWatchFieldOpenAtom, () => true)
+    focusAfterNextDrawing($, WATCH_FIELD_KEY)
+    return
+  }
+  await update($, isWatchFieldOpenAtom, () => false)
+  await watchTerm($, term)
+}
+
+async function moveToWatchedMatch($: EngineInterface, direction: 1 | -1): Promise<void> {
+  const term = await read($, watchedTermAtom)
+  if (term === '') {
+    return
+  }
+  await update($, followedThreadIdAtom, () => null)
+  const selectedFilePath = await read($, selectedFilePathAtom)
+  const isOnFile = selectedFilePath !== null && !(await read($, isOverviewShownAtom))
+  const matchStopOfShownFile = async (cursorRowIndex: number | null) => {
+    const diffRows = await read($, diffRowsAtom)
+    const splitRows = lastDrawnLayout.isSplitView ? pairRowsSideBySide(diffRows) : null
+    return matchStopFrom(diffRows, cursorStopsOf(diffRows, splitRows), cursorRowIndex, term, direction)
+  }
+  const matchInFile = isOnFile ? await matchStopOfShownFile(lastDrawnLayout.cursorRowIndex) : null
+  if (matchInFile !== null) {
+    await placeCursorOnRow($, matchInFile)
+    return
+  }
+  const shownFiles = await shownFilesOf($, await read($, filesAtom))
+  const orderedPaths = groupFilesByDirectory(shownFiles).flatMap(group => group.files.map(file => file.path))
+  const nextPath = fileWithMatchesFrom(orderedPaths, isOnFile ? selectedFilePath : null, await read($, watchedMatchCountByPathAtom), direction)
+  if (nextPath === null) {
+    return
+  }
+  await selectFile($, nextPath, 'caller')
+  const firstMatch = await matchStopOfShownFile(null)
+  if (firstMatch === null) {
+    await focusFirstChange($)
+    return
+  }
+  await placeCursorOnRow($, firstMatch)
+}
+
 // --- Line cursor ----------------------------------------------------------------------------------------------------
+
+async function placeCursorOnRow($: EngineInterface, rowIndex: number): Promise<void> {
+  const splitRows = lastDrawnLayout.isSplitView ? pairRowsSideBySide(await read($, diffRowsAtom)) : null
+  const drawnIndex = splitRows ? splitIndexOfRow(splitRows, rowIndex) : rowIndex
+  await update($, cursorRowIndexAtom, () => rowIndex)
+  await update($, diffOffsetAtom, offset => offsetShowingCursor(drawnIndex, offset, lastDrawnLayout.visibleDiffRows))
+  focusAfterNextDrawing($, CURSOR_LINE_FOCUS_KEY)
+}
 
 type CursorMove = (stops: number[], diffRows: DiffRow[]) => (cursorRowIndex: number, isInView: (rowIndex: number) => boolean) => number
 
@@ -1458,6 +1553,9 @@ async function readExplorerSnapshot($: EngineInterface): Promise<ExplorerSnapsho
     viewedStateByPath: await read($, viewedStateByPathAtom),
     markedPaths: await read($, markedPathsAtom),
     fileFilter: await read($, fileFilterAtom),
+    watchedTerm: await read($, watchedTermAtom),
+    isWatchFieldOpen: await read($, isWatchFieldOpenAtom),
+    watchedMatchCountByPath: await read($, watchedMatchCountByPathAtom),
     isWholeFileByPath: Object.fromEntries(
       Object.entries(await read($, contextLinesByPathAtom)).map(([path, lines]) => [path, lines >= WHOLE_FILE_CONTEXT_LINES]),
     ),
@@ -1575,6 +1673,18 @@ function explorerActions($: EngineInterface): ExplorerActions {
     askOnCursorLine: () => askOnCursorLine($),
     replyOnCursorLine: () => replyOnCursorLine($),
     markViewedAndNext: () => markViewedAndNext($),
+    watchSelection: () => watchSelection($),
+    updateWatchedTerm: term => watchTerm($, term),
+    submitWatchedTerm: async term => {
+      await update($, isWatchFieldOpenAtom, () => false)
+      await watchTerm($, term)
+      await moveToWatchedMatch($, 1)
+    },
+    clearWatchedTerm: async () => {
+      await update($, isWatchFieldOpenAtom, () => false)
+      await watchTerm($, '')
+    },
+    moveToWatchedMatch: direction => moveToWatchedMatch($, direction),
     focusFileFilter: async () => {
       await update($, isFileDrawerOpenAtom, () => !lastDrawnLayout.isTwoColumns)
       focusAfterNextDrawing($, FILE_FILTER_KEY)

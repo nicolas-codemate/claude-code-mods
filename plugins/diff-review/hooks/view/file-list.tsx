@@ -6,6 +6,7 @@ import { VIEWED_MARKS } from '../github-review'
 import type { FileLine } from '../layout'
 import { renderFileStats, renderLineCounts, renderShortcutHint } from './labels'
 import type { ExplorerActions, ViewElements } from './types'
+import { WATCH_MARK } from './watch-bar'
 
 const GITHUB_COMMENT_MARK = '\u{1F4AC}'
 const CLAUDE_THREAD_MARK = '◆'
@@ -16,6 +17,8 @@ export type FileListInput = {
   shownFileCount: number
   hiddenNoiseCount: number
   fileFilter: string
+  // Empty while nothing is watched.
+  watchedMatchCountByPath: Record<string, number>
   isNoiseShown: boolean
   isViewedHidden: boolean
   // A file GitHub does not list in the pull request yet most likely changed in a commit not pushed.
@@ -294,6 +297,13 @@ function renderChangedFileLine(ui: ViewElements, file: ChangedFile, input: FileL
           onPress={() => input.actions.selectFile(file.path)}
         />
       </Box>
+      {(input.watchedMatchCountByPath[file.path] ?? 0) > 0 && (
+        <Box key={`watch-count-box-${file.path}`} flexShrink={0} marginLeft={1}>
+          <Text color={ui.theme.watched}>
+            {WATCH_MARK} {input.watchedMatchCountByPath[file.path]}
+          </Text>
+        </Box>
+      )}
       {openThreadsLabel !== '' && (
         <Box key={`threads-box-${file.path}`} flexShrink={0} marginLeft={1}>
           <Button

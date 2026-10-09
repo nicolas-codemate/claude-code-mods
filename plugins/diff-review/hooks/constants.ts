@@ -17,7 +17,7 @@ export const MIN_DIFF_WIDTH = 40
 export const SPLIT_VIEW_MIN_DIFF_WIDTH = 140
 export const COMMIT_PANEL_MAX_LINES = 8
 // What the header holds besides the Desktop's tiles: the view tabs, the buttons and a little of the location.
-export const HEADER_COLUMNS_WITHOUT_TILES = 135
+export const HEADER_COLUMNS_WITHOUT_TILES = 142
 export const WHEEL_TICK_ROWS = 3
 export const ANSWER_PULSE_MS = 600
 export const CONTEXT_RADIUS_ROWS = 6
@@ -46,6 +46,9 @@ export const DISMISS_THREAD_KEY_PREFIX = 'dismiss-'
 export const CANCEL_QUESTION_KEY = 'cancel-question'
 export const DICTATE_QUESTION_KEY = 'dictate-question'
 export const FILE_FILTER_KEY = 'file-filter'
+export const WATCH_FIELD_KEY = 'watch-term'
+// The search bar frames its field, so that it reads as the place to type.
+export const WATCH_BAR_ROWS = 3
 export const DIVIDER_KEY = 'file-divider'
 export const FILE_BUTTON_KEY_PREFIX = 'file-'
 export const DIRECTORY_BUTTON_KEY_PREFIX = 'directory-'

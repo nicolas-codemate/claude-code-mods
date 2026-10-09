@@ -5,6 +5,7 @@ import type { Keymap, ShortcutAction } from '../keymap'
 import { anchorKeyOf, fileAnchorPrefixOf, parseAnchorKey, threadsOffTheDiff } from '../questions'
 import type { SplitRow, SplitSide } from '../split-rows'
 import { languageOfPath } from '../syntax-language'
+import { matchCountOf, splitByTerm } from '../watch'
 import { fileTypeBadgeOf } from './file-badges'
 import { renderFileStats, renderShortcutHint, renderThreadNavigation } from './labels'
 import { renderGitHubThread } from './github-threads'
@@ -26,6 +27,8 @@ export type DiffViewInput = {
   // The row the keyboard's line cursor is on, by its index in diffRows.
   cursorRowIndex: number | null
   hasLineShortcuts: boolean
+  // Empty while nothing is watched.
+  watchedTerm: string
   canMarkViewed: boolean
   // The keyboard went to a GitHub thread: asking then has Claude address it.
   isOnGitHubThread: boolean
@@ -206,7 +209,7 @@ function renderRow(ui: ViewElements, row: DiffRow, rowIndex: number, file: Chang
         <Box flexShrink={0} height={1}>
           <Text color={rowColorOf(ui.theme, row.kind)}> {ROW_MARKS[row.kind]} </Text>
         </Box>
-        {renderCode(ui, row, file.path)}
+        {renderCode(ui, row, file.path, input.watchedTerm)}
       </Box>
       {renderRowThreads(ui, row, rowIndex, file, input)}
     </Box>
@@ -273,7 +276,7 @@ function renderSplitSide(
       <Box flexShrink={0} height={1}>
         <Text color={rowColorOf(ui.theme, row.kind)}> {ROW_MARKS[row.kind]} </Text>
       </Box>
-      {renderCode(ui, row, file.path)}
+      {renderCode(ui, row, file.path, input.watchedTerm)}
     </Box>
   )
 }
@@ -322,12 +325,33 @@ function renderLineNumberButton(
   )
 }
 
-function renderCode(ui: ViewElements, row: DiffRow, path: string) {
+// The highlighter colors a whole line or nothing: a line holding the watched term is drawn plain, the term lit in it.
+function renderCode(ui: ViewElements, row: DiffRow, path: string, watchedTerm: string) {
   const { Box, Code, Text } = ui
+  let code
+  if (row.text.trim() === '') {
+    code = <Text> </Text>
+  } else if (matchCountOf(row.text, watchedTerm) > 0) {
+    code = (
+      <Text wrap="wrap" color={ui.theme.text}>
+        {splitByTerm(row.text, watchedTerm).map((segment, index) =>
+          segment.isMatch ? (
+            <Text key={`match-${index}`} bold color={ui.theme.heading} backgroundColor={ui.theme.watchedMatchBackground}>
+              {segment.text}
+            </Text>
+          ) : (
+            segment.text
+          ),
+        )}
+      </Text>
+    )
+  } else {
+    code = <Code source={row.text} path={path} language={row.language ?? languageOfPath(path)} wrap="wrap" />
+  }
 
   return (
     <Box flexGrow={1} flexShrink={1} minWidth={0} flexDirection="column">
-      {row.text.trim() === '' ? <Text> </Text> : <Code source={row.text} path={path} language={row.language ?? languageOfPath(path)} wrap="wrap" />}
+      {code}
     </Box>
   )
 }

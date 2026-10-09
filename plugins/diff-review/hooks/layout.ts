@@ -2,6 +2,7 @@ import type { ChangedFile, ReviewView } from '../types'
 import {
   COMMIT_PANEL_MAX_LINES,
   MIN_DIFF_WIDTH,
+  WATCH_BAR_ROWS,
   MIN_FILE_LIST_WIDTH,
   TWO_COLUMNS_MIN_WIDTH,
 } from './constants'
@@ -81,6 +82,8 @@ export type GeometryInput = {
   fileLineCount: number
   hasStageActions: boolean
   hasNoiseNotice: boolean
+  // The bar of the searched term, under the header.
+  hasWatchBar: boolean
   requestedFileListWidth: number
   requestedFileListOffset: number
   scrolledRowCount: number
@@ -140,6 +143,7 @@ export function computePaneGeometry(input: GeometryInput): PaneGeometry {
     (input.hasPullRequestLine ? 1 : 0) +
     HEADER_BOTTOM_PADDING_ROWS +
     (input.hasLoadError ? 1 : 0) +
+    (input.hasWatchBar ? WATCH_BAR_ROWS : 0) +
     input.errorNoticeCount * ERROR_NOTICE_ROWS +
     commitPanelRows
   const panelsHeight = Math.max(MIN_PANELS_HEIGHT, input.bodyRows - panelsTop)

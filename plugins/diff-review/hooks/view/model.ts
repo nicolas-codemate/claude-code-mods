@@ -16,6 +16,7 @@ import {
   REPLY_INPUT_KEY_PREFIX,
   SPLIT_VIEW_MIN_DIFF_WIDTH,
   TWO_COLUMNS_MIN_WIDTH,
+  WATCH_FIELD_KEY,
 } from '../constants'
 import { viewedPathsToHide, visibleFilesOf } from '../file-filter'
 import { cursorStopsOf, firstChangeStop } from '../cursor'
@@ -64,6 +65,9 @@ export type ExplorerSnapshot = {
   viewedStateByPath: Record<string, ViewedState>
   markedPaths: string[]
   fileFilter: string
+  watchedTerm: string
+  isWatchFieldOpen: boolean
+  watchedMatchCountByPath: Record<string, number>
   isWholeFileByPath: Record<string, boolean>
   isNoiseShown: boolean
   isViewedHidden: boolean
@@ -123,7 +127,9 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
   const isTyping =
     focusedElementKey.startsWith(QUESTION_INPUT_KEY_PREFIX) ||
     focusedElementKey.startsWith(REPLY_INPUT_KEY_PREFIX) ||
-    focusedElementKey === FILE_FILTER_KEY
+    focusedElementKey === FILE_FILTER_KEY ||
+    focusedElementKey === WATCH_FIELD_KEY
+  const isWatchBarShown = snapshot.watchedTerm !== '' || snapshot.isWatchFieldOpen
   // Each shortcut a drawn button carries is noted, so the ones left over get a stand-in (see renderIdleShortcuts).
   const claimedActions = new Set<ShortcutAction>(['previousFile', 'nextFile', 'previousView', 'nextView'])
   const hotkeyOf = (action: ShortcutAction) => {
@@ -211,6 +217,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     fileLineCount: fileLines.length,
     hasStageActions,
     hasNoiseNotice: shown.hiddenNoiseCount > 0 || snapshot.isNoiseShown,
+    hasWatchBar: isWatchBarShown,
     requestedFileListWidth: snapshot.fileListWidth,
     requestedFileListOffset: snapshot.fileListOffset,
     scrolledRowCount,
@@ -289,6 +296,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     pullRequest,
     viewedCount,
     linesToView,
+    watchBar: isWatchBarShown ? { term: snapshot.watchedTerm, matchCountByPath: snapshot.watchedMatchCountByPath } : null,
     headerTiles: headerTilesOf(files, pullRequest, viewedCount, linesToView, gitHubThreads),
     commitGraph: snapshot.commitGraph,
     commitCount: snapshot.commits.length,
@@ -306,6 +314,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
       shownFileCount: shown.files.length,
       hiddenNoiseCount: shown.hiddenNoiseCount,
       fileFilter: snapshot.fileFilter,
+      watchedMatchCountByPath: snapshot.watchedMatchCountByPath,
       isNoiseShown: snapshot.isNoiseShown,
       isViewedHidden,
       hasUnpushedCommits: snapshot.unpushedCommitShas.length > 0,
@@ -350,6 +359,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
       cursorRowIndex,
       hasLineShortcuts,
       isOnGitHubThread: threadNavigation.currentGitHubThread !== null,
+      watchedTerm: snapshot.watchedTerm,
       canMarkViewed: selectedFilePath !== null && viewedStateByPath[selectedFilePath] !== undefined,
       keymap: snapshot.keymap,
       isWholeFile: selectedFilePath !== null && snapshot.isWholeFileByPath[selectedFilePath] === true,
