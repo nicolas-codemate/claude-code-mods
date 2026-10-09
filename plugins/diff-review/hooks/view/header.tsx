@@ -10,7 +10,8 @@ export function renderHeader(
   input: {
     view: ReviewView
     location: string
-    hasUncommittedChanges: boolean
+    uncommittedFileCount: number
+    branchCommitCount: number
     unpushedCommitCount: number
     pullRequest: PullRequestSummary | null
     viewedCount: { viewed: number; total: number }
@@ -36,10 +37,10 @@ export function renderHeader(
           return renderPill(ui, {
             key: `view-${view}`,
             hotkey: input.hotkeyOf(VIEW_SHORTCUTS[view]),
-            text: viewTabTextOf(view, input.unpushedCommitCount),
+            text: viewTabTextOf(view, input),
             isActive,
             isDim: !isActive,
-            isEmpty: view === 'uncommitted' && !input.hasUncommittedChanges,
+            isEmpty: view === 'uncommitted' && input.uncommittedFileCount === 0,
             onPress: () => input.actions.switchView(view),
             marginRight: 1,
           })
@@ -128,11 +129,14 @@ type Pill = {
   marginRight?: number
 }
 
-function viewTabTextOf(view: ReviewView, unpushedCommitCount: number): string {
+function viewTabTextOf(view: ReviewView, counts: { uncommittedFileCount: number; branchCommitCount: number; unpushedCommitCount: number }): string {
   switch (view) {
-    case 'commits':
-      return unpushedCommitCount > 0 ? `${VIEW_LABELS[view]} ↑${unpushedCommitCount}` : VIEW_LABELS[view]
     case 'uncommitted':
+      return counts.uncommittedFileCount > 0 ? `${VIEW_LABELS[view]} ${counts.uncommittedFileCount}` : VIEW_LABELS[view]
+    case 'commits': {
+      const unpushedMark = counts.unpushedCommitCount > 0 ? ` ↑${counts.unpushedCommitCount}` : ''
+      return counts.branchCommitCount > 0 ? `${VIEW_LABELS[view]} ${counts.branchCommitCount}${unpushedMark}` : `${VIEW_LABELS[view]}${unpushedMark}`
+    }
     case 'pr':
       return VIEW_LABELS[view]
   }

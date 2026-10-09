@@ -125,6 +125,16 @@ export function changedNewLinesOf(zeroContextDiffOutput: string): number[] {
   })
 }
 
+// Opening on what is still to be done: the uncommitted changes, else the branch's pull request; on a branch with
+// neither, the uncommitted view says there is nothing.
+export function openingViewOf(uncommittedFileCount: number, branchCommitCount: number): ReviewView {
+  if (uncommittedFileCount === 0 && branchCommitCount > 0) {
+    return 'pr'
+  }
+
+  return 'uncommitted'
+}
+
 export function diffRangeArguments(view: ReviewView, baseRef: string | null, commitSha: string | null): string[] | null {
   if (view === 'uncommitted') {
     return ['HEAD']

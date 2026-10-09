@@ -203,7 +203,7 @@ test('the header buttons are pills: no border or padding around the label a clic
 test('an empty Uncommitted tab loses its fill, and the commits the remote lacks are counted on the Commits tab and marked', async ($, on) => {
   stubWorld(on, {
     git: gitCommand => {
-      if (gitCommand === 'status --porcelain') return { exitCode: 0, stdout: '' }
+      if (gitCommand === 'status --porcelain --untracked-files=all') return { exitCode: 0, stdout: '' }
       if (gitCommand === 'rev-list @{upstream}..HEAD') return { exitCode: 0, stdout: 'c2\n' }
       return undefined
     },
@@ -212,7 +212,8 @@ test('an empty Uncommitted tab loses its fill, and the commits the remote lacks 
   const pane = await mountPane($)
   await pane.press({ key: 'view-commits' })
   expect((await pane.find({ key: 'view-uncommitted-box' }))?.props.backgroundColor).toBeUndefined()
-  expect((await pane.find({ key: 'view-commits' }))?.text).toBe('Commits ↑1 ')
+  expect((await pane.find({ key: 'view-uncommitted' }))?.text).toBe('Uncommitted ')
+  expect((await pane.find({ key: 'view-commits' }))?.text).toBe('Commits 2 ↑1 ')
   expect(await pane.findAll({ type: 'Text', text: /↑ not pushed/ })).toHaveLength(1)
   await pane.unmount()
 })
@@ -245,7 +246,7 @@ test('the push button pushes on a second press only, plainly, and forgets the fi
   await pane.press({ key: 'push-branch' })
   expect(pushCommands).toEqual(['push'])
   expect(await pane.find({ key: 'push-branch' })).toBeUndefined()
-  expect((await pane.find({ key: 'view-commits' }))?.text).toBe('Commits ')
+  expect((await pane.find({ key: 'view-commits' }))?.text).toBe('Commits 2 ')
   await pane.unmount()
 })
 
@@ -352,4 +353,54 @@ test('a Claude Code theme changed during the session reaches the pane at its nex
   claudeCodeTheme = 'light'
   await reopenExplorer($)
   expect(await paneBackground()).not.toBe(darkBackground)
+})
+
+test('the pane opens on the uncommitted changes, else on the pull request, and on the uncommitted view when the branch holds nothing', async ($, on) => {
+  let uncommittedStatus = ' M src/Total.php\n'
+  let branchCommitCount = '2\n'
+  stubWorld(on, {
+    git: gitCommand => {
+      if (gitCommand === 'status --porcelain --untracked-files=all') return { exitCode: 0, stdout: uncommittedStatus }
+      if (gitCommand === 'rev-list --count base000..HEAD') return { exitCode: 0, stdout: branchCommitCount }
+      return undefined
+    },
+  })
+  const activeViewOf = async (pane: Awaited<ReturnType<typeof mountPane>>) =>
+    (await pane.findAll({ type: 'Box' })).find(box => box.key?.startsWith('view-') && box.props.backgroundColor === '#2b4a6e')?.key
+
+  await openExplorer($)
+  let pane = await mountPane($)
+  expect(await activeViewOf(pane)).toBe('view-uncommitted-box')
+  expect((await pane.find({ key: 'view-uncommitted' }))?.text).toBe('Uncommitted 1 ')
+  await pane.unmount()
+
+  uncommittedStatus = ''
+  await reopenExplorer($)
+  pane = await mountPane($)
+  expect(await activeViewOf(pane)).toBe('view-pr-box')
+  await pane.unmount()
+
+  branchCommitCount = '0\n'
+  await reopenExplorer($)
+  pane = await mountPane($)
+  expect(await activeViewOf(pane)).toBe('view-uncommitted-box')
+  expect((await pane.find({ key: 'view-commits' }))?.text).toBe('Commits ')
+  await pane.unmount()
+})
+
+test('the tabs count again after an edit of Claude, without a refresh', async ($, on) => {
+  let uncommittedStatus = ' M src/Total.php\n'
+  stubWorld(on, {
+    git: gitCommand => (gitCommand === 'status --porcelain --untracked-files=all' ? { exitCode: 0, stdout: uncommittedStatus } : undefined),
+  })
+  on('ui.panes', async () => ({ value: [{ id: 'diff-review' }] }) as never)
+  on('tool.call', async () => ({ result: { content: '' } }) as never)
+  await openExplorer($)
+  const pane = await mountPane($)
+  expect((await pane.find({ key: 'view-uncommitted' }))?.text).toBe('Uncommitted 1 ')
+
+  uncommittedStatus = ' M src/Total.php\n?? src/Discount.php\n?? src/Coupon.php\n'
+  await $.tool.call({ tool: 'Edit', input: {} } as never)
+  expect((await pane.find({ key: 'view-uncommitted' }))?.text).toBe('Uncommitted 3 ')
+  await pane.unmount()
 })

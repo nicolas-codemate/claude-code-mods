@@ -41,7 +41,8 @@ export type ExplorerSnapshot = {
   branch: string | null
   baseRef: string | null
   baseBranchName: string | null
-  hasUncommittedChanges: boolean
+  uncommittedFileCount: number
+  branchCommitCount: number
   unpushedCommitShas: string[]
   pushState: PushState
   commitListOffset: number | null
@@ -278,7 +279,8 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     geometry,
     view,
     location,
-    hasUncommittedChanges: snapshot.hasUncommittedChanges,
+    uncommittedFileCount: snapshot.uncommittedFileCount,
+    branchCommitCount: snapshot.branchCommitCount,
     unpushedCommitShas: snapshot.unpushedCommitShas,
     pushState: snapshot.pushState,
     help: snapshot.isHelpShown ? { keymap: snapshot.keymap, scrolledLines: snapshot.helpScrolledLines } : null,
