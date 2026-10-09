@@ -31,8 +31,11 @@ export type ShortcutAction =
   | 'stageMarkedFiles'
   | 'stageAllChanges'
   | 'toggleHelp'
+  | 'watchSelection'
+  | 'nextWatchedMatch'
+  | 'previousWatchedMatch'
 
-export type ShortcutGroup = 'Views' | 'Files' | 'Lines' | 'Threads' | 'git add' | 'Other'
+export type ShortcutGroup = 'Views' | 'Files' | 'Lines' | 'Watch' | 'Threads' | 'git add' | 'Other'
 
 type ShortcutDefinition = {
   action: ShortcutAction
@@ -69,6 +72,9 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
   { action: 'toggleSplitView', group: 'Lines', description: 'Side by side or unified (wide diff)', defaultKeys: fixed('t') },
   { action: 'askOnLine', group: 'Lines', description: 'Ask about the line (Enter too), address a GitHub thread', defaultKeys: fixed('c') },
   { action: 'replyOnLine', group: 'Lines', description: 'Reply in the thread of the line', defaultKeys: fixed('r') },
+  { action: 'watchSelection', group: 'Watch', description: 'Search all changes for the text selected with the mouse, or type it', defaultKeys: fixed('8') },
+  { action: 'nextWatchedMatch', group: 'Watch', description: 'Next occurrence of the watched term, across files', defaultKeys: fixed('7') },
+  { action: 'previousWatchedMatch', group: 'Watch', description: 'Previous occurrence of the watched term', defaultKeys: fixed('6') },
   { action: 'previousThread', group: 'Threads', description: 'Previous thread', defaultKeys: fixed('p') },
   { action: 'nextThread', group: 'Threads', description: 'Next thread', defaultKeys: fixed('n') },
   { action: 'toggleThreadResolved', group: 'Threads', description: 'Resolve or unresolve the GitHub thread', defaultKeys: fixed('x') },
@@ -90,4 +96,4 @@ export function shortcutsOfGroup(group: ShortcutGroup): readonly ShortcutDefinit
   return SHORTCUTS.filter(shortcut => shortcut.group === group)
 }
 
-export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = ['Views', 'Files', 'Lines', 'Threads', 'git add', 'Other']
+export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = ['Views', 'Files', 'Lines', 'Watch', 'Threads', 'git add', 'Other']

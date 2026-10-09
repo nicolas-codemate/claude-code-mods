@@ -97,6 +97,15 @@ folded until asked.
 
 ![The diff side by side](docs/media/split-view.png)
 
+## Search all changes
+
+Select a variable name or any text with the mouse and press `8`, or the header's 🔍 button: every change of the view is
+searched for it. A bar opens under the header, over the file list and the code alike, every occurrence is lit, and each
+file shows how many it holds (`🔍 3`). The bar's `↑` and `↓` (or `6` and `7`) walk them back and forth, from file to
+file, its field changes the term, and `🧹 clear` ends the search. The counts follow Claude's edits. Where the selection
+cannot be read (the Desktop app, fullscreen off), the bar opens empty, to type the term in. A line holding the term is
+drawn without its syntax colors, so that the term itself can be lit.
+
 ## Keyboard too
 
 Everything works with the mouse. Every action also has a key; the help button of the pane lists them all.

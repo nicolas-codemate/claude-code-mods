@@ -4,6 +4,7 @@ import type { ShortcutAction } from '../keymap'
 import { DESKTOP_PIXELS_PER_COLUMN, HEADER_TILES_PIXELS, LINES_TO_VIEW_TILE_LABEL, headerTilesSvg, headerTilesWidthOf, progressBarCells } from './drawings'
 import type { HeaderTile } from './drawings'
 import type { ExplorerActions, GitHubPage, ViewElements } from './types'
+import { WATCH_MARK } from './watch-bar'
 
 export function renderHeader(
   ui: ViewElements,
@@ -67,6 +68,7 @@ export function renderHeader(
             // The pull request's own page already has its link under the tabs, PR #n; the key still opens it.
             isHidden: gitHubPage.url === pullRequest?.url,
           })}
+        {renderPill(ui, { key: 'watch-selection', hotkey: input.hotkeyOf('watchSelection'), text: WATCH_MARK, onPress: () => input.actions.watchSelection(), marginLeft: 1 })}
         {renderPill(ui, { key: 'help', hotkey: input.hotkeyOf('toggleHelp'), text: 'help', onPress: () => input.actions.toggleHelp(), marginLeft: 1 })}
         {renderPill(ui, { key: 'refresh', text: 'refresh', onPress: () => input.actions.refresh(), marginLeft: 1 })}
         {renderPill(ui, { key: 'close', text: 'close', onPress: () => input.actions.close(), marginLeft: 1 })}

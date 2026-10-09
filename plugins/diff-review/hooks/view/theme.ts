@@ -29,6 +29,8 @@ export type Theme = {
   gitHubThread: string
   gitHubThreadBorder: string
   gitHubThreadBackground: string | undefined
+  watched: string
+  watchedMatchBackground: string
   // The fill of the drawings the Desktop shows: kept when the backgrounds go back to the terminal, since a drawing
   // brings its own text colors and needs its own surface under them.
   tileFill: string
@@ -60,6 +62,8 @@ const DARK_THEME: Theme = {
   gitHubThread: '#b392f0',
   gitHubThreadBorder: '#3d3160',
   gitHubThreadBackground: '#1a1626',
+  watched: '#e3b341',
+  watchedMatchBackground: '#5c4813',
   tileFill: '#1c2029',
 }
 
@@ -89,6 +93,8 @@ const LIGHT_THEME: Theme = {
   gitHubThread: '#7038c7',
   gitHubThreadBorder: '#cdb6f2',
   gitHubThreadBackground: '#f6f1fd',
+  watched: '#8a5a00',
+  watchedMatchBackground: '#fde58a',
   tileFill: '#f0efe9',
 }
 
