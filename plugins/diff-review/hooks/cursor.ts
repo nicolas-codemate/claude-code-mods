@@ -18,6 +18,21 @@ export function firstChangeStop(diffRows: DiffRow[], stops: number[]): number | 
   return stops.find(rowIndex => diffRows[rowIndex]?.kind !== 'context') ?? stops[0] ?? null
 }
 
+// The first stop on one of these lines of the new file, else the first one below the earliest of them.
+export function stopOnNewLines(diffRows: DiffRow[], stops: number[], newLines: number[]): number | null {
+  if (newLines.length === 0) {
+    return null
+  }
+  const earliestLine = Math.min(...newLines)
+  const newNumberOf = (rowIndex: number) => diffRows[rowIndex]?.newNumber ?? null
+
+  return (
+    stops.find(rowIndex => newLines.includes(newNumberOf(rowIndex) ?? 0)) ??
+    stops.find(rowIndex => (newNumberOf(rowIndex) ?? 0) >= earliestLine) ??
+    null
+  )
+}
+
 export function movedCursor(stops: number[], cursorRowIndex: number, offset: number): number {
   const currentStop = stops.indexOf(cursorRowIndex)
   if (currentStop === -1) {

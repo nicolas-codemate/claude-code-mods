@@ -546,6 +546,50 @@ test('a viewed file a push changes comes back among the unviewed ones, before Gi
   await pane.unmount()
 })
 
+test('a file changed since it was ticked in the pane opens on what changed since, one ticked elsewhere on its first change', async ($, on) => {
+  let totalViewedState = 'UNVIEWED'
+  stubWorld(on, {
+    withStore: true,
+    withFocus: true,
+    git: gitCommand => {
+      if (gitCommand === 'rev-parse HEAD') return { exitCode: 0, stdout: 'head1\n' }
+      if (gitCommand === 'diff --no-color --no-renames -U0 head1 HEAD -- src/Total.php') return { exitCode: 0, stdout: '@@ -2,0 +3 @@\n+$tax = 0.2;\n' }
+      return undefined
+    },
+    gh: ghCommand => {
+      if (ghCommand.startsWith('pr view')) {
+        return { exitCode: 0, stdout: JSON.stringify(PULL_REQUEST) }
+      }
+      if (ghCommand.includes('markFileAsViewed')) {
+        return { exitCode: 0, stdout: '{}' }
+      }
+      const files = {
+        nodes: [
+          { path: 'src/Tax.php', viewerViewedState: 'DISMISSED' },
+          { path: 'src/Total.php', viewerViewedState: totalViewedState },
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }
+      return { exitCode: 0, stdout: JSON.stringify({ data: { node: { files } } }) }
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  const cursorRowKey = async () =>
+    (await pane.findAll({ type: 'Box' })).find(box => box.key?.startsWith('row-') && box.children.length > 0 && JSON.stringify(box).includes('#1d2a3c'))?.key
+  await pane.press({ key: 'view-pr' })
+  await pane.press({ key: 'viewed-src/Total.php' })
+  totalViewedState = 'DISMISSED'
+  await pane.press({ key: 'refresh' })
+
+  await pane.press({ key: 'file-src/Total.php' })
+  expect(await cursorRowKey()).toBe('row-4')
+
+  await pane.press({ key: 'file-src/Tax.php' })
+  expect(await cursorRowKey()).toBe('row-2')
+  await pane.unmount()
+})
+
 test('a file GitHub does not list yet shows the not-pushed mark while commits wait to be pushed', async ($, on) => {
   stubWorld(on, {
     git: gitCommand => (gitCommand === 'rev-list @{upstream}..HEAD' ? { exitCode: 0, stdout: 'c2\n' } : undefined),

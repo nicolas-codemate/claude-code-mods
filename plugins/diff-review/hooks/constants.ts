@@ -79,5 +79,6 @@ export const SPLIT_VIEW_STORE_KEY = 'isSplitViewPreferred'
 export const FILE_LIST_COLLAPSED_STORE_KEY = 'isFileListCollapsed'
 export const THREADS_STORE_KEY_PREFIX = 'threads'
 export const MAX_SAVED_THREADS_PER_BRANCH = 100
+export const VIEWED_COMMITS_STORE_KEY_PREFIX = 'viewedCommits'
 export const EMOJI_STORE_KEY = 'githubEmojiCharacters'
 export const EMOJI_CACHE_DURATION_MS = 7 * 24 * 3600 * 1000

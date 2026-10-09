@@ -79,6 +79,8 @@ you can reply to. Nothing is posted on GitHub: resolving the comment and pushing
 - The "viewed" box of GitHub on each file, ticked from the file list.
 - `○ unviewed` hides the files already viewed; a file you just marked stays a moment before it goes.
 - A file GitHub does not list yet, because it changed in a commit not pushed, shows `↑` instead of a box.
+- A file changed since you ticked it shows `!` and comes back under `○ unviewed`. Ticked from the pane, it opens on
+  the first line changed since.
 - The header sums the view up in tiles: files, lines, a viewed bar, the lines still to view and the open threads. The
   lines still to view go down with each file ticked.
 
