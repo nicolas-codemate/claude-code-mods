@@ -91,17 +91,18 @@ test('on the Desktop the header shows tiles of figures and a viewed bar, fewer w
   const pane = await mountDesktopPane($)
   const tilesOf = async (mounted: Mounted<'desktop', 'Pane'>) => (await drawingsOf(mounted)).find(drawing => drawing.alt.startsWith('Files'))
 
-  expect((await tilesOf(pane))?.alt).toBe('Files 2, 2 lines added, 1 removed')
+  expect((await tilesOf(pane))?.alt).toBe('Files 2, Lines 2 added, 1 removed')
   await pane.press({ key: 'view-pr' })
   const pullRequestTiles = await tilesOf(pane)
-  expect(pullRequestTiles?.alt).toBe('Files 2, 7 lines added, 1 removed, Viewed 1 of 2, Open threads 1')
+  expect(pullRequestTiles?.alt).toBe('Files 2, Lines 7 added, 1 removed, Viewed 1 of 2, To view 2 added, 1 removed')
   expect(pullRequestTiles?.source).toMatch(/>1\/2</)
   expect(await pane.find({ type: 'Text', text: /1\/2 files viewed on GitHub/ })).toBeUndefined()
   expect(await pane.find({ type: 'Text', text: /PR #42/ })).toBeDefined()
   await pane.unmount()
 
   const narrowPane = await mountDesktopPane($, { bodyColumns: 180 })
-  expect((await tilesOf(narrowPane))?.alt).toBe('Files 2, 7 lines added, 1 removed, Viewed 1 of 2')
+  expect((await tilesOf(narrowPane))?.alt).toBe('Files 2, Lines 7 added, 1 removed, Viewed 1 of 2')
+  expect(await narrowPane.find({ type: 'Text', text: /to view/ })).toBeDefined()
   await narrowPane.unmount()
 
   const narrowestPane = await mountDesktopPane($, { bodyColumns: 140 })
@@ -121,7 +122,7 @@ test('in the terminal the header shows its figures in framed tiles, the viewed c
   const pane = await mountPane($, { bodyColumns: 220 })
   await pane.press({ key: 'view-pr' })
   const tileKeys = (await pane.findAll({ type: 'Box' })).map(box => box.key ?? '').filter(key => key.startsWith('tile-'))
-  expect(tileKeys).toEqual(['tile-Files', 'tile-Lines', 'tile-Viewed', 'tile-Open threads'])
+  expect(tileKeys).toEqual(['tile-Files', 'tile-Lines', 'tile-Viewed', 'tile-To view'])
   expect(await pane.find({ type: 'Text', text: '████' })).toBeDefined()
   expect(await pane.find({ type: 'Text', text: /1\/2 files viewed on GitHub/ })).toBeUndefined()
   await pane.unmount()
@@ -130,4 +131,20 @@ test('in the terminal the header shows its figures in framed tiles, the viewed c
   expect((await narrowPane.findAll({ type: 'Box' })).some(box => (box.key ?? '').startsWith('tile-'))).toBe(false)
   expect(await narrowPane.find({ type: 'Text', text: /1\/2 files viewed on GitHub/ })).toBeDefined()
   await narrowPane.unmount()
+})
+
+test('the lines still to view go down as the files are ticked viewed', async ($, on) => {
+  stubWorld(on, { gh: stubPullRequest })
+  await openExplorer($)
+  const pane = await mountDesktopPane($, { bodyColumns: 240 })
+  const tilesOf = async () => (await drawingsOf(pane)).find(drawing => drawing.alt.startsWith('Files'))
+  await pane.press({ key: 'view-pr' })
+  expect((await tilesOf())?.alt).toContain('To view 2 added, 1 removed')
+
+  await pane.press({ key: 'viewed-src/Total.php' })
+  expect((await tilesOf())?.alt).toContain('Viewed 2 of 2, To view 0 added, 0 removed')
+
+  await pane.press({ key: 'viewed-src/Tax.php' })
+  expect((await tilesOf())?.alt).toContain('Viewed 1 of 2, To view 5 added, 0 removed')
+  await pane.unmount()
 })

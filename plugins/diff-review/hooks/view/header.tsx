@@ -1,7 +1,7 @@
 import type { PullRequestSummary, ReviewView } from '../../types'
 import { HEADER_COLUMNS_WITHOUT_TILES, VIEW_LABELS, VIEW_ORDER, VIEW_SHORTCUTS } from '../constants'
 import type { ShortcutAction } from '../keymap'
-import { DESKTOP_PIXELS_PER_COLUMN, HEADER_TILES_PIXELS, headerTilesSvg, headerTilesWidthOf, progressBarCells } from './drawings'
+import { DESKTOP_PIXELS_PER_COLUMN, HEADER_TILES_PIXELS, LINES_TO_VIEW_TILE_LABEL, headerTilesSvg, headerTilesWidthOf, progressBarCells } from './drawings'
 import type { HeaderTile } from './drawings'
 import type { ExplorerActions, GitHubPage, ViewElements } from './types'
 
@@ -14,6 +14,7 @@ export function renderHeader(
     unpushedCommitCount: number
     pullRequest: PullRequestSummary | null
     viewedCount: { viewed: number; total: number }
+    linesToView: { addedLines: number; removedLines: number }
     tiles: HeaderTile[]
     bodyColumns: number
     gitHubPage: GitHubPage | null
@@ -74,7 +75,10 @@ export function renderHeader(
           {input.location}
         </Text>
       </Box>
-      {pullRequest && renderPullRequestLine(ui, pullRequest, viewedCount, tiles.some(tile => tile.kind === 'progress'))}
+      {pullRequest && renderPullRequestLine(ui, pullRequest, viewedCount, input.linesToView, {
+          isViewedTileShown: tiles.some(tile => tile.kind === 'progress'),
+          isLinesToViewTileShown: tiles.some(tile => tile.kind === 'lines' && tile.label === LINES_TO_VIEW_TILE_LABEL),
+        })}
     </Box>
   )
 }
@@ -83,7 +87,8 @@ function renderPullRequestLine(
   ui: ViewElements,
   pullRequest: PullRequestSummary,
   viewedCount: { viewed: number; total: number },
-  isViewedTileShown: boolean,
+  linesToView: { addedLines: number; removedLines: number },
+  shownTiles: { isViewedTileShown: boolean; isLinesToViewTileShown: boolean },
 ) {
   const { Box, Link, Text } = ui
 
@@ -92,10 +97,17 @@ function renderPullRequestLine(
       <Text color={ui.theme.accent} bold>
         <Link href={pullRequest.url}>PR #{pullRequest.number} ↗</Link>
       </Text>
-      {!isViewedTileShown && (
+      {!shownTiles.isViewedTileShown && (
         <Text color={viewedCount.viewed === viewedCount.total ? ui.theme.added : ui.theme.muted}>
           {'  ·  '}
           {viewedCount.viewed}/{viewedCount.total} files viewed on GitHub
+        </Text>
+      )}
+      {!shownTiles.isLinesToViewTileShown && viewedCount.viewed < viewedCount.total && (
+        <Text color={ui.theme.muted}>
+          {shownTiles.isViewedTileShown ? '  ·  ' : ', '}
+          <Text color={ui.theme.added}>+{linesToView.addedLines}</Text> <Text color={ui.theme.removed}>−{linesToView.removedLines}</Text>
+          {' to view'}
         </Text>
       )}
     </Box>
@@ -238,7 +250,7 @@ function renderTerminalTile(ui: ViewElements, tile: HeaderTile) {
 
 function describeTile(tile: HeaderTile): string {
   if (tile.kind === 'lines') {
-    return `${tile.addedLines} lines added, ${tile.removedLines} removed`
+    return `${tile.label} ${tile.addedLines} added, ${tile.removedLines} removed`
   }
   if (tile.kind === 'progress') {
     return `${tile.label} ${tile.done} of ${tile.total}`
