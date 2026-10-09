@@ -110,6 +110,21 @@ export function parseUnifiedDiff(diffOutput: string): DiffRow[] {
   return rows
 }
 
+// Without context lines each hunk header says where its change sits in the new file; a hunk that only removes lines
+// gives the line just above the removal.
+export function changedNewLinesOf(zeroContextDiffOutput: string): number[] {
+  return zeroContextDiffOutput.split('\n').flatMap(line => {
+    const hunkHeader = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/)
+    if (!hunkHeader) {
+      return []
+    }
+    const start = Number(hunkHeader[1])
+    const lineCount = hunkHeader[2] === undefined ? 1 : Number(hunkHeader[2])
+
+    return lineCount === 0 ? [Math.max(1, start)] : Array.from({ length: lineCount }, (_, offset) => start + offset)
+  })
+}
+
 export function diffRangeArguments(view: ReviewView, baseRef: string | null, commitSha: string | null): string[] | null {
   if (view === 'uncommitted') {
     return ['HEAD']

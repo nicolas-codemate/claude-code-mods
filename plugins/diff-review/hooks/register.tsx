@@ -43,11 +43,13 @@ import {
   QUESTION_INPUT_KEY_PREFIX,
   REPLY_INPUT_KEY_PREFIX,
   THREADS_STORE_KEY_PREFIX,
+  VIEWED_COMMITS_STORE_KEY_PREFIX,
   VIEW_ORDER,
   WHOLE_FILE_CONTEXT_LINES,
   WHEEL_TICK_ROWS,
 } from './constants'
 import {
+  changedNewLinesOf,
   diffRangeArguments,
   directoryOf,
   groupFilesByDirectory,
@@ -78,7 +80,7 @@ import {
   VIEWED_STATES_QUERY,
   withPreviousPathsOfRenames,
 } from './github-review'
-import { cursorAtHunk, cursorStopsOf, firstChangeStop, movedCursor, offsetShowingCursor } from './cursor'
+import { cursorAtHunk, cursorStopsOf, firstChangeStop, movedCursor, offsetShowingCursor, stopOnNewLines } from './cursor'
 import { viewedPathsToHide, visibleFilesOf } from './file-filter'
 import { KEYBOARD_LAYOUT_SOURCES, keyboardLayoutOf } from './keyboard'
 import { keymapOf } from './keymap'
@@ -440,7 +442,65 @@ async function toggleViewed($: EngineInterface, path: string): Promise<void> {
   if (!mutation.isSuccess) {
     await setStateOfPathsSharingTheBox(previousState)
     await reportError($, `GitHub refused to change the viewed state of ${path}`)
+    return
   }
+  await rememberViewedCommit($, pathsSharingTheBox, isMarkingViewed)
+}
+
+async function viewedCommitsKey($: EngineInterface): Promise<string | null> {
+  const repositoryRoot = await read($, repositoryRootAtom)
+  const branch = await read($, branchAtom)
+
+  return repositoryRoot && branch ? `${VIEWED_COMMITS_STORE_KEY_PREFIX}|${repositoryRoot}|${branch}` : null
+}
+
+async function savedViewedCommitByPath($: EngineInterface, key: string): Promise<Record<string, string>> {
+  const saved = await $.store.get(key).catch(() => undefined)
+
+  return saved !== null && typeof saved === 'object' ? { ...(saved as Record<string, string>) } : {}
+}
+
+async function rememberViewedCommit($: EngineInterface, paths: string[], isViewed: boolean): Promise<void> {
+  const key = await viewedCommitsKey($)
+  const head = isViewed ? await runGit($, ['rev-parse', 'HEAD']) : null
+  if (key === null || (head !== null && !head.isSuccess)) {
+    return
+  }
+  const viewedCommitByPath = await savedViewedCommitByPath($, key)
+  for (const path of paths) {
+    if (head === null) {
+      delete viewedCommitByPath[path]
+    } else {
+      viewedCommitByPath[path] = head.output.trim()
+    }
+  }
+  await $.store.set(key, viewedCommitByPath).catch(() => undefined)
+}
+
+// A file changed since it was ticked in the pane opens on what changed since; ticked on GitHub, the pane cannot tell.
+async function placeCursorOnChangesSinceViewed($: EngineInterface, path: string): Promise<boolean> {
+  const key = await viewedCommitsKey($)
+  const isChangedSinceViewed = (await read($, viewAtom)) === 'pr' && (await read($, viewedStateByPathAtom))[path] === 'DISMISSED'
+  const viewedCommit = isChangedSinceViewed && key !== null ? (await savedViewedCommitByPath($, key))[path] : undefined
+  if (viewedCommit === undefined) {
+    return false
+  }
+  const changesSinceViewed = await runGit($, ['diff', '--no-color', '--no-renames', '-U0', viewedCommit, 'HEAD', '--', path])
+  if (!changesSinceViewed.isSuccess) {
+    return false
+  }
+  const diffRows = await read($, diffRowsAtom)
+  const splitRows = lastDrawnLayout.isSplitView ? pairRowsSideBySide(diffRows) : null
+  const target = stopOnNewLines(diffRows, cursorStopsOf(diffRows, splitRows), changedNewLinesOf(changesSinceViewed.output))
+  if (target === null) {
+    return false
+  }
+  const drawnIndex = splitRows ? splitIndexOfRow(splitRows, target) : target
+  await update($, cursorRowIndexAtom, () => target)
+  await update($, diffOffsetAtom, offset => offsetShowingCursor(drawnIndex, offset, lastDrawnLayout.visibleDiffRows))
+  focusAfterNextDrawing($, CURSOR_LINE_FOCUS_KEY)
+
+  return true
 }
 
 // Reviewing a PR file by file: once one is viewed, the next one still to view comes up, in the order of the list.
@@ -790,7 +850,7 @@ async function selectFile($: EngineInterface, path: string, focus: 'first-change
   await scrollFileListTo($, path)
   await closeQuestion($)
   await loadSelectedFileDiff($)
-  if (focus === 'first-change') {
+  if (focus === 'first-change' && !(await placeCursorOnChangesSinceViewed($, path))) {
     await focusFirstChange($)
   }
 }

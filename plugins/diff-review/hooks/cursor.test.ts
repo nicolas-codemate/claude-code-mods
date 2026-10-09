@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { DiffRow } from '../types'
-import { cursorAtHunk, cursorStopsOf, firstChangeStop, movedCursor, offsetShowingCursor } from './cursor'
+import { cursorAtHunk, cursorStopsOf, firstChangeStop, movedCursor, offsetShowingCursor, stopOnNewLines } from './cursor'
 import { pairRowsSideBySide } from './split-rows'
 
 const ROWS: DiffRow[] = [
@@ -35,4 +35,12 @@ test('the diff scrolls only when the cursor comes near an edge', async () => {
   expect(offsetShowingCursor(10, 0, 20)).toBe(0)
   expect(offsetShowingCursor(18, 0, 20)).toBe(2)
   expect(offsetShowingCursor(4, 5, 20)).toBe(1)
+})
+
+test('the cursor goes to the first stop on a given new line, else to the first one below the earliest', async () => {
+  const stops = cursorStopsOf(ROWS, null)
+  expect(stopOnNewLines(ROWS, stops, [2])).toBe(3)
+  expect(stopOnNewLines(ROWS, stops, [99, 1])).toBe(1)
+  expect(stopOnNewLines(ROWS, [1, 2], [2])).toBe(null)
+  expect(stopOnNewLines(ROWS, stops, [])).toBe(null)
 })
