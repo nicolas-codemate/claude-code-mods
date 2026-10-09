@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { fileTypeBadgeOf } from './view/file-badges'
-import { changedNewLinesOf, diffRangeArguments, groupFilesByDirectory, commitsOfGraph, parseCommitGraph, parseNumstat, repositoryWebUrlOf, parseUnifiedDiff } from './git-parsing'
+import { changedNewLinesOf, diffRangeArguments, openingViewOf, groupFilesByDirectory, commitsOfGraph, parseCommitGraph, parseNumstat, repositoryWebUrlOf, parseUnifiedDiff } from './git-parsing'
 
 test('a unified diff becomes rows numbered on both sides', async () => {
   const rows = parseUnifiedDiff(
@@ -70,4 +70,10 @@ test('files are grouped by directory and badged by type', async () => {
 test('a diff without context gives the new lines it changes, a removal the line just above it', async () => {
   expect(changedNewLinesOf(['@@ -3,2 +3,3 @@', '-a', '+b', '@@ -10 +11 @@', '+c', '@@ -20,2 +21,0 @@', '-d', '@@ -1 +0,0 @@'].join('\n'))).toEqual([3, 4, 5, 11, 21, 1])
   expect(changedNewLinesOf('')).toEqual([])
+})
+
+test('the pane opens on the uncommitted changes, else on the branch commits, else on the empty uncommitted view', async () => {
+  expect(openingViewOf(3, 2)).toBe('uncommitted')
+  expect(openingViewOf(0, 2)).toBe('pr')
+  expect(openingViewOf(0, 0)).toBe('uncommitted')
 })

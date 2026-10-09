@@ -23,7 +23,8 @@ export type PaneInput = {
   geometry: PaneGeometry
   view: ReviewView
   location: string
-  hasUncommittedChanges: boolean
+  uncommittedFileCount: number
+  branchCommitCount: number
   unpushedCommitShas: string[]
   pushState: PushState
   help: HelpInput | null
@@ -75,7 +76,8 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
       {renderHeader(ui, {
         view: input.view,
         location: input.location,
-        hasUncommittedChanges: input.hasUncommittedChanges,
+        uncommittedFileCount: input.uncommittedFileCount,
+        branchCommitCount: input.branchCommitCount,
         unpushedCommitCount: input.unpushedCommitShas.length,
         pullRequest: input.pullRequest,
         viewedCount: input.viewedCount,

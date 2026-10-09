@@ -52,6 +52,7 @@ import {
   changedNewLinesOf,
   diffRangeArguments,
   directoryOf,
+  openingViewOf,
   groupFilesByDirectory,
   LOG_FORMAT,
   commitsOfGraph,
@@ -122,7 +123,8 @@ const repositoryWebUrlAtom = atom({ plugin: 'diff-review', key: 'repositoryWebUr
 const branchAtom = atom({ plugin: 'diff-review', key: 'branch' } as const, null)
 const baseRefAtom = atom({ plugin: 'diff-review', key: 'baseRef' } as const, null)
 const baseBranchNameAtom = atom({ plugin: 'diff-review', key: 'baseBranchName' } as const, null)
-const hasUncommittedChangesAtom = atom({ plugin: 'diff-review', key: 'hasUncommittedChanges' } as const, false)
+const uncommittedFileCountAtom = atom({ plugin: 'diff-review', key: 'uncommittedFileCount' } as const, 0)
+const branchCommitCountAtom = atom({ plugin: 'diff-review', key: 'branchCommitCount' } as const, 0)
 const unpushedCommitShasAtom = atom({ plugin: 'diff-review', key: 'unpushedCommitShas' } as const, [])
 const pushStateAtom = atom({ plugin: 'diff-review', key: 'pushState' } as const, 'idle')
 const commitListOffsetAtom = atom({ plugin: 'diff-review', key: 'commitListOffset' } as const, null)
@@ -633,8 +635,10 @@ async function loadBranchCommits($: EngineInterface, baseRef: string | null): Pr
 }
 
 async function loadBranchState($: EngineInterface, branch: string | null, baseRef: string | null): Promise<void> {
-  const status = await runGit($, ['status', '--porcelain'])
-  await update($, hasUncommittedChangesAtom, () => status.isSuccess && status.output.trim() !== '')
+  const status = await runGit($, ['status', '--porcelain', '--untracked-files=all'])
+  await update($, uncommittedFileCountAtom, () => (status.isSuccess ? status.output.split('\n').filter(line => line !== '').length : 0))
+  const branchCommits = baseRef ? await runGit($, ['rev-list', '--count', `${baseRef}..HEAD`]) : null
+  await update($, branchCommitCountAtom, () => (branchCommits?.isSuccess ? Number(branchCommits.output.trim()) : 0))
   const remoteCandidates = ['@{upstream}', ...(branch ? [`origin/${branch}`] : [])]
   let unpushedCommitShas: string[] = []
   for (const remoteRef of [...remoteCandidates, baseRef]) {
@@ -1431,7 +1435,8 @@ async function readExplorerSnapshot($: EngineInterface): Promise<ExplorerSnapsho
     branch: await read($, branchAtom),
     baseRef: await read($, baseRefAtom),
     baseBranchName: await read($, baseBranchNameAtom),
-    hasUncommittedChanges: await read($, hasUncommittedChangesAtom),
+    uncommittedFileCount: await read($, uncommittedFileCountAtom),
+    branchCommitCount: await read($, branchCommitCountAtom),
     unpushedCommitShas: await read($, unpushedCommitShasAtom),
     pushState: await read($, pushStateAtom),
     commitListOffset: await read($, commitListOffsetAtom),
@@ -1676,6 +1681,11 @@ export const register: Register = (on, options) => {
     await update($, requestedPaneColumnsAtom, () => requestedPaneColumns)
     const opened = await $.ui.open({ ...(await paneOpenArguments($)), columns: requestedPaneColumns })
     await refreshExplorer($)
+    const openingView = openingViewOf(await read($, uncommittedFileCountAtom), await read($, branchCommitCountAtom))
+    if (openingView !== (await read($, viewAtom))) {
+      await update($, viewAtom, () => openingView)
+      await loadView($)
+    }
     await focusFirstChange($)
 
     return { text: opened.isPlaced ? 'Review explorer opened.' : `Review explorer waiting: ${opened.reason}` }

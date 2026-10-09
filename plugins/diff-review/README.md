@@ -44,8 +44,11 @@ scrolling or moving yourself stops the follow.
 
 ## Three views
 
+The pane opens on the uncommitted changes, or on the pull request when everything is committed. The tabs count the
+uncommitted files and the branch commits, and count again after each edit or command of Claude.
+
 **Uncommitted**: what `git diff` shows, new untracked files included. Tick new files and `git add` them, or add
-everything, from the file list. The tab dims when there is nothing uncommitted.
+everything, from the file list. The tab counts the files (`Uncommitted 3`) and dims when there is nothing uncommitted.
 
 ![The uncommitted changes, a new file](docs/media/uncommitted.png)
 
@@ -54,7 +57,7 @@ everything, from the file list. The tab dims when there is nothing uncommitted.
 ![The pull request description](docs/media/overview.png)
 
 **Commits**: the branch commits with their graph, one commit's diff at a time. Commits not pushed yet carry
-`↑ not pushed`, their count shows on the tab (`Commits ↑2`), and a button pushes them: a second press confirms, a plain
+`↑ not pushed`, their count shows on the tab after the branch's (`Commits 5 ↑2`), and a button pushes them: a second press confirms, a plain
 `git push` is used, never from `main` or `master`. When the remote refuses the push (after a rebase, say), the button
 offers a force push protected by `--force-with-lease --force-if-includes`, again on a second press.
 

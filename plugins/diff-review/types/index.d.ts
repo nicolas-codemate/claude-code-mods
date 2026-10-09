@@ -75,7 +75,9 @@ declare module 'claude-code' {
       view: ReviewView
       baseRef: string | null
       baseBranchName: string | null
-      hasUncommittedChanges: boolean
+      uncommittedFileCount: number
+      // The branch's commits since its base, the pull request's one when there is a pull request.
+      branchCommitCount: number
       // The branch's commits its remote does not have yet, all of them while the branch was never pushed.
       unpushedCommitShas: string[]
       pushState: PushState
