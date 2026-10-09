@@ -31,6 +31,7 @@ export type PaneInput = {
   errorNotices: Array<{ id: string; text: string }>
   pullRequest: PullRequestSummary | null
   viewedCount: { viewed: number; total: number }
+  linesToView: { addedLines: number; removedLines: number }
   headerTiles: HeaderTile[]
   commitGraph: CommitGraphLine[]
   commitCount: number
@@ -78,6 +79,7 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
         unpushedCommitCount: input.unpushedCommitShas.length,
         pullRequest: input.pullRequest,
         viewedCount: input.viewedCount,
+        linesToView: input.linesToView,
         tiles: input.headerTiles,
         bodyColumns: input.bodyColumns,
         gitHubPage: input.gitHubPage,

@@ -30,6 +30,8 @@ export type HeaderTile =
   | { kind: 'lines'; label: string; addedLines: number; removedLines: number }
   | { kind: 'progress'; label: string; done: number; total: number }
 
+export const LINES_TO_VIEW_TILE_LABEL = 'To view'
+
 export function tileColumnsOf(tile: HeaderTile): number {
   return tile.kind === 'progress' ? VIEWED_TILE_COLUMNS : TILE_COLUMNS
 }

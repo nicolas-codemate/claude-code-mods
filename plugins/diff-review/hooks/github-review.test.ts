@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { buildPullRequestOverview, countViewedFiles, parsePullRequest, parseViewedStatesPage } from './github-review'
+import { buildPullRequestOverview, countLinesToView, countViewedFiles, parsePullRequest, parseViewedStatesPage } from './github-review'
 import { isListItemBlock, parseEmojiCharacters, replaceEmojiShortcodes, splitListItemIndentation, splitMarkdownBlocks } from './markdown'
 
 test('a page of PR files gives each path its viewed state and the cursor of the next page', async () => {
@@ -75,4 +75,12 @@ test('each list item, nested or wrapped, makes a block of its own', async () => 
   expect(blocks).toEqual(['- **Limits:**', '  - the portfolio keeps\n    the old split', '  - the extractor', '1. numbered'])
   expect(splitListItemIndentation(blocks[1] ?? '')).toEqual({ indentation: 2, text: '- the portfolio keeps\n  the old split' })
   expect(isListItemBlock('After.')).toBe(false)
+})
+
+test('the lines to view add up the PR files not viewed, a file changed since it was viewed included', async () => {
+  const fileOf = (path: string, addedLines: number | null, removedLines: number | null) => ({ path, addedLines, removedLines, isUntracked: false })
+  const files = [fileOf('viewed', 10, 1), fileOf('unviewed', 3, 2), fileOf('dismissed', 4, 0), fileOf('binary', null, null), fileOf('local-only', 50, 50)]
+  const viewedStateByPath = { viewed: 'VIEWED', unviewed: 'UNVIEWED', dismissed: 'DISMISSED', binary: 'UNVIEWED' } as const
+
+  expect(countLinesToView(files, viewedStateByPath)).toEqual({ addedLines: 7, removedLines: 2 })
 })

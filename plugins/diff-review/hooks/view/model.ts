@@ -19,7 +19,7 @@ import {
 } from '../constants'
 import { viewedPathsToHide, visibleFilesOf } from '../file-filter'
 import { cursorStopsOf, firstChangeStop } from '../cursor'
-import { countViewedFiles, gitHubThreadNavigationEntries } from '../github-review'
+import { countLinesToView, countViewedFiles, gitHubThreadNavigationEntries } from '../github-review'
 import type { Keymap, ShortcutAction } from '../keymap'
 import { buildFileLines, clampFileListWidth, computePaneGeometry, scrolledByLines, topLineFollowingRow } from '../layout'
 import type { DiffScrollPosition } from '../layout'
@@ -28,6 +28,7 @@ import { splitMarkdownBlocks } from '../markdown'
 import { anchorKeyOf, fileAnchorPrefixOf, openThreadsByPath, threadsInReadingOrder } from '../questions'
 import { groupFilesByDirectory } from '../git-parsing'
 import { pairRowsSideBySide, splitIndexOfRow } from '../split-rows'
+import { LINES_TO_VIEW_TILE_LABEL } from './drawings'
 import type { HeaderTile } from './drawings'
 import { estimatedRowHeights } from './row-height'
 import type { PaneInput } from './pane'
@@ -270,6 +271,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     .join('  │  ')
 
   const viewedCount = countViewedFiles(files.map(file => file.path), viewedStateByPath)
+  const linesToView = countLinesToView(files, viewedStateByPath)
   const paneInput: PaneInput = {
     bodyRows: surface.bodyRows,
     bodyColumns: surface.bodyColumns,
@@ -284,7 +286,8 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     errorNotices: snapshot.errorNotices,
     pullRequest,
     viewedCount,
-    headerTiles: headerTilesOf(files, pullRequest, viewedCount, gitHubThreads),
+    linesToView,
+    headerTiles: headerTilesOf(files, pullRequest, viewedCount, linesToView, gitHubThreads),
     commitGraph: snapshot.commitGraph,
     commitCount: snapshot.commits.length,
     repositoryWebUrl: snapshot.repositoryWebUrl,
@@ -385,6 +388,7 @@ function headerTilesOf(
   files: ChangedFile[],
   pullRequest: PullRequestSummary | null,
   viewedCount: { viewed: number; total: number },
+  linesToView: { addedLines: number; removedLines: number },
   gitHubThreads: GitHubReviewThread[],
 ): HeaderTile[] {
   const lineTotals = pullRequest
@@ -400,6 +404,7 @@ function headerTilesOf(
   if (pullRequest) {
     tiles.push(
       { kind: 'progress', label: 'Viewed', done: viewedCount.viewed, total: viewedCount.total },
+      { kind: 'lines', label: LINES_TO_VIEW_TILE_LABEL, ...linesToView },
       { kind: 'count', label: 'Open threads', value: String(gitHubThreads.filter(thread => !thread.isResolved).length) },
     )
   }

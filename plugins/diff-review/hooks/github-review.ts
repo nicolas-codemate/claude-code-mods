@@ -1,4 +1,4 @@
-import type { DiffRow, GitHubComment, GitHubReviewThread, PullRequestSummary, ViewedState } from '../types'
+import type { ChangedFile, DiffRow, GitHubComment, GitHubReviewThread, PullRequestSummary, ViewedState } from '../types'
 import { replaceEmojiShortcodes } from './markdown'
 import { gitHubThreadAnchorKeyOf } from './questions'
 
@@ -221,6 +221,19 @@ export function countViewedFiles(paths: string[], viewedStateByPath: Record<stri
     viewed: pathsInPullRequest.filter(path => viewedStateByPath[path] === 'VIEWED').length,
     total: pathsInPullRequest.length,
   }
+}
+
+// The lines of the PR files whose box is not ticked yet; a file changed since it was viewed counts again.
+export function countLinesToView(
+  files: ChangedFile[],
+  viewedStateByPath: Record<string, ViewedState>,
+): { addedLines: number; removedLines: number } {
+  return files
+    .filter(file => viewedStateByPath[file.path] !== undefined && viewedStateByPath[file.path] !== 'VIEWED')
+    .reduce(
+      (totals, file) => ({ addedLines: totals.addedLines + (file.addedLines ?? 0), removedLines: totals.removedLines + (file.removedLines ?? 0) }),
+      { addedLines: 0, removedLines: 0 },
+    )
 }
 
 export const PULL_REQUEST_VIEW_FIELDS =
