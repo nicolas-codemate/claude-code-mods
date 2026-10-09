@@ -490,6 +490,62 @@ test('the unviewed filter hides the viewed files, one just marked viewed staying
   await pane.unmount()
 })
 
+test('a viewed file a push changes comes back among the unviewed ones, before GitHub has processed the push', async ($, on) => {
+  let isPushed = false
+  let hasGitHubProcessedThePush = false
+  const world = stubWorld(on, {
+    git: gitCommand => {
+      if (gitCommand === 'rev-list @{upstream}..HEAD') return { exitCode: 0, stdout: isPushed ? '' : 'c2\n' }
+      if (gitCommand === 'rev-parse --abbrev-ref @{upstream}') return { exitCode: 0, stdout: 'origin/feat/tax\n' }
+      if (gitCommand === 'diff --name-only --no-renames @{upstream} HEAD') return { exitCode: 0, stdout: 'src/Tax.php\n' }
+      if (gitCommand === 'push') {
+        isPushed = true
+        return { exitCode: 0, stdout: '' }
+      }
+      return undefined
+    },
+    gh: ghCommand => {
+      if (ghCommand.startsWith('pr view')) {
+        return { exitCode: 0, stdout: JSON.stringify(PULL_REQUEST) }
+      }
+      if (ghCommand.includes('markFileAsViewed')) {
+        return { exitCode: 0, stdout: '{}' }
+      }
+      const files = {
+        nodes: [
+          { path: 'src/Tax.php', viewerViewedState: hasGitHubProcessedThePush ? 'DISMISSED' : 'VIEWED' },
+          { path: 'src/Total.php', viewerViewedState: 'UNVIEWED' },
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }
+      return { exitCode: 0, stdout: JSON.stringify({ data: { node: { files } } }) }
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-pr' })
+  await pane.press({ key: 'toggle-viewed-hidden' })
+  expect(await pane.find({ key: 'file-src/Tax.php' })).toBeUndefined()
+
+  await pane.press({ key: 'view-commits' })
+  await pane.press({ key: 'push-branch' })
+  await pane.press({ key: 'push-branch' })
+  await pane.press({ key: 'view-pr' })
+  expect((await pane.find({ key: 'viewed-src/Tax.php' }))?.text).toBe(' ! ')
+
+  hasGitHubProcessedThePush = true
+  await pane.press({ key: 'refresh' })
+  expect((await pane.find({ key: 'viewed-src/Tax.php' }))?.text).toBe(' ! ')
+
+  await pane.press({ key: 'viewed-src/Tax.php' })
+  expect((await pane.find({ key: 'viewed-src/Tax.php' }))?.text).toBe(' ✓ ')
+  hasGitHubProcessedThePush = false
+  await pane.press({ key: 'refresh' })
+  await world.clock.advance(2000)
+  expect(await pane.find({ key: 'file-src/Tax.php' })).toBeUndefined()
+  await pane.unmount()
+})
+
 test('a file GitHub does not list yet shows the not-pushed mark while commits wait to be pushed', async ($, on) => {
   stubWorld(on, {
     git: gitCommand => (gitCommand === 'rev-list @{upstream}..HEAD' ? { exitCode: 0, stdout: 'c2\n' } : undefined),

@@ -214,6 +214,23 @@ export function parsePullRequest(
 // GitHub keeps a file viewed until it changes again on the branch; it then reports it as DISMISSED, to be looked at anew.
 export const VIEWED_MARKS: Record<ViewedState, string> = { VIEWED: ' ✓ ', UNVIEWED: ' ○ ', DISMISSED: ' ! ' }
 
+// GitHub unticks a viewed file once a pushed commit changes it, but only after it has processed the push.
+export function dismissChangedFiles(viewedStateByPath: Record<string, ViewedState>, changedPaths: readonly string[]): Record<string, ViewedState> {
+  return Object.fromEntries(
+    Object.entries(viewedStateByPath).map(([path, viewedState]) => [path, changedPaths.includes(path) ? viewedStateAfterChange(viewedState) : viewedState]),
+  )
+}
+
+function viewedStateAfterChange(viewedState: ViewedState): ViewedState {
+  switch (viewedState) {
+    case 'VIEWED':
+      return 'DISMISSED'
+    case 'UNVIEWED':
+    case 'DISMISSED':
+      return viewedState
+  }
+}
+
 export function countViewedFiles(paths: string[], viewedStateByPath: Record<string, ViewedState>): { viewed: number; total: number } {
   const pathsInPullRequest = paths.filter(path => viewedStateByPath[path] !== undefined)
 

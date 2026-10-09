@@ -131,6 +131,7 @@ declare module 'claude-code' {
       gitHubReviewThreads: GitHubReviewThread[]
       expandedGitHubThreadIds: string[]
       viewedStateByPath: Record<string, ViewedState>
+      pushDismissedPaths: string[]
       renamedPathByPreviousPath: Record<string, string>
     }
   }

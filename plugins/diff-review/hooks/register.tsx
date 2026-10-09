@@ -61,6 +61,7 @@ import {
 } from './git-parsing'
 import {
   addressRequestOf,
+  dismissChangedFiles,
   gitHubThreadNavigationEntries,
   isGitHubThreadOnRow,
   MARK_FILE_AS_VIEWED_MUTATION,
@@ -141,6 +142,7 @@ const isLoadingAtom = atom({ plugin: 'diff-review', key: 'isLoading' } as const,
 // The pull request of the branch, and GitHub's viewed box per file.
 const pullRequestAtom = atom({ plugin: 'diff-review', key: 'pullRequest' } as const, null)
 const viewedStateByPathAtom = atom({ plugin: 'diff-review', key: 'viewedStateByPath' } as const, {})
+const pushDismissedPathsAtom = atom({ plugin: 'diff-review', key: 'pushDismissedPaths' } as const, [])
 const renamedPathByPreviousPathAtom = atom({ plugin: 'diff-review', key: 'renamedPathByPreviousPath' } as const, {})
 
 // Layout and scrolling.
@@ -340,7 +342,10 @@ async function loadPullRequest($: EngineInterface): Promise<void> {
   const renames = await runGh($, pullRequestRenamesArguments(pullRequest.number))
   const renamedPathByPreviousPath = renames.isSuccess ? parseRenamedPaths(renames.output) : {}
   await update($, renamedPathByPreviousPathAtom, () => renamedPathByPreviousPath)
-  await update($, viewedStateByPathAtom, () => withPreviousPathsOfRenames(viewedStateByPath, renamedPathByPreviousPath))
+  const gitHubViewedStateByPath = withPreviousPathsOfRenames(viewedStateByPath, renamedPathByPreviousPath)
+  await update($, pushDismissedPathsAtom, paths => paths.filter(path => gitHubViewedStateByPath[path] === 'VIEWED'))
+  const pushDismissedPaths = await read($, pushDismissedPathsAtom)
+  await update($, viewedStateByPathAtom, () => dismissChangedFiles(gitHubViewedStateByPath, pushDismissedPaths))
 }
 
 async function loadGitHubReviewThreads($: EngineInterface, pullRequestId: string): Promise<void> {
@@ -414,6 +419,7 @@ async function toggleViewed($: EngineInterface, path: string): Promise<void> {
     }))
   }
   const isMarkingViewed = previousState !== 'VIEWED'
+  await update($, pushDismissedPathsAtom, paths => paths.filter(dismissedPath => !pathsSharingTheBox.includes(dismissedPath)))
   if (isMarkingViewed && (await read($, isViewedHiddenAtom))) {
     await update($, recentlyViewedPathsAtom, paths => [...paths, ...pathsSharingTheBox])
     await $.clock.after(VIEWED_FILE_HIDE_DELAY_MS, () =>
@@ -703,8 +709,11 @@ async function runPush($: EngineInterface, branch: string, isForced: boolean): P
     : hasUpstream
       ? ['push']
       : ['push', '--set-upstream', 'origin', branch]
+  const pushedChanges = hasUpstream ? await runGit($, ['diff', '--name-only', '--no-renames', '@{upstream}', 'HEAD']) : null
+  const pushedPaths = pushedChanges?.isSuccess ? pushedChanges.output.split('\n').filter(path => path !== '') : []
   const push = await runGit($, pushArguments, GIT_PUSH_TIMEOUT_MS)
   if (push.isSuccess) {
+    await update($, pushDismissedPathsAtom, paths => [...new Set([...paths, ...pushedPaths])])
     await update($, pushStateAtom, () => 'pushed')
     await $.clock.after(PUSHED_NOTICE_MS, () => update($, pushStateAtom, state => (state === 'pushed' ? 'idle' : state)))
   } else if (!isForced && /\[rejected\]|\[remote rejected\]|non-fast-forward|fetch first/.test(push.output)) {
