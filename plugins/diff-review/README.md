@@ -11,6 +11,11 @@ diff-review goes on from there to a whole review: the pull request and each comm
 questions answered under the very line they are about, the GitHub review comments and their resolving, the viewed
 boxes, and pushing.
 
+**A personal tool.** diff-review was built for my own reviews and is mostly tested on my own machine, under Linux.
+Another system, terminal or way of working may well bring out bugs I have never met. If you hit one, an
+[issue](https://github.com/nicolas-codemate/claude-code-mods/issues) is welcome, a pull request even more: see
+[how to contribute](../../CONTRIBUTING.md).
+
 ## Install
 
 ```
@@ -105,6 +110,8 @@ file shows how many it holds (`🔍 3`). The bar's `↑` and `↓` (or `6` and `
 file, its field changes the term, and `🧹 clear` ends the search. The counts follow Claude's edits. Where the selection
 cannot be read (fullscreen off), the bar opens empty, to type the term in. A line holding the term is
 drawn without its syntax colors, so that the term itself can be lit.
+
+![A method name selected and searched for, its occurrences walked from file to file](docs/media/search.gif)
 
 ## Keyboard too
 
