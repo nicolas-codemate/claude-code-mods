@@ -7,9 +7,7 @@ import type { Theme } from './theme'
 export type GitHubPage = { url: string; description: string }
 
 // The elements a view draws with, and the colors of the pane's theme.
-// `Svg` is the Desktop's alone: the terminal draws the same things in text.
 export type ViewElements = Pick<Elements['terminal'], 'Box' | 'Button' | 'Client' | 'Code' | 'Input' | 'Link' | 'Markdown' | 'Text'> & {
-  Svg?: Elements['desktop']['Svg']
   theme: Theme
 }
 

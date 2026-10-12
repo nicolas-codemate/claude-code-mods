@@ -2029,15 +2029,13 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
-    if (e.surface !== 'terminal' && e.surface !== 'desktop') {
+    if (e.surface !== 'terminal') {
       const { Text } = $.ui.resolve(e)
-      return <Text dimColor>The review explorer needs the terminal or Desktop.</Text>
+      return <Text dimColor>The review explorer needs the terminal.</Text>
     }
     const elements = $.ui.resolve(e)
     const ui: ViewElements = {
       ...elements,
-      // The terminal's table may name Svg too, but only the Desktop draws it.
-      Svg: e.surface === 'desktop' && 'Svg' in elements ? elements.Svg : undefined,
       theme: themeOf(options.theme, await read($, claudeCodeThemeAtom)),
     }
     if (e.props.bodyColumns < MIN_PANE_COLUMNS) {

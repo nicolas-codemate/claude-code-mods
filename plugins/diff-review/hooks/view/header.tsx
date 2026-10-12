@@ -1,7 +1,7 @@
 import type { PullRequestSummary, ReviewView } from '../../types'
 import { HEADER_COLUMNS_WITHOUT_TILES, VIEW_LABELS, VIEW_ORDER, VIEW_SHORTCUTS } from '../constants'
 import type { ShortcutAction } from '../keymap'
-import { DESKTOP_PIXELS_PER_COLUMN, HEADER_TILES_PIXELS, LINES_TO_VIEW_TILE_LABEL, headerTilesSvg, headerTilesWidthOf, progressBarCells } from './drawings'
+import { LINES_TO_VIEW_TILE_LABEL, progressBarCells } from './drawings'
 import type { HeaderTile } from './drawings'
 import type { ExplorerActions, GitHubPage, ViewElements } from './types'
 import { WATCH_MARK } from './watch-bar'
@@ -24,9 +24,9 @@ export function renderHeader(
     actions: ExplorerActions
   },
 ) {
-  const { Box, Svg, Text } = ui
+  const { Box, Text } = ui
   const { gitHubPage, pullRequest, viewedCount } = input
-  const tiles = tilesThatFit(input.tiles, input.bodyColumns, Svg ? desktopTilesColumns : terminalTilesColumns)
+  const tiles = tilesThatFit(input.tiles, input.bodyColumns)
 
   // The tabs' row is as tall as the tiles: the layout counts three rows for it, one for the location, one for the pull
   // request's line and one left empty under the header.
@@ -47,17 +47,7 @@ export function renderHeader(
           })
         })}
         <Box flexGrow={1} />
-        {Svg && tiles.length > 0 && (
-          <Box flexShrink={0} height={3} marginLeft={1} flexDirection="column" justifyContent="center" overflow="hidden">
-            <Svg
-              source={headerTilesSvg(ui.theme, tiles)}
-              alt={tiles.map(describeTile).join(', ')}
-              width={headerTilesWidthOf(tiles)}
-              height={HEADER_TILES_PIXELS}
-            />
-          </Box>
-        )}
-        {!Svg && tiles.map(tile => renderTerminalTile(ui, tile))}
+        {tiles.map(tile => renderTerminalTile(ui, tile))}
         {gitHubPage &&
           renderPill(ui, {
             key: 'open-on-github',
@@ -172,17 +162,13 @@ function renderPill(ui: ViewElements, pill: Pill) {
 }
 
 // The last tiles give way first when the header runs out of room.
-function tilesThatFit(tiles: HeaderTile[], bodyColumns: number, columnsOf: (tiles: HeaderTile[]) => number): HeaderTile[] {
+function tilesThatFit(tiles: HeaderTile[], bodyColumns: number): HeaderTile[] {
   const fittingTiles = [...tiles]
-  while (fittingTiles.length > 0 && HEADER_COLUMNS_WITHOUT_TILES + columnsOf(fittingTiles) > bodyColumns) {
+  while (fittingTiles.length > 0 && HEADER_COLUMNS_WITHOUT_TILES + terminalTilesColumns(fittingTiles) > bodyColumns) {
     fittingTiles.pop()
   }
 
   return fittingTiles
-}
-
-function desktopTilesColumns(tiles: HeaderTile[]): number {
-  return Math.ceil(headerTilesWidthOf(tiles) / DESKTOP_PIXELS_PER_COLUMN)
 }
 
 const TERMINAL_PROGRESS_CELLS = 8
@@ -252,15 +238,4 @@ function renderTerminalTile(ui: ViewElements, tile: HeaderTile) {
       </Text>
     </Box>
   )
-}
-
-function describeTile(tile: HeaderTile): string {
-  if (tile.kind === 'lines') {
-    return `${tile.label} ${tile.addedLines} added, ${tile.removedLines} removed`
-  }
-  if (tile.kind === 'progress') {
-    return `${tile.label} ${tile.done} of ${tile.total}`
-  }
-
-  return `${tile.label} ${tile.value}`
 }

@@ -122,8 +122,6 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
       {input.view === 'commits' &&
         renderCommitList(ui, {
           commitCount: input.commitCount,
-          commitGraph: input.commitGraph,
-          firstShownLineIndex: geometry.firstShownCommitLineIndex,
           shownGraphLines,
           repositoryWebUrl: input.repositoryWebUrl,
           selectedCommitSha: input.selectedCommitSha,
