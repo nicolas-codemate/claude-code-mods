@@ -429,6 +429,25 @@ test('a Claude Code theme changed during the session reaches the pane at its nex
   expect(await paneBackground()).not.toBe(darkBackground)
 })
 
+test("the pane's own Theme setting, changed during the session, reaches the pane without a reload", async ($, on) => {
+  stubWorld(on)
+  let configuredTheme = 'light'
+  on('config.list', async () => ({ value: [{ key: 'theme', value: 'light' }, { key: 'diff-review.theme', value: configuredTheme }] }) as never)
+  on('config.set', async (_, e) => ({ value: e.value }) as never)
+  await openExplorer($)
+  const paneBackground = async () => {
+    const pane = await mountPane($)
+    const background = (await pane.findAll({ type: 'Box' }))[0]?.props.backgroundColor
+    await pane.unmount()
+    return background
+  }
+  expect(await paneBackground()).toBeDefined()
+
+  configuredTheme = 'dark'
+  await $.config.set({ key: 'diff-review.theme', value: 'dark' } as never)
+  expect(await paneBackground()).toBeUndefined()
+})
+
 test('the pane opens on the uncommitted changes, else on the pull request, and on the uncommitted view when the branch holds nothing', async ($, on) => {
   let uncommittedStatus = ' M src/Total.php\n'
   let branchCommitCount = '2\n'

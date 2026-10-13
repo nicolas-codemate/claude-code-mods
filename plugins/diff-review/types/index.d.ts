@@ -148,6 +148,8 @@ declare module 'claude-code' {
       isHelpShown: boolean
       answerPulseFrame: number
       claudeCodeTheme: string | null
+      // The pane's own Theme setting as it stands now: the options the module got at load keep their first value.
+      configuredTheme: string | null
       questionFieldNumber: number
       requestedPaneColumns: number
       fileListWidth: number
