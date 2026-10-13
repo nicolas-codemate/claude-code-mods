@@ -337,6 +337,38 @@ test('a push says when it is done, and a push the remote refused offers a force 
   await pane.unmount()
 })
 
+test('the notice of a refused push offers the force push itself, and goes once the force push starts', async ($, on) => {
+  const pushCommands: string[] = []
+  stubWorld(on, {
+    git: gitCommand => {
+      if (gitCommand === 'rev-list @{upstream}..HEAD') return { exitCode: 0, stdout: 'c2\n' }
+      if (gitCommand === 'rev-parse --abbrev-ref @{upstream}') return { exitCode: 0, stdout: 'origin/feat/tax\n' }
+      if (gitCommand.startsWith('push')) {
+        pushCommands.push(gitCommand)
+        return gitCommand === 'push'
+          ? { exitCode: 1, stdout: '', stderr: ' ! [rejected]        feat/tax -> feat/tax (non-fast-forward)' }
+          : { exitCode: 0, stdout: '' }
+      }
+      return undefined
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-commits' })
+  await pane.press({ key: 'push-branch' })
+  await pane.press({ key: 'push-branch' })
+  const forcePushKey = await keyStartingWith(pane, 'Button', 'force-push-')
+  expect((await pane.find({ key: forcePushKey }))?.text).toContain('force push (with lease)')
+
+  await pane.press({ key: forcePushKey })
+  expect((await pane.find({ key: forcePushKey }))?.text).toContain('press again to force push')
+  expect(pushCommands).toEqual(['push'])
+  await pane.press({ key: forcePushKey })
+  expect(pushCommands).toEqual(['push', 'push --force-with-lease --force-if-includes'])
+  expect(await pane.find({ type: 'Text', text: /Push rejected/ })).toBeUndefined()
+  await pane.unmount()
+})
+
 test('a Claude Code theme changed during the session reaches the pane at its next opening', async ($, on) => {
   stubWorld(on)
   let claudeCodeTheme = 'dark'

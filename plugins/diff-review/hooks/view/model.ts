@@ -1,6 +1,8 @@
 import type {
   ChangedFile,
   CommitGraphLine,
+  CommitRequest,
+  ErrorNotice,
   CommitSummary,
   GitHubReviewThread,
   DiffRow,
@@ -43,11 +45,13 @@ export type ExplorerSnapshot = {
   baseRef: string | null
   baseBranchName: string | null
   uncommittedFileCount: number
+  stagedFileCount: number
+  commitRequest: CommitRequest
   branchCommitCount: number
   unpushedCommitShas: string[]
   pushState: PushState
   commitListOffset: number | null
-  errorNotices: Array<{ id: string; text: string }>
+  errorNotices: ErrorNotice[]
   helpScrolledLines: number
   followedThreadId: string | null
   isLoading: boolean
@@ -121,6 +125,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
   const overviewBlocks = pullRequest && isOverviewShown ? splitMarkdownBlocks(pullRequest.overviewMarkdown) : []
   const hasUntrackedFiles = view === 'uncommitted' && files.some(file => file.isUntracked)
   const hasStageActions = view === 'uncommitted' && files.length > 0
+  const hasCommitAction = view === 'uncommitted' && (snapshot.stagedFileCount > 0 || snapshot.commitRequest.state !== 'idle')
 
   // A one-letter shortcut would fire on the letters typed into a question or a reply: none is bound meanwhile.
   const focusedElementKey = snapshot.focusedElementKey ?? ''
@@ -216,6 +221,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     ),
     fileLineCount: fileLines.length,
     hasStageActions,
+    hasCommitAction,
     hasNoiseNotice: shown.hiddenNoiseCount > 0 || snapshot.isNoiseShown,
     hasWatchBar: isWatchBarShown,
     requestedFileListWidth: snapshot.fileListWidth,
@@ -329,6 +335,9 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
       openThreadCountByPath,
       hasUntrackedFiles,
       hasStageActions,
+      hasCommitAction,
+      stagedFileCount: snapshot.stagedFileCount,
+      commitRequest: snapshot.commitRequest,
       markedPaths: view === 'uncommitted' ? snapshot.markedPaths : [],
       keymap: snapshot.keymap,
       isTyping,

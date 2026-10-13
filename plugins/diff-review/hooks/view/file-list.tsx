@@ -1,4 +1,4 @@
-import type { ChangedFile, PullRequestSummary, ViewedState } from '../../types'
+import type { ChangedFile, CommitRequest, PullRequestSummary, ViewedState } from '../../types'
 import { DIRECTORY_BUTTON_KEY_PREFIX, FILE_BUTTON_KEY_PREFIX, FILE_FILTER_KEY, PULL_REQUEST_OVERVIEW_KEY, ROW_CLICK_TARGET_LENGTH } from '../constants'
 import type { Keymap, ShortcutAction } from '../keymap'
 import { fileNameOf } from '../git-parsing'
@@ -40,6 +40,9 @@ export type FileListInput = {
   openThreadCountByPath: Record<string, { claudeCount: number; gitHubCount: number }>
   hasUntrackedFiles: boolean
   hasStageActions: boolean
+  hasCommitAction: boolean
+  stagedFileCount: number
+  commitRequest: CommitRequest
   markedPaths: string[]
   keymap: Keymap
   isTyping: boolean
@@ -122,6 +125,7 @@ export function renderFileList(ui: ViewElements, input: FileListInput) {
         </Box>
       )}
       {input.hasStageActions && renderStageActions(ui, input)}
+      {input.hasCommitAction && renderCommitAction(ui, input)}
     </Box>
   )
 }
@@ -414,6 +418,37 @@ function renderStageActions(ui: ViewElements, input: FileListInput) {
       />
     </Box>
   )
+}
+
+function renderCommitAction(ui: ViewElements, input: FileListInput) {
+  const { Box, Button, Text } = ui
+  switch (input.commitRequest.state) {
+    case 'requested':
+      return (
+        <Box key="commit-box" height={1} overflow="hidden">
+          <Text color={ui.theme.muted}>Claude is committing…</Text>
+        </Box>
+      )
+    case 'idle':
+    case 'awaitingReply':
+      return (
+        <Box key="commit-box" flexDirection="row" height={1} overflow="hidden">
+          <Box flexShrink={0}>
+            <Button
+              key="commit"
+              hotkey={input.hotkeyOf('commitStaged')}
+              label={`✓ commit ${input.stagedFileCount} staged file${input.stagedFileCount === 1 ? '' : 's'}`}
+              onPress={() => input.actions.requestCommit()}
+            />
+          </Box>
+          {input.commitRequest.state === 'awaitingReply' && (
+            <Text color={ui.theme.muted} wrap="truncate-end">
+              {'  '}Claude awaits your reply
+            </Text>
+          )}
+        </Box>
+      )
+  }
 }
 
 // A for a file the change creates (or git does not track yet), D for one it deletes, M for one it modifies.

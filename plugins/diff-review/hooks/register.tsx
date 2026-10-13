@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { ChangedFile, DiffRow, GitHubReviewThread, KeyboardLayout, ReviewView, ViewedState } from '../types'
+import type { ChangedFile, CommitRequest, DiffRow, ErrorNotice, GitHubReviewThread, KeyboardLayout, ReviewView, ViewedState } from '../types'
 import {
   ANSWER_PULSE_MS,
   ASK_BUTTON_KEY_PREFIX,
@@ -126,6 +126,8 @@ const branchAtom = atom({ plugin: 'diff-review', key: 'branch' } as const, null)
 const baseRefAtom = atom({ plugin: 'diff-review', key: 'baseRef' } as const, null)
 const baseBranchNameAtom = atom({ plugin: 'diff-review', key: 'baseBranchName' } as const, null)
 const uncommittedFileCountAtom = atom({ plugin: 'diff-review', key: 'uncommittedFileCount' } as const, 0)
+const stagedFileCountAtom = atom({ plugin: 'diff-review', key: 'stagedFileCount' } as const, 0)
+const commitRequestAtom = atom({ plugin: 'diff-review', key: 'commitRequest' } as const, { state: 'idle' })
 const branchCommitCountAtom = atom({ plugin: 'diff-review', key: 'branchCommitCount' } as const, 0)
 const unpushedCommitShasAtom = atom({ plugin: 'diff-review', key: 'unpushedCommitShas' } as const, [])
 const pushStateAtom = atom({ plugin: 'diff-review', key: 'pushState' } as const, 'idle')
@@ -224,9 +226,9 @@ const lastDrawnLayout = {
 }
 
 // Stays on top of the pane until dismissed: a failure must not slip by while the eyes are on the code.
-async function reportError($: EngineInterface, text: string): Promise<void> {
+async function reportError($: EngineInterface, text: string, action: ErrorNotice['action'] = null): Promise<void> {
   const noticeId = `${await $.clock.now()}-${text.length}`
-  await update($, errorNoticesAtom, notices => [...notices.filter(notice => notice.text !== text), { id: noticeId, text }])
+  await update($, errorNoticesAtom, notices => [...notices.filter(notice => notice.text !== text), { id: noticeId, text, action }])
 }
 
 // --- Commands on the host -------------------------------------------------------------------------------------------
@@ -640,6 +642,8 @@ async function loadBranchCommits($: EngineInterface, baseRef: string | null): Pr
 async function loadBranchState($: EngineInterface, branch: string | null, baseRef: string | null): Promise<void> {
   const status = await runGit($, ['status', '--porcelain', '--untracked-files=all'])
   await update($, uncommittedFileCountAtom, () => (status.isSuccess ? status.output.split('\n').filter(line => line !== '').length : 0))
+  const staged = await runGit($, ['diff', '--cached', '--name-only'])
+  await update($, stagedFileCountAtom, () => (staged.isSuccess ? staged.output.split('\n').filter(line => line !== '').length : 0))
   const branchCommits = baseRef ? await runGit($, ['rev-list', '--count', `${baseRef}..HEAD`]) : null
   await update($, branchCommitCountAtom, () => (branchCommits?.isSuccess ? Number(branchCommits.output.trim()) : 0))
   const remoteCandidates = ['@{upstream}', ...(branch ? [`origin/${branch}`] : [])]
@@ -755,6 +759,9 @@ async function pushBranch($: EngineInterface): Promise<void> {
     await reportError($, `No push from ${branch ?? 'a detached HEAD'}`)
     return
   }
+  if (pushState === 'forceArmed') {
+    await update($, errorNoticesAtom, notices => notices.filter(notice => notice.action !== 'forcePush'))
+  }
   await update($, pushStateAtom, () => 'pushing')
   void runPush($, branch, pushState === 'forceArmed').catch(async error => {
     await update($, pushStateAtom, () => 'idle')
@@ -786,7 +793,7 @@ async function runPush($: EngineInterface, branch: string, isForced: boolean): P
     await $.clock.after(PUSHED_NOTICE_MS, () => update($, pushStateAtom, state => (state === 'pushed' ? 'idle' : state)))
   } else if (!isForced && /\[rejected\]|\[remote rejected\]|non-fast-forward|fetch first/.test(push.output)) {
     await update($, pushStateAtom, () => 'rejected')
-    await reportError($, 'Push rejected: the remote branch has commits the local one lacks, after a rebase for instance.')
+    await reportError($, 'Push rejected: the remote branch has commits the local one lacks, after a rebase for instance.', 'forcePush')
   } else {
     await update($, pushStateAtom, () => 'idle')
     await reportError($, `${isForced ? 'Force push' : 'Push'} failed: ${push.output.trim().split('\n').at(-1) ?? ''}`)
@@ -999,6 +1006,63 @@ async function stageAllChanges($: EngineInterface): Promise<void> {
   }
   await update($, markedPathsAtom, () => [])
   await loadView($)
+}
+
+// The commit is Claude's to make, as when the person types it, so that a commit skill writes the message when there is
+// one. Only what is staged goes in: the person chose it file by file.
+async function requestCommit($: EngineInterface): Promise<void> {
+  const commitRequest = await read($, commitRequestAtom)
+  switch (commitRequest.state) {
+    case 'requested':
+      return
+    case 'idle':
+    case 'awaitingReply':
+      break
+  }
+  if ((await read($, stagedFileCountAtom)) === 0) {
+    return
+  }
+  const head = await runGit($, ['rev-parse', 'HEAD'])
+  await update($, commitRequestAtom, (): CommitRequest => ({
+    state: 'requested',
+    headBeforeRequest: head.isSuccess ? head.output.trim() : null,
+    turnId: null,
+  }))
+  try {
+    await $.session.append({ message: { type: 'user', content: [{ type: 'text', text: COMMIT_REQUEST_CONTEXT }] } })
+  } catch (error) {
+    await reportError($, `The commit request lost its instructions (${String(error)})`)
+  }
+  await $.prompt.submit({ text: 'commit the staged changes', asUser: true })
+}
+
+const COMMIT_REQUEST_CONTEXT = [
+  'The person pressed the commit button of the diff-review pane.',
+  'Commit what is staged in the git index, and only that: do not stage any other change.',
+  'Use a commit skill when one is available; otherwise follow the conventions of the recent commit messages.',
+].join(' ')
+
+// HEAD moving means Claude committed: the pane goes to the commits, where the new one waits to be pushed. A turn of the
+// request that ends with HEAD in place leaves Claude waiting for the person's reply, whose turn may commit.
+async function followCommitRequest($: EngineInterface, completedTurnId: string): Promise<void> {
+  const commitRequest = await read($, commitRequestAtom)
+  switch (commitRequest.state) {
+    case 'idle':
+      return
+    case 'requested':
+    case 'awaitingReply':
+      break
+  }
+  const head = await runGit($, ['rev-parse', 'HEAD'])
+  const headNow = head.isSuccess ? head.output.trim() : null
+  if (headNow !== commitRequest.headBeforeRequest) {
+    await update($, commitRequestAtom, (): CommitRequest => ({ state: 'idle' }))
+    await switchView($, 'commits')
+    return
+  }
+  if (commitRequest.state === 'requested' && commitRequest.turnId === completedTurnId) {
+    await update($, commitRequestAtom, (): CommitRequest => ({ state: 'awaitingReply', headBeforeRequest: commitRequest.headBeforeRequest }))
+  }
 }
 
 // --- The pane and its keyboard --------------------------------------------------------------------------------------
@@ -1531,6 +1595,8 @@ async function readExplorerSnapshot($: EngineInterface): Promise<ExplorerSnapsho
     baseRef: await read($, baseRefAtom),
     baseBranchName: await read($, baseBranchNameAtom),
     uncommittedFileCount: await read($, uncommittedFileCountAtom),
+    stagedFileCount: await read($, stagedFileCountAtom),
+    commitRequest: await read($, commitRequestAtom),
     branchCommitCount: await read($, branchCommitCountAtom),
     unpushedCommitShas: await read($, unpushedCommitShasAtom),
     pushState: await read($, pushStateAtom),
@@ -1611,6 +1677,7 @@ function explorerActions($: EngineInterface): ExplorerActions {
     markAllNewFiles: () => markAllNewFiles($),
     stageMarkedFiles: () => stageMarkedFiles($),
     stageAllChanges: () => stageAllChanges($),
+    requestCommit: () => requestCommit($),
     updateFileFilter: async filter => {
       await update($, fileFilterAtom, () => filter)
       await update($, fileListOffsetAtom, () => 0)
@@ -1988,6 +2055,10 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.start', async ($, e, next) => {
+    const commitRequest = await read($, commitRequestAtom)
+    if (commitRequest.state === 'requested' && commitRequest.turnId === null) {
+      await update($, commitRequestAtom, () => ({ ...commitRequest, turnId: e.turnId }))
+    }
     const threadIdAwaitingTurn = await read($, threadIdAwaitingTurnAtom)
     if (threadIdAwaitingTurn !== null) {
       await update($, threadIdByTurnIdAtom, threadIdByTurnId => ({ ...threadIdByTurnId, [e.turnId]: threadIdAwaitingTurn }))
@@ -2023,6 +2094,9 @@ export const register: Register = (on, options) => {
         ),
       )
       await saveThreads($)
+    }
+    if (e.agentId === undefined) {
+      await followCommitRequest($, e.turnId)
     }
 
     return next(e)

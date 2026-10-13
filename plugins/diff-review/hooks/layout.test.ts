@@ -15,6 +15,7 @@ const GEOMETRY: GeometryInput = {
   requestedCommitListOffset: null,
   fileLineCount: 10,
   hasStageActions: true,
+  hasCommitAction: false,
   hasNoiseNotice: false,
   hasWatchBar: false,
   requestedFileListWidth: 50,
