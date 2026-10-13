@@ -186,6 +186,7 @@ const isFileDrawerOpenAtom = atom({ plugin: 'diff-review', key: 'isFileDrawerOpe
 const isFileListCollapsedAtom = atom({ plugin: 'diff-review', key: 'isFileListCollapsed' } as const, false)
 const cursorRowIndexAtom = atom({ plugin: 'diff-review', key: 'cursorRowIndex' } as const, null)
 const claudeCodeThemeAtom = atom({ plugin: 'diff-review', key: 'claudeCodeTheme' } as const, null)
+const configuredThemeAtom = atom({ plugin: 'diff-review', key: 'configuredTheme' } as const, null)
 const isHelpShownAtom = atom({ plugin: 'diff-review', key: 'isHelpShown' } as const, false)
 const answerPulseFrameAtom = atom({ plugin: 'diff-review', key: 'answerPulseFrame' } as const, 0)
 const isSplitViewPreferredAtom = atom({ plugin: 'diff-review', key: 'isSplitViewPreferred' } as const, false)
@@ -1395,11 +1396,16 @@ async function addressGitHubThread($: EngineInterface, threadId: string): Promis
   await askFromPane($, anchorKey, { ...target, context: `${target.context}\n\n${request.context}` }, request.question)
 }
 
-async function readClaudeCodeTheme($: EngineInterface): Promise<void> {
+// Claude Code's theme row is `theme`; the pane's own setting is the row of its userConfig field.
+async function readThemes($: EngineInterface): Promise<void> {
   const rows = await $.config.list().catch(() => [])
-  const themeRow = rows.find(row => row.key === 'theme')
-  await update($, claudeCodeThemeAtom, () => (typeof themeRow?.value === 'string' ? themeRow.value : null))
+  const claudeCodeThemeRow = rows.find(row => row.key === 'theme')
+  await update($, claudeCodeThemeAtom, () => (typeof claudeCodeThemeRow?.value === 'string' ? claudeCodeThemeRow.value : null))
+  const configuredThemeRow = rows.find(row => row.key === CONFIGURED_THEME_KEY)
+  await update($, configuredThemeAtom, () => (typeof configuredThemeRow?.value === 'string' ? configuredThemeRow.value : null))
 }
+
+const CONFIGURED_THEME_KEY = 'diff-review.theme'
 
 // --- Watched term ---------------------------------------------------------------------------------------------------
 
@@ -1833,7 +1839,7 @@ function explorerActions($: EngineInterface): ExplorerActions {
 
 export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
-    await readClaudeCodeTheme($)
+    await readThemes($)
     const savedFileListWidth = await $.store.get(FILE_LIST_WIDTH_STORE_KEY).catch(() => undefined)
     if (typeof savedFileListWidth === 'number') {
       await update($, fileListWidthAtom, () => savedFileListWidth)
@@ -1867,8 +1873,8 @@ export const register: Register = (on, options) => {
 
   on('config.set', async ($, e, next) => {
     const result = await next(e)
-    if (e.key === 'theme') {
-      await readClaudeCodeTheme($)
+    if (e.key === 'theme' || e.key === CONFIGURED_THEME_KEY) {
+      await readThemes($)
     }
 
     return result
@@ -1876,7 +1882,7 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'diff-review' }, async ($, e) => {
     // /theme changes the theme without going through config.set: it is read again at each opening.
-    await readClaudeCodeTheme($)
+    await readThemes($)
     await closeQuestion($)
     await update($, selectedFilePathAtom, () => null)
     await update($, isOverviewShownAtom, () => true)
@@ -2132,7 +2138,7 @@ export const register: Register = (on, options) => {
     const elements = $.ui.resolve(e)
     const ui: ViewElements = {
       ...elements,
-      theme: themeOf(options.theme, await read($, claudeCodeThemeAtom)),
+      theme: themeOf((await read($, configuredThemeAtom)) ?? options.theme, await read($, claudeCodeThemeAtom)),
     }
     if (e.props.bodyColumns < MIN_PANE_COLUMNS) {
       return renderNarrowPane(ui, e.props.bodyColumns)

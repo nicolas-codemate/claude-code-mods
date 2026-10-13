@@ -131,6 +131,8 @@ In `/config`, under diff-review:
 
 - **Theme**: `auto` follows the theme of Claude Code (`/theme`), `dark` or `light` force one. The pane is fully light
   when Claude Code is: forced to the other mode, it leaves its backgrounds to the terminal so that text stays readable.
+  A change applies at once. Claude Code's light theme in a dark terminal leaves some labels pale on the light
+  backgrounds, a mod not choosing the color of a button: set Theme to `dark` there.
 
   ![The light theme](docs/media/light-theme.png)
 
@@ -146,6 +148,9 @@ commits view. A failure shows in a red frame on top of the pane until you dismis
 - Claude Code with mods support (tested with 2.1.294), in the terminal. The Desktop app, VS Code and mobile show a
   notice instead of the pane.
 - `git`; the GitHub CLI `gh` for the pull request features; `xdg-open` (Linux) or `open` (macOS) to open GitHub pages.
+- Over SSH, a terminal Claude Code cannot recognize gets each link as its text followed by the whole URL: the commit
+  shas, the pull request. `export FORCE_HYPERLINK=1` before `claude` keeps them as clickable text when the terminal
+  you type in supports links, as most do.
 
 ## Development
 
