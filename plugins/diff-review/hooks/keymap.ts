@@ -30,12 +30,13 @@ export type ShortcutAction =
   | 'markAllNewFiles'
   | 'stageMarkedFiles'
   | 'stageAllChanges'
+  | 'commitStaged'
   | 'toggleHelp'
   | 'watchSelection'
   | 'nextWatchedMatch'
   | 'previousWatchedMatch'
 
-export type ShortcutGroup = 'Views' | 'Files' | 'Lines' | 'Watch' | 'Threads' | 'git add' | 'Other'
+export type ShortcutGroup = 'Views' | 'Files' | 'Lines' | 'Watch' | 'Threads' | 'git' | 'Other'
 
 type ShortcutDefinition = {
   action: ShortcutAction
@@ -79,10 +80,11 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
   { action: 'nextThread', group: 'Threads', description: 'Next thread', defaultKeys: fixed('n') },
   { action: 'toggleThreadResolved', group: 'Threads', description: 'Resolve or unresolve the GitHub thread', defaultKeys: fixed('x') },
   { action: 'openOnGitHub', group: 'Other', description: 'Open the comment, commit or PR on GitHub', defaultKeys: fixed('o') },
-  { action: 'markCurrentFile', group: 'git add', description: 'Mark the new file', defaultKeys: fixed('v') },
-  { action: 'markAllNewFiles', group: 'git add', description: 'Mark every new file', defaultKeys: fixed('m') },
-  { action: 'stageMarkedFiles', group: 'git add', description: 'git add the marked files', defaultKeys: fixed('g') },
-  { action: 'stageAllChanges', group: 'git add', description: 'git add everything', defaultKeys: fixed('e') },
+  { action: 'markCurrentFile', group: 'git', description: 'Mark the new file', defaultKeys: fixed('v') },
+  { action: 'markAllNewFiles', group: 'git', description: 'Mark every new file', defaultKeys: fixed('m') },
+  { action: 'stageMarkedFiles', group: 'git', description: 'git add the marked files', defaultKeys: fixed('g') },
+  { action: 'stageAllChanges', group: 'git', description: 'git add everything', defaultKeys: fixed('e') },
+  { action: 'commitStaged', group: 'git', description: 'Have Claude commit what git add staged', defaultKeys: fixed('4') },
   { action: 'toggleHelp', group: 'Other', description: 'This help', defaultKeys: fixed('h') },
 ]
 
@@ -96,4 +98,4 @@ export function shortcutsOfGroup(group: ShortcutGroup): readonly ShortcutDefinit
   return SHORTCUTS.filter(shortcut => shortcut.group === group)
 }
 
-export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = ['Views', 'Files', 'Lines', 'Watch', 'Threads', 'git add', 'Other']
+export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = ['Views', 'Files', 'Lines', 'Watch', 'Threads', 'git', 'Other']

@@ -28,6 +28,7 @@ export type ExplorerActions = {
   markAllNewFiles: () => Promise<void>
   stageMarkedFiles: () => Promise<void>
   stageAllChanges: () => Promise<void>
+  requestCommit: () => Promise<void>
   updateFileFilter: (filter: string) => Promise<void>
   toggleNoiseShown: () => Promise<void>
   toggleViewedHidden: () => Promise<void>

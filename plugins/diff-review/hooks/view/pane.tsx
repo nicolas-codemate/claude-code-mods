@@ -1,9 +1,9 @@
-import type { CommitGraphLine, PullRequestSummary, PushState, ReviewView } from '../../types'
+import type { CommitGraphLine, ErrorNotice, PullRequestSummary, PushState, ReviewView } from '../../types'
 import { COMMIT_PANEL_MAX_LINES, CURSOR_LINE_FOCUS_KEY, DIVIDER_KEY, MIN_PANE_COLUMNS, TWO_COLUMNS_MIN_WIDTH } from '../constants'
 import { SHORTCUTS } from '../keymap'
 import type { Keymap, ShortcutAction } from '../keymap'
 import type { PaneGeometry } from '../layout'
-import { renderCommitList } from './commits'
+import { pushLabelOf, renderCommitList } from './commits'
 import { renderDiffView, renderLineShortcuts } from './diff'
 import type { DiffViewInput } from './diff'
 import type { HeaderTile } from './drawings'
@@ -31,7 +31,7 @@ export type PaneInput = {
   pushState: PushState
   help: HelpInput | null
   loadError: string | null
-  errorNotices: Array<{ id: string; text: string }>
+  errorNotices: ErrorNotice[]
   pullRequest: PullRequestSummary | null
   viewedCount: { viewed: number; total: number }
   linesToView: { addedLines: number; removedLines: number }
@@ -107,6 +107,7 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
           <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
             <Text wrap="truncate-end">{notice.text}</Text>
           </Box>
+          {notice.action === 'forcePush' && renderForcePushOfNotice(ui, notice.id, input.pushState, input.actions)}
           <Box key={`dismiss-error-box-${notice.id}`} flexShrink={0} marginLeft={1}>
             <Button
               key={`dismiss-error-${notice.id}`}
@@ -247,4 +248,27 @@ function renderIdleShortcuts(ui: ViewElements, input: PaneInput) {
       ))}
     </Box>
   )
+}
+
+function renderForcePushOfNotice(ui: ViewElements, noticeId: string, pushState: PushState, actions: ExplorerActions) {
+  const { Box, Button } = ui
+  switch (pushState) {
+    case 'rejected':
+    case 'forceArmed':
+      return (
+        <Box key={`force-push-box-${noticeId}`} flexShrink={0} marginLeft={1}>
+          <Button
+            key={`force-push-${noticeId}`}
+            variant={pushState === 'forceArmed' ? 'primary' : undefined}
+            label={pushLabelOf(pushState, 0)}
+            onPress={() => actions.pushBranch()}
+          />
+        </Box>
+      )
+    case 'idle':
+    case 'armed':
+    case 'pushing':
+    case 'pushed':
+      return null
+  }
 }

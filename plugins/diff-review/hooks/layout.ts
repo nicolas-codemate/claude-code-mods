@@ -81,6 +81,7 @@ export type GeometryInput = {
   requestedCommitListOffset: number | null
   fileLineCount: number
   hasStageActions: boolean
+  hasCommitAction: boolean
   hasNoiseNotice: boolean
   // The bar of the searched term, under the header.
   hasWatchBar: boolean
@@ -154,6 +155,7 @@ export function computePaneGeometry(input: GeometryInput): PaneGeometry {
     FILTER_ROWS +
     NAVIGATION_HINT_ROWS +
     (input.hasStageActions ? 1 : 0) +
+    (input.hasCommitAction ? 1 : 0) +
     (input.hasNoiseNotice ? 1 : 0)
   const fileListBoxHeight = isTwoColumns ? panelsHeight : panelsHeight - FILE_BAR_ROWS
   const visibleFileLines = Math.max(1, fileListBoxHeight - fileListChromeRows)

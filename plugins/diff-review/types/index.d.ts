@@ -69,6 +69,14 @@ export type ReviewThread = {
 // Each push and each force push waits for a second press; a push the remote refused offers the force push.
 export type PushState = 'idle' | 'armed' | 'pushing' | 'pushed' | 'rejected' | 'forceArmed'
 
+// A failure the notice itself can act on: a refused push offers the force push right where it is reported.
+export type ErrorNotice = { id: string; text: string; action: 'forcePush' | null }
+
+export type CommitRequest =
+  | { state: 'idle' }
+  | { state: 'requested'; headBeforeRequest: string | null; turnId: string | null }
+  | { state: 'awaitingReply'; headBeforeRequest: string | null }
+
 declare module 'claude-code' {
   interface PluginState {
     'diff-review': {
@@ -76,13 +84,15 @@ declare module 'claude-code' {
       baseRef: string | null
       baseBranchName: string | null
       uncommittedFileCount: number
+      stagedFileCount: number
+      commitRequest: CommitRequest
       // The branch's commits since its base, the pull request's one when there is a pull request.
       branchCommitCount: number
       // The branch's commits its remote does not have yet, all of them while the branch was never pushed.
       unpushedCommitShas: string[]
       pushState: PushState
       commitListOffset: number | null
-      errorNotices: Array<{ id: string; text: string }>
+      errorNotices: ErrorNotice[]
       helpScrolledLines: number
       // The thread whose answer the diff follows as it grows, until the person scrolls, moves or changes file.
       followedThreadId: string | null

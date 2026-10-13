@@ -104,7 +104,7 @@ function renderPushControl(ui: ViewElements, pushState: PushState, unpushedCommi
   }
 }
 
-function pushLabelOf(pushState: 'idle' | 'armed' | 'rejected' | 'forceArmed', unpushedCommitCount: number): string {
+export function pushLabelOf(pushState: 'idle' | 'armed' | 'rejected' | 'forceArmed', unpushedCommitCount: number): string {
   switch (pushState) {
     case 'idle':
       return `↑ push ${unpushedCommitCount} commit${unpushedCommitCount > 1 ? 's' : ''}`

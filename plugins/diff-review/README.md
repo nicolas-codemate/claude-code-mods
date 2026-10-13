@@ -50,6 +50,11 @@ uncommitted files and the branch commits, and count again after each edit or com
 **Uncommitted**: what `git diff` shows, new untracked files included. Tick new files and `git add` them, or add
 everything, from the file list. The tab counts the files (`Uncommitted 3`) and dims when there is nothing uncommitted.
 
+Once files are staged, `✓ commit` hands the commit to Claude, as if you typed it: your commit skill writes the message
+when you have one, else Claude follows the style of the recent commits, and only what is staged goes in. When the
+commit is made the pane moves to the commits view, ready to push; a skill that asks first leaves the pane waiting for
+your reply in the conversation.
+
 ![The uncommitted changes, a new file](docs/media/uncommitted.png)
 
 **Pull request**: the whole branch against the base the pull request targets, opening on its description.
@@ -59,7 +64,8 @@ everything, from the file list. The tab counts the files (`Uncommitted 3`) and d
 **Commits**: the branch commits with their graph, one commit's diff at a time. Commits not pushed yet carry
 `↑ not pushed`, their count shows on the tab after the branch's (`Commits 5 ↑2`), and a button pushes them: a second press confirms, a plain
 `git push` is used, never from `main` or `master`. When the remote refuses the push (after a rebase, say), the button
-offers a force push protected by `--force-with-lease --force-if-includes`, again on a second press.
+and the notice that reports it offer a force push protected by `--force-with-lease --force-if-includes`, again on a
+second press; the notice goes once the force push starts.
 
 ![The branch commits, one not pushed, and the push button](docs/media/commits.png)
 
