@@ -18,6 +18,8 @@ import type { OverviewInput } from './overview'
 import type { ExplorerActions, GitHubPage, ViewElements } from './types'
 import { renderWatchBar } from './watch-bar'
 import type { WatchBarInput } from './watch-bar'
+import { renderCommitBar } from './commit-bar'
+import type { CommitBarInput } from './commit-bar'
 
 export type PaneInput = {
   bodyRows: number
@@ -45,6 +47,7 @@ export type PaneInput = {
   idleShortcuts: { keymap: Keymap; claimedActions: ReadonlySet<ShortcutAction> } | null
   // Null while nothing is watched or being typed.
   watchBar: WatchBarInput | null
+  commitBar: CommitBarInput | null
   fileList: Omit<FileListInput, 'width' | 'height' | 'isDrawer' | 'canPin'>
   overview: OverviewInput | null
   diff: DiffViewInput
@@ -93,6 +96,7 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
         actions: input.actions,
       })}
       {input.watchBar && renderWatchBar(ui, input.watchBar, input.hotkeyOf, input.actions)}
+      {input.commitBar && renderCommitBar(ui, input.commitBar, input.hotkeyOf, input.actions)}
       {input.errorNotices.map(notice => (
         <Box
           key={`error-notice-${notice.id}`}

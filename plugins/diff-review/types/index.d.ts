@@ -72,6 +72,9 @@ export type PushState = 'idle' | 'armed' | 'pushing' | 'pushed' | 'rejected' | '
 // A failure the notice itself can act on: a refused push offers the force push right where it is reported.
 export type ErrorNotice = { id: string; text: string; action: 'forcePush' | null }
 
+// Where a file of the Uncommitted view stands against the index: all of it staged, part of it, or none of it.
+export type StageState = 'staged' | 'partlyStaged' | 'unstaged'
+
 export type CommitRequest =
   | { state: 'idle' }
   | { state: 'requested'; headBeforeRequest: string | null; turnId: string | null }
@@ -85,7 +88,11 @@ declare module 'claude-code' {
       baseBranchName: string | null
       uncommittedFileCount: number
       stagedFileCount: number
+      stageStateByPath: Record<string, StageState>
+      // The last git status read, to reload the view only when the working tree changed between two polls.
+      workingTreeStatus: string
       commitRequest: CommitRequest
+      commitThread: ReviewThread | null
       // The branch's commits since its base, the pull request's one when there is a pull request.
       branchCommitCount: number
       // The branch's commits its remote does not have yet, all of them while the branch was never pushed.
@@ -120,7 +127,6 @@ declare module 'claude-code' {
       repositoryRoot: string | null
       repositoryWebUrl: string | null
       branch: string | null
-      markedPaths: string[]
       fileFilter: string
       watchedTerm: string
       isWatchFieldOpen: boolean

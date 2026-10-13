@@ -32,14 +32,14 @@ export function renderThreadsAndQuestion(
   )
 }
 
-export function renderThread(ui: ViewElements, thread: ReviewThread, actions: ExplorerActions, isAnswerPulseLit: boolean) {
+export function renderThread(ui: ViewElements, thread: ReviewThread, actions: ExplorerActions, isAnswerPulseLit: boolean, indent = THREAD_INDENT) {
   const { Box, Button, Input, Markdown, Text } = ui
 
   return (
     <Box
       flexDirection="column"
       flexShrink={0}
-      marginLeft={THREAD_INDENT}
+      marginLeft={indent}
       marginRight={2}
       marginY={1}
       borderStyle="round"
@@ -154,11 +154,11 @@ function renderQuestionField(
   )
 }
 
-function renderArmedBanner(ui: ViewElements, actions: ExplorerActions) {
+export function renderArmedBanner(ui: ViewElements, actions: ExplorerActions, indent = THREAD_INDENT) {
   const { Box, Button, Text } = ui
 
   return (
-    <Box flexDirection="row" flexShrink={0} marginLeft={THREAD_INDENT} marginY={1} borderStyle="round" borderColor={ui.theme.commitSha} paddingX={1}>
+    <Box flexDirection="row" flexShrink={0} marginLeft={indent} marginY={1} borderStyle="round" borderColor={ui.theme.commitSha} paddingX={1}>
       <Box flexGrow={1}>
         <Text color={ui.theme.commitSha}>Ask from the prompt below: click it, then type or hold Space to dictate, Enter to send.</Text>
       </Box>

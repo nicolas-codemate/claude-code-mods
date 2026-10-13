@@ -50,15 +50,17 @@ scrolling or moving yourself stops the follow.
 ## Three views
 
 The pane opens on the uncommitted changes, or on the pull request when everything is committed. The tabs count the
-uncommitted files and the branch commits, and count again after each edit or command of Claude.
+uncommitted files and the branch commits, and count again after each edit or command of Claude, and within a few
+seconds of a change made elsewhere, in an editor or a terminal.
 
-**Uncommitted**: what `git diff` shows, new untracked files included. Tick new files and `git add` them, or add
-everything, from the file list. The tab counts the files (`Uncommitted 3`) and dims when there is nothing uncommitted.
+**Uncommitted**: what `git diff` shows, new untracked files included. In the file list, `+` stages a file, `±` the rest
+of a file partly staged, `✓` marks one staged whole, and `add all` stages everything. The tab counts the files
+(`Uncommitted 3`) and dims when there is nothing uncommitted.
 
-Once files are staged, `✓ commit` hands the commit to Claude, as if you typed it: your commit skill writes the message
-when you have one, else Claude follows the style of the recent commits, and only what is staged goes in. When the
-commit is made the pane moves to the commits view, ready to push; a skill that asks first leaves the pane waiting for
-your reply in the conversation.
+Once files are staged, a bar under the header offers `✓ commit`, which hands the commit to Claude as if you typed it:
+your commit skill writes the message when you have one, else Claude follows the style of the recent commits, and only
+what is staged goes in. Claude's answer streams into the bar, and a skill that asks first is answered there, or
+dictated in the prompt. When the commit is made the pane moves to the commits view, ready to push.
 
 ![The uncommitted changes, a new file](docs/media/uncommitted.png)
 

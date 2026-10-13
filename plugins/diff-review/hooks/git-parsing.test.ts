@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { fileTypeBadgeOf } from './view/file-badges'
-import { changedNewLinesOf, diffRangeArguments, openingViewOf, groupFilesByDirectory, commitsOfGraph, parseCommitGraph, parseNumstat, repositoryWebUrlOf, parseUnifiedDiff } from './git-parsing'
+import { changedNewLinesOf, diffRangeArguments, openingViewOf, groupFilesByDirectory, commitsOfGraph, parseCommitGraph, parseNumstat, repositoryWebUrlOf, parseUnifiedDiff, stageStatesOf } from './git-parsing'
 
 test('a unified diff becomes rows numbered on both sides', async () => {
   const rows = parseUnifiedDiff(
@@ -76,4 +76,15 @@ test('the pane opens on the uncommitted changes, else on the branch commits, els
   expect(openingViewOf(3, 2)).toBe('uncommitted')
   expect(openingViewOf(0, 2)).toBe('pr')
   expect(openingViewOf(0, 0)).toBe('uncommitted')
+})
+
+test('git status tells a file staged whole, partly or not at all, a renamed one under its new path', async () => {
+  expect(stageStatesOf('M  a.php\nMM b.php\n M c.php\n?? d.md\nR  old.php -> new.php\nD  e.php\n')).toEqual({
+    'a.php': 'staged',
+    'b.php': 'partlyStaged',
+    'c.php': 'unstaged',
+    'd.md': 'unstaged',
+    'new.php': 'staged',
+    'e.php': 'staged',
+  })
 })

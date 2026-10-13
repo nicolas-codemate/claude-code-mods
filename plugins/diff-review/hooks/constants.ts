@@ -20,6 +20,7 @@ export const COMMIT_PANEL_MAX_LINES = 8
 export const HEADER_COLUMNS_WITHOUT_TILES = 142
 export const WHEEL_TICK_ROWS = 3
 export const ANSWER_PULSE_MS = 600
+export const WORKING_TREE_POLL_MS = 5000
 export const CONTEXT_RADIUS_ROWS = 6
 export const DEFAULT_DIFF_CONTEXT_LINES = 3
 export const DIFF_CONTEXT_STEP_LINES = 20
@@ -49,6 +50,8 @@ export const FILE_FILTER_KEY = 'file-filter'
 export const WATCH_FIELD_KEY = 'watch-term'
 // The search bar frames its field, so that it reads as the place to type.
 export const WATCH_BAR_ROWS = 3
+// The anchor of the thread the commit button opens: no line of any diff carries it.
+export const COMMIT_THREAD_ANCHOR_KEY = 'commit'
 export const DIVIDER_KEY = 'file-divider'
 export const FILE_BUTTON_KEY_PREFIX = 'file-'
 export const DIRECTORY_BUTTON_KEY_PREFIX = 'directory-'

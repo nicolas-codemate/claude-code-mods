@@ -1,4 +1,4 @@
-import type { ChangedFile, CommitGraphLine, CommitSummary, DiffRow, ReviewView } from '../types'
+import type { ChangedFile, CommitGraphLine, CommitSummary, DiffRow, ReviewView, StageState } from '../types'
 
 const LOG_FIELD_SEPARATOR = '\u001f'
 export const LOG_FORMAT = ['%H', '%h', '%s', '%an', '%ar', '%D'].join('%x1f')
@@ -29,6 +29,22 @@ export function parseNumstat(numstatOutput: string): ChangedFile[] {
         ...(creation ? { creation } : {}),
       }
     })
+}
+
+// git status --porcelain: X is the index column, Y the working tree one; ?? marks a file git does not track yet.
+export function stageStatesOf(statusOutput: string): Record<string, StageState> {
+  const stageStateByPath: Record<string, StageState> = {}
+  for (const line of statusOutput.split('\n')) {
+    if (line.length < 4) {
+      continue
+    }
+    const [indexColumn, workingTreeColumn] = [line[0], line[1]]
+    const path = line.slice(3).split(' -> ').at(-1)?.replace(/^"(.*)"$/, '$1') ?? ''
+    stageStateByPath[path] =
+      indexColumn === ' ' || indexColumn === '?' ? 'unstaged' : workingTreeColumn === ' ' ? 'staged' : 'partlyStaged'
+  }
+
+  return stageStateByPath
 }
 
 export function parseUntrackedFiles(lsFilesOutput: string): ChangedFile[] {

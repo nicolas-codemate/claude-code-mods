@@ -10,9 +10,11 @@ import type {
   PushState,
   ReviewThread,
   ReviewView,
+  StageState,
   ViewedState,
 } from '../../types'
 import {
+  COMMIT_THREAD_ANCHOR_KEY,
   FILE_FILTER_KEY,
   QUESTION_INPUT_KEY_PREFIX,
   REPLY_INPUT_KEY_PREFIX,
@@ -31,6 +33,8 @@ import { splitMarkdownBlocks } from '../markdown'
 import { anchorKeyOf, fileAnchorPrefixOf, openThreadsByPath, threadsInReadingOrder } from '../questions'
 import { groupFilesByDirectory } from '../git-parsing'
 import { pairRowsSideBySide, splitIndexOfRow } from '../split-rows'
+import { commitBarRows } from './commit-bar'
+import type { CommitBarInput } from './commit-bar'
 import { LINES_TO_VIEW_TILE_LABEL } from './drawings'
 import type { HeaderTile } from './drawings'
 import { estimatedRowHeights } from './row-height'
@@ -47,6 +51,7 @@ export type ExplorerSnapshot = {
   uncommittedFileCount: number
   stagedFileCount: number
   commitRequest: CommitRequest
+  commitThread: ReviewThread | null
   branchCommitCount: number
   unpushedCommitShas: string[]
   pushState: PushState
@@ -67,7 +72,7 @@ export type ExplorerSnapshot = {
   diffRows: DiffRow[]
   pullRequest: PullRequestSummary | null
   viewedStateByPath: Record<string, ViewedState>
-  markedPaths: string[]
+  stageStateByPath: Record<string, StageState>
   fileFilter: string
   watchedTerm: string
   isWatchFieldOpen: boolean
@@ -123,9 +128,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
   const viewedStateByPath = pullRequest ? snapshot.viewedStateByPath : {}
   const isOverviewShown = pullRequest !== null && snapshot.isOverviewShown
   const overviewBlocks = pullRequest && isOverviewShown ? splitMarkdownBlocks(pullRequest.overviewMarkdown) : []
-  const hasUntrackedFiles = view === 'uncommitted' && files.some(file => file.isUntracked)
   const hasStageActions = view === 'uncommitted' && files.length > 0
-  const hasCommitAction = view === 'uncommitted' && (snapshot.stagedFileCount > 0 || snapshot.commitRequest.state !== 'idle')
 
   // A one-letter shortcut would fire on the letters typed into a question or a reply: none is bound meanwhile.
   const focusedElementKey = snapshot.focusedElementKey ?? ''
@@ -154,6 +157,18 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     armedAnchorKey: snapshot.armedAnchorKey,
     isAnswerPulseLit: snapshot.answerPulseFrame % 2 === 0,
   }
+  const isCommitBarShown =
+    view === 'uncommitted' &&
+    (snapshot.stagedFileCount > 0 || snapshot.commitRequest.state !== 'idle' || snapshot.commitThread !== null)
+  const commitBar: CommitBarInput | null = isCommitBarShown
+    ? {
+        stagedFileCount: snapshot.stagedFileCount,
+        commitRequest: snapshot.commitRequest,
+        thread: snapshot.commitThread,
+        isReplyArmed: snapshot.armedAnchorKey === COMMIT_THREAD_ANCHOR_KEY,
+        isAnswerPulseLit: questionState.isAnswerPulseLit,
+      }
+    : null
   const fileAnchorPrefix = selectedFilePath ? fileAnchorPrefixOf(view, selectedCommitSha, selectedFilePath) : null
   const gitHubThreads = pullRequest ? snapshot.gitHubReviewThreads : []
   const gitHubThreadsOfFile = gitHubThreads.filter(thread => thread.path === selectedFilePath)
@@ -221,7 +236,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     ),
     fileLineCount: fileLines.length,
     hasStageActions,
-    hasCommitAction,
+    commitBarRows: commitBar ? commitBarRows(commitBar, surface.bodyColumns) : 0,
     hasNoiseNotice: shown.hiddenNoiseCount > 0 || snapshot.isNoiseShown,
     hasWatchBar: isWatchBarShown,
     requestedFileListWidth: snapshot.fileListWidth,
@@ -303,6 +318,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     viewedCount,
     linesToView,
     watchBar: isWatchBarShown ? { term: snapshot.watchedTerm, matchCountByPath: snapshot.watchedMatchCountByPath } : null,
+    commitBar,
     headerTiles: headerTilesOf(files, pullRequest, viewedCount, linesToView, gitHubThreads),
     commitGraph: snapshot.commitGraph,
     commitCount: snapshot.commits.length,
@@ -333,12 +349,8 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
       pullRequest,
       viewedStateByPath,
       openThreadCountByPath,
-      hasUntrackedFiles,
       hasStageActions,
-      hasCommitAction,
-      stagedFileCount: snapshot.stagedFileCount,
-      commitRequest: snapshot.commitRequest,
-      markedPaths: view === 'uncommitted' ? snapshot.markedPaths : [],
+      stageStateByPath: view === 'uncommitted' ? snapshot.stageStateByPath : null,
       keymap: snapshot.keymap,
       isTyping,
       hotkeyOf,

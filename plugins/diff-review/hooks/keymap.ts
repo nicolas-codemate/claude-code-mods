@@ -26,9 +26,7 @@ export type ShortcutAction =
   | 'nextThread'
   | 'toggleThreadResolved'
   | 'openOnGitHub'
-  | 'markCurrentFile'
-  | 'markAllNewFiles'
-  | 'stageMarkedFiles'
+  | 'stageCurrentFile'
   | 'stageAllChanges'
   | 'commitStaged'
   | 'toggleHelp'
@@ -80,9 +78,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
   { action: 'nextThread', group: 'Threads', description: 'Next thread', defaultKeys: fixed('n') },
   { action: 'toggleThreadResolved', group: 'Threads', description: 'Resolve or unresolve the GitHub thread', defaultKeys: fixed('x') },
   { action: 'openOnGitHub', group: 'Other', description: 'Open the comment, commit or PR on GitHub', defaultKeys: fixed('o') },
-  { action: 'markCurrentFile', group: 'git', description: 'Mark the new file', defaultKeys: fixed('v') },
-  { action: 'markAllNewFiles', group: 'git', description: 'Mark every new file', defaultKeys: fixed('m') },
-  { action: 'stageMarkedFiles', group: 'git', description: 'git add the marked files', defaultKeys: fixed('g') },
+  { action: 'stageCurrentFile', group: 'git', description: 'git add the file', defaultKeys: fixed('g') },
   { action: 'stageAllChanges', group: 'git', description: 'git add everything', defaultKeys: fixed('e') },
   { action: 'commitStaged', group: 'git', description: 'Have Claude commit what git add staged', defaultKeys: fixed('4') },
   { action: 'toggleHelp', group: 'Other', description: 'This help', defaultKeys: fixed('h') },
