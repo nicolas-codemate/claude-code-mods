@@ -541,22 +541,35 @@ async function markViewedAndNext($: EngineInterface): Promise<void> {
 
 // A PR may target another branch than the repository's default one (a release branch such as 2026-09): its own
 // target comes first, or the PR view would list the commits of that branch too.
-async function findBaseRef($: EngineInterface): Promise<{ sha: string; branchName: string } | null> {
+async function findBaseRef($: EngineInterface, branch: string | null): Promise<{ sha: string; branchName: string } | null> {
   const pullRequestBase = (await read($, pullRequestAtom))?.baseRefName
-  const originHead = await runGit($, ['rev-parse', '--abbrev-ref', 'origin/HEAD'])
-  const candidates = [
-    ...(pullRequestBase ? [`origin/${pullRequestBase}`, pullRequestBase] : []),
-    ...(originHead.isSuccess ? [originHead.output.trim()] : []),
-    ...BASE_REF_CANDIDATES,
-  ]
-  for (const candidate of candidates) {
+  for (const candidate of pullRequestBase ? [`origin/${pullRequestBase}`, pullRequestBase] : []) {
     const mergeBase = await runGit($, ['merge-base', 'HEAD', candidate])
     if (mergeBase.isSuccess) {
       return { sha: mergeBase.output.trim(), branchName: candidate.replace(/^origin\//, '') }
     }
   }
+  // Without a pull request, the branch the work most likely left is the one it is fewest commits ahead of: develop for a
+  // branch taken from develop, though GitHub's default branch is main. A branch is never its own base.
+  const originHead = await runGit($, ['rev-parse', '--abbrev-ref', 'origin/HEAD'])
+  const candidates = [...(originHead.isSuccess ? [originHead.output.trim()] : []), ...BASE_REF_CANDIDATES].filter(
+    candidate => candidate.replace(/^origin\//, '') !== branch,
+  )
+  let closestBase: { sha: string; branchName: string; commitsAhead: number } | null = null
+  for (const candidate of candidates) {
+    const mergeBase = await runGit($, ['merge-base', 'HEAD', candidate])
+    if (!mergeBase.isSuccess) {
+      continue
+    }
+    const sha = mergeBase.output.trim()
+    const commitsAhead = await runGit($, ['rev-list', '--count', `${sha}..HEAD`])
+    const count = commitsAhead.isSuccess ? Number(commitsAhead.output.trim()) : Number.POSITIVE_INFINITY
+    if (closestBase === null || count < closestBase.commitsAhead) {
+      closestBase = { sha, branchName: candidate.replace(/^origin\//, ''), commitsAhead: count }
+    }
+  }
 
-  return null
+  return closestBase && { sha: closestBase.sha, branchName: closestBase.branchName }
 }
 
 async function readWorkingTreeFile($: EngineInterface, path: string): Promise<string> {
@@ -738,7 +751,7 @@ async function loadView($: EngineInterface): Promise<void> {
   const branch = await runGit($, ['rev-parse', '--abbrev-ref', 'HEAD'])
   await update($, branchAtom, () => (branch.isSuccess ? branch.output.trim() : null))
   const view = await read($, viewAtom)
-  const base = await findBaseRef($)
+  const base = await findBaseRef($, branch.isSuccess ? branch.output.trim() : null)
   const baseRef = base?.sha ?? null
   await update($, baseRefAtom, () => baseRef)
   await update($, baseBranchNameAtom, () => base?.branchName ?? null)

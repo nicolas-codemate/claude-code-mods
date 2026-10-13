@@ -218,6 +218,33 @@ test('an empty Uncommitted tab loses its fill, and the commits the remote lacks 
   await pane.unmount()
 })
 
+test('without a pull request the base is the branch the work is fewest commits ahead of, never the branch itself', async ($, on) => {
+  let currentBranch = 'feat/tax'
+  stubWorld(on, {
+    git: gitCommand => {
+      if (gitCommand === 'rev-parse --abbrev-ref HEAD') return { exitCode: 0, stdout: `${currentBranch}\n` }
+      if (gitCommand === 'merge-base HEAD origin/develop') return { exitCode: 0, stdout: 'dev000\n' }
+      if (gitCommand === 'rev-list --count base000..HEAD') return { exitCode: 0, stdout: '9\n' }
+      if (gitCommand === 'rev-list --count dev000..HEAD') return { exitCode: 0, stdout: '1\n' }
+      return undefined
+    },
+  })
+  await openExplorer($)
+  let pane = await mountPane($)
+  await pane.press({ key: 'view-commits' })
+  expect(await pane.find({ type: 'Text', text: /from develop/ })).toBeDefined()
+  expect((await pane.find({ key: 'view-commits' }))?.text).toBe('Commits 1 ')
+  await pane.unmount()
+
+  currentBranch = 'develop'
+  await reopenExplorer($)
+  pane = await mountPane($)
+  await pane.press({ key: 'view-commits' })
+  expect(await pane.find({ type: 'Text', text: /from main/ })).toBeDefined()
+  expect((await pane.find({ key: 'view-commits' }))?.text).toBe('Commits 9 ')
+  await pane.unmount()
+})
+
 test('a branch never pushed counts as not pushed only the commits no remote branch holds', async ($, on) => {
   stubWorld(on, {
     git: gitCommand => {
