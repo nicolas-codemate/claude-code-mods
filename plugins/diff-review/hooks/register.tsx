@@ -666,13 +666,12 @@ async function loadBranchState($: EngineInterface, branch: string | null, baseRe
   await update($, stagedFileCountAtom, () => Object.values(stageStateByPath).filter(stageState => stageState !== 'unstaged').length)
   const branchCommits = baseRef ? await runGit($, ['rev-list', '--count', `${baseRef}..HEAD`]) : null
   await update($, branchCommitCountAtom, () => (branchCommits?.isSuccess ? Number(branchCommits.output.trim()) : 0))
-  const remoteCandidates = ['@{upstream}', ...(branch ? [`origin/${branch}`] : [])]
+  // A branch never pushed has no remote of its own: its commits already on any remote branch, the ones it took from
+  // develop say, are not its to push.
+  const remoteRanges = [['@{upstream}..HEAD'], ...(branch ? [[`origin/${branch}..HEAD`]] : []), ['HEAD', '--not', '--remotes']]
   let unpushedCommitShas: string[] = []
-  for (const remoteRef of [...remoteCandidates, baseRef]) {
-    if (remoteRef === null) {
-      continue
-    }
-    const revList = await runGit($, ['rev-list', `${remoteRef}..HEAD`])
+  for (const remoteRange of remoteRanges) {
+    const revList = await runGit($, ['rev-list', ...remoteRange])
     if (revList.isSuccess) {
       unpushedCommitShas = revList.output.split('\n').filter(sha => sha !== '')
       break

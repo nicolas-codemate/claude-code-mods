@@ -218,6 +218,21 @@ test('an empty Uncommitted tab loses its fill, and the commits the remote lacks 
   await pane.unmount()
 })
 
+test('a branch never pushed counts as not pushed only the commits no remote branch holds', async ($, on) => {
+  stubWorld(on, {
+    git: gitCommand => {
+      if (gitCommand === 'rev-list HEAD --not --remotes') return { exitCode: 0, stdout: 'c2\n' }
+      return undefined
+    },
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-commits' })
+  expect((await pane.find({ key: 'view-commits' }))?.text).toBe('Commits 2 ↑1 ')
+  expect(await pane.findAll({ type: 'Text', text: /↑ not pushed/ })).toHaveLength(1)
+  await pane.unmount()
+})
+
 test('the push button pushes on a second press only, plainly, and forgets the first press after a moment', async ($, on) => {
   const pushCommands: string[] = []
   const world = stubWorld(on, {
