@@ -1,6 +1,6 @@
 {
   "name": "diff-review",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Review pane for uncommitted changes, the pull request or one commit at a time: ask Claude about any line, read and settle GitHub review threads, all from the keyboard",
   "author": {
     "name": "Nicolas DEMAY",
