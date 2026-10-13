@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { ChangedFile, CommitRequest, DiffRow, ErrorNotice, GitHubReviewThread, KeyboardLayout, ReviewView, ViewedState } from '../types'
+import type { ChangedFile, CommitRequest, DiffRow, ErrorNotice, ReviewThread, GitHubReviewThread, KeyboardLayout, ReviewView, ViewedState } from '../types'
 import {
   ANSWER_PULSE_MS,
   ASK_BUTTON_KEY_PREFIX,
@@ -48,6 +48,8 @@ import {
   VIEW_ORDER,
   WHOLE_FILE_CONTEXT_LINES,
   WHEEL_TICK_ROWS,
+  WORKING_TREE_POLL_MS,
+  COMMIT_THREAD_ANCHOR_KEY,
 } from './constants'
 import {
   changedNewLinesOf,
@@ -62,6 +64,7 @@ import {
   parseNumstat,
   parseUnifiedDiff,
   parseUntrackedFiles,
+  stageStatesOf,
 } from './git-parsing'
 import {
   addressRequestOf,
@@ -127,7 +130,10 @@ const baseRefAtom = atom({ plugin: 'diff-review', key: 'baseRef' } as const, nul
 const baseBranchNameAtom = atom({ plugin: 'diff-review', key: 'baseBranchName' } as const, null)
 const uncommittedFileCountAtom = atom({ plugin: 'diff-review', key: 'uncommittedFileCount' } as const, 0)
 const stagedFileCountAtom = atom({ plugin: 'diff-review', key: 'stagedFileCount' } as const, 0)
+const stageStateByPathAtom = atom({ plugin: 'diff-review', key: 'stageStateByPath' } as const, {})
+const workingTreeStatusAtom = atom({ plugin: 'diff-review', key: 'workingTreeStatus' } as const, '')
 const commitRequestAtom = atom({ plugin: 'diff-review', key: 'commitRequest' } as const, { state: 'idle' })
+const commitThreadAtom = atom({ plugin: 'diff-review', key: 'commitThread' } as const, null)
 const branchCommitCountAtom = atom({ plugin: 'diff-review', key: 'branchCommitCount' } as const, 0)
 const unpushedCommitShasAtom = atom({ plugin: 'diff-review', key: 'unpushedCommitShas' } as const, [])
 const pushStateAtom = atom({ plugin: 'diff-review', key: 'pushState' } as const, 'idle')
@@ -182,9 +188,6 @@ const claudeCodeThemeAtom = atom({ plugin: 'diff-review', key: 'claudeCodeTheme'
 const isHelpShownAtom = atom({ plugin: 'diff-review', key: 'isHelpShown' } as const, false)
 const answerPulseFrameAtom = atom({ plugin: 'diff-review', key: 'answerPulseFrame' } as const, 0)
 const isSplitViewPreferredAtom = atom({ plugin: 'diff-review', key: 'isSplitViewPreferred' } as const, false)
-
-// New files marked for git add.
-const markedPathsAtom = atom({ plugin: 'diff-review', key: 'markedPaths' } as const, [])
 
 // Questions and their threads.
 const threadsAtom = atom({ plugin: 'diff-review', key: 'threads' } as const, [])
@@ -639,11 +642,28 @@ async function loadBranchCommits($: EngineInterface, baseRef: string | null): Pr
   }
 }
 
+const WORKING_TREE_STATUS_ARGUMENTS = ['status', '--porcelain', '--untracked-files=all']
+
+// Files change outside Claude too, in an editor or a terminal: while the pane is open, git status is read again now and
+// then, and the view reloads only when it says something else.
+async function reloadWhenWorkingTreeChanged($: EngineInterface): Promise<void> {
+  if (!(await $.ui.panes()).some(pane => pane.id === PANE_ID)) {
+    return
+  }
+  const status = await runGit($, WORKING_TREE_STATUS_ARGUMENTS)
+  if (status.isSuccess && status.output !== (await read($, workingTreeStatusAtom))) {
+    await loadView($)
+  }
+}
+
 async function loadBranchState($: EngineInterface, branch: string | null, baseRef: string | null): Promise<void> {
-  const status = await runGit($, ['status', '--porcelain', '--untracked-files=all'])
-  await update($, uncommittedFileCountAtom, () => (status.isSuccess ? status.output.split('\n').filter(line => line !== '').length : 0))
-  const staged = await runGit($, ['diff', '--cached', '--name-only'])
-  await update($, stagedFileCountAtom, () => (staged.isSuccess ? staged.output.split('\n').filter(line => line !== '').length : 0))
+  const status = await runGit($, WORKING_TREE_STATUS_ARGUMENTS)
+  const statusOutput = status.isSuccess ? status.output : ''
+  const stageStateByPath = stageStatesOf(statusOutput)
+  await update($, workingTreeStatusAtom, () => statusOutput)
+  await update($, stageStateByPathAtom, () => stageStateByPath)
+  await update($, uncommittedFileCountAtom, () => Object.keys(stageStateByPath).length)
+  await update($, stagedFileCountAtom, () => Object.values(stageStateByPath).filter(stageState => stageState !== 'unstaged').length)
   const branchCommits = baseRef ? await runGit($, ['rev-list', '--count', `${baseRef}..HEAD`]) : null
   await update($, branchCommitCountAtom, () => (branchCommits?.isSuccess ? Number(branchCommits.output.trim()) : 0))
   const remoteCandidates = ['@{upstream}', ...(branch ? [`origin/${branch}`] : [])]
@@ -814,7 +834,6 @@ async function refreshExplorer($: EngineInterface): Promise<void> {
 async function switchView($: EngineInterface, view: ReviewView): Promise<void> {
   await update($, followedThreadIdAtom, () => null)
   await update($, viewAtom, () => view)
-  await update($, markedPathsAtom, () => [])
   await update($, fileListOffsetAtom, () => 0)
   await update($, diffOffsetAtom, () => 0)
   await update($, isOverviewShownAtom, () => true)
@@ -951,50 +970,25 @@ async function moveFileSelection($: EngineInterface, offset: number): Promise<vo
   }
 }
 
-// --- Staging new files ----------------------------------------------------------------------------------------------
+// --- Staging --------------------------------------------------------------------------------------------------------
 
-async function untrackedPathsOf($: EngineInterface): Promise<string[]> {
-  return (await read($, filesAtom)).filter(file => file.isUntracked).map(file => file.path)
-}
-
-async function toggleMarked($: EngineInterface, path: string): Promise<void> {
-  if (!(await untrackedPathsOf($)).includes(path)) {
+async function stageFile($: EngineInterface, path: string): Promise<void> {
+  if ((await read($, viewAtom)) !== 'uncommitted') {
     return
   }
-  await update($, markedPathsAtom, markedPaths =>
-    markedPaths.includes(path) ? markedPaths.filter(markedPath => markedPath !== path) : [...markedPaths, path],
-  )
-}
-
-async function toggleCurrentFileMark($: EngineInterface): Promise<void> {
-  const selectedFilePath = await read($, selectedFilePathAtom)
-  if (selectedFilePath && !(await read($, isOverviewShownAtom))) {
-    await toggleMarked($, selectedFilePath)
-  }
-}
-
-async function markAllNewFiles($: EngineInterface): Promise<void> {
-  const untrackedPaths = await untrackedPathsOf($)
-  await update($, markedPathsAtom, markedPaths => (markedPaths.length === untrackedPaths.length ? [] : untrackedPaths))
-}
-
-// Stages the marked new files, or the current one when it is new and nothing is marked.
-async function stageMarkedFiles($: EngineInterface): Promise<void> {
-  const untrackedPaths = await untrackedPathsOf($)
-  const markedPaths = (await read($, markedPathsAtom)).filter(path => untrackedPaths.includes(path))
-  const selectedFilePath = await read($, selectedFilePathAtom)
-  const isSelectedFileNew = selectedFilePath !== null && untrackedPaths.includes(selectedFilePath)
-  const pathsToStage = markedPaths.length > 0 ? markedPaths : isSelectedFileNew ? [selectedFilePath] : []
-  if (pathsToStage.length === 0) {
-    return
-  }
-  const gitAdd = await runGit($, ['add', '--', ...pathsToStage])
+  const gitAdd = await runGit($, ['add', '--', path])
   if (!gitAdd.isSuccess) {
     await reportError($, `Git add failed (${shortOutput(gitAdd)})`)
     return
   }
-  await update($, markedPathsAtom, () => [])
   await loadView($)
+}
+
+async function stageCurrentFile($: EngineInterface): Promise<void> {
+  const selectedFilePath = await read($, selectedFilePathAtom)
+  if (selectedFilePath !== null && !(await read($, isOverviewShownAtom))) {
+    await stageFile($, selectedFilePath)
+  }
 }
 
 // Everything the Uncommitted view lists goes to the index: modified, deleted and new files alike.
@@ -1004,7 +998,6 @@ async function stageAllChanges($: EngineInterface): Promise<void> {
     await reportError($, `Git add --all failed (${shortOutput(gitAdd)})`)
     return
   }
-  await update($, markedPathsAtom, () => [])
   await loadView($)
 }
 
@@ -1028,13 +1021,18 @@ async function requestCommit($: EngineInterface): Promise<void> {
     headBeforeRequest: head.isSuccess ? head.output.trim() : null,
     turnId: null,
   }))
+  const thread = newThread(`${COMMIT_THREAD_ANCHOR_KEY}-${await $.clock.now()}`, COMMIT_THREAD_ANCHOR_KEY, 'the commit of the staged changes', COMMIT_REQUEST_TEXT)
+  await update($, commitThreadAtom, () => thread)
+  await update($, threadIdAwaitingTurnAtom, () => thread.id)
   try {
     await $.session.append({ message: { type: 'user', content: [{ type: 'text', text: COMMIT_REQUEST_CONTEXT }] } })
   } catch (error) {
     await reportError($, `The commit request lost its instructions (${String(error)})`)
   }
-  await $.prompt.submit({ text: 'commit the staged changes', asUser: true })
+  await $.prompt.submit({ text: COMMIT_REQUEST_TEXT, asUser: true })
 }
+
+const COMMIT_REQUEST_TEXT = 'commit the staged changes'
 
 const COMMIT_REQUEST_CONTEXT = [
   'The person pressed the commit button of the diff-review pane.',
@@ -1057,6 +1055,7 @@ async function followCommitRequest($: EngineInterface, completedTurnId: string):
   const headNow = head.isSuccess ? head.output.trim() : null
   if (headNow !== commitRequest.headBeforeRequest) {
     await update($, commitRequestAtom, (): CommitRequest => ({ state: 'idle' }))
+    await update($, commitThreadAtom, () => null)
     await switchView($, 'commits')
     return
   }
@@ -1234,18 +1233,30 @@ async function armOpenQuestionForPrompt($: EngineInterface): Promise<void> {
   }
 }
 
-async function appendExchange($: EngineInterface, threadId: string, question: string): Promise<void> {
-  await update($, threadsAtom, threads =>
-    threads.map(thread =>
-      thread.id === threadId ? { ...thread, exchanges: [...thread.exchanges, queuedExchange(question)], isContextCleared: false } : thread,
-    ),
-  )
+// The commit thread lives apart from the threads of the lines, which are saved per branch and walked with p and n.
+async function findThread($: EngineInterface, threadId: string): Promise<ReviewThread | undefined> {
+  const commitThread = await read($, commitThreadAtom)
+
+  return commitThread?.id === threadId ? commitThread : (await read($, threadsAtom)).find(thread => thread.id === threadId)
+}
+
+async function changeThread($: EngineInterface, threadId: string, change: (thread: ReviewThread) => ReviewThread): Promise<void> {
+  const commitThread = await read($, commitThreadAtom)
+  if (commitThread?.id === threadId) {
+    await update($, commitThreadAtom, () => change(commitThread))
+    return
+  }
+  await update($, threadsAtom, threads => threads.map(thread => (thread.id === threadId ? change(thread) : thread)))
   await saveThreads($)
+}
+
+async function appendExchange($: EngineInterface, threadId: string, question: string): Promise<void> {
+  await changeThread($, threadId, thread => ({ ...thread, exchanges: [...thread.exchanges, queuedExchange(question)], isContextCleared: false }))
 }
 
 async function replyInThread($: EngineInterface, threadId: string, reply: string): Promise<void> {
   const trimmedReply = reply.trim()
-  const thread = (await read($, threadsAtom)).find(candidate => candidate.id === threadId)
+  const thread = await findThread($, threadId)
   if (trimmedReply === '' || thread === undefined) {
     return
   }
@@ -1255,7 +1266,7 @@ async function replyInThread($: EngineInterface, threadId: string, reply: string
 }
 
 async function armReplyForPrompt($: EngineInterface, threadId: string): Promise<void> {
-  const thread = (await read($, threadsAtom)).find(candidate => candidate.id === threadId)
+  const thread = await findThread($, threadId)
   if (thread === undefined) {
     return
   }
@@ -1564,6 +1575,7 @@ async function restoreSavedThreads($: EngineInterface): Promise<void> {
 
 // The answer keeps arriving into a thread dismissed mid-turn: it is simply no longer drawn, and the transcript still holds it.
 async function dismissThread($: EngineInterface, threadId: string): Promise<void> {
+  await update($, commitThreadAtom, commitThread => (commitThread?.id === threadId ? null : commitThread))
   await update($, threadsAtom, threads => threads.filter(thread => thread.id !== threadId))
   await saveThreads($)
 }
@@ -1573,12 +1585,8 @@ async function appendToThreadOfTurn($: EngineInterface, turnId: string, text: st
   if (threadId === undefined) {
     return
   }
-  await update($, threadsAtom, threads =>
-    threads.map(thread =>
-      thread.id === threadId
-        ? withLastExchange(thread, exchange => ({ ...exchange, answer: answerWithText(exchange.answer, text, isFirstTextOfItsMessage), status: 'answering' }))
-        : thread,
-    ),
+  await changeThread($, threadId, thread =>
+    withLastExchange(thread, exchange => ({ ...exchange, answer: answerWithText(exchange.answer, text, isFirstTextOfItsMessage), status: 'answering' })),
   )
 }
 
@@ -1597,6 +1605,7 @@ async function readExplorerSnapshot($: EngineInterface): Promise<ExplorerSnapsho
     uncommittedFileCount: await read($, uncommittedFileCountAtom),
     stagedFileCount: await read($, stagedFileCountAtom),
     commitRequest: await read($, commitRequestAtom),
+    commitThread: await read($, commitThreadAtom),
     branchCommitCount: await read($, branchCommitCountAtom),
     unpushedCommitShas: await read($, unpushedCommitShasAtom),
     pushState: await read($, pushStateAtom),
@@ -1617,7 +1626,7 @@ async function readExplorerSnapshot($: EngineInterface): Promise<ExplorerSnapsho
     diffRows: await read($, diffRowsAtom),
     pullRequest: await read($, pullRequestAtom),
     viewedStateByPath: await read($, viewedStateByPathAtom),
-    markedPaths: await read($, markedPathsAtom),
+    stageStateByPath: await read($, stageStateByPathAtom),
     fileFilter: await read($, fileFilterAtom),
     watchedTerm: await read($, watchedTermAtom),
     isWatchFieldOpen: await read($, isWatchFieldOpenAtom),
@@ -1672,10 +1681,8 @@ function explorerActions($: EngineInterface): ExplorerActions {
     },
     moveFileSelection: offset => moveFileSelection($, offset),
     toggleViewed: path => toggleViewed($, path),
-    toggleMarked: path => toggleMarked($, path),
-    toggleCurrentFileMark: () => toggleCurrentFileMark($),
-    markAllNewFiles: () => markAllNewFiles($),
-    stageMarkedFiles: () => stageMarkedFiles($),
+    stageFile: path => stageFile($, path),
+    stageCurrentFile: () => stageCurrentFile($),
     stageAllChanges: () => stageAllChanges($),
     requestCommit: () => requestCommit($),
     updateFileFilter: async filter => {
@@ -1824,9 +1831,12 @@ export const register: Register = (on, options) => {
     }
     const keyboardLayout = await detectKeyboardLayout($)
     await update($, keyboardLayoutAtom, () => keyboardLayout)
+    $.clock.every(WORKING_TREE_POLL_MS, () => reloadWhenWorkingTreeChanged($))
     // The mark of a thread Claude is still answering blinks; nothing is redrawn while no answer is awaited.
     $.clock.every(ANSWER_PULSE_MS, async () => {
-      if ((await read($, threadsAtom)).some(thread => !isLastExchangeDone(thread))) {
+      const commitThread = await read($, commitThreadAtom)
+      const threads = commitThread ? [...(await read($, threadsAtom)), commitThread] : await read($, threadsAtom)
+      if (threads.some(thread => !isLastExchangeDone(thread))) {
         await update($, answerPulseFrameAtom, frame => frame + 1)
       }
     })
@@ -2082,18 +2092,13 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const threadId = (await read($, threadIdByTurnIdAtom))[e.turnId]
     if (threadId !== undefined && e.agentId === undefined) {
-      await update($, threadsAtom, threads =>
-        threads.map(thread =>
-          thread.id === threadId
-            ? withLastExchange(thread, exchange => ({
-                ...exchange,
-                answer: exchange.answer.trim() === '' ? e.answer : exchange.answer,
-                status: 'done',
-              }))
-            : thread,
-        ),
+      await changeThread($, threadId, thread =>
+        withLastExchange(thread, exchange => ({
+          ...exchange,
+          answer: exchange.answer.trim() === '' ? e.answer : exchange.answer,
+          status: 'done',
+        })),
       )
-      await saveThreads($)
     }
     if (e.agentId === undefined) {
       await followCommitRequest($, e.turnId)

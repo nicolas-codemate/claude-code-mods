@@ -1,4 +1,4 @@
-import type { ChangedFile, CommitRequest, PullRequestSummary, ViewedState } from '../../types'
+import type { ChangedFile, PullRequestSummary, StageState, ViewedState } from '../../types'
 import { DIRECTORY_BUTTON_KEY_PREFIX, FILE_BUTTON_KEY_PREFIX, FILE_FILTER_KEY, PULL_REQUEST_OVERVIEW_KEY, ROW_CLICK_TARGET_LENGTH } from '../constants'
 import type { Keymap, ShortcutAction } from '../keymap'
 import { fileNameOf } from '../git-parsing'
@@ -38,12 +38,9 @@ export type FileListInput = {
   pullRequest: PullRequestSummary | null
   viewedStateByPath: Record<string, ViewedState>
   openThreadCountByPath: Record<string, { claudeCount: number; gitHubCount: number }>
-  hasUntrackedFiles: boolean
   hasStageActions: boolean
-  hasCommitAction: boolean
-  stagedFileCount: number
-  commitRequest: CommitRequest
-  markedPaths: string[]
+  // Null outside the Uncommitted view, where nothing is staged.
+  stageStateByPath: Record<string, StageState> | null
   keymap: Keymap
   isTyping: boolean
   hotkeyOf: (action: ShortcutAction) => string | undefined
@@ -125,7 +122,6 @@ export function renderFileList(ui: ViewElements, input: FileListInput) {
         </Box>
       )}
       {input.hasStageActions && renderStageActions(ui, input)}
-      {input.hasCommitAction && renderCommitAction(ui, input)}
     </Box>
   )
 }
@@ -274,17 +270,9 @@ function renderChangedFileLine(ui: ViewElements, file: ChangedFile, input: FileL
   return (
     <Box flexDirection="row" height={1} backgroundColor={isSelected ? ui.theme.selectedBackground : undefined}>
       {renderSelectionMark(ui, isSelected)}
-      {input.hasUntrackedFiles && (
-        <Box width={6} flexShrink={0}>
-          {file.isUntracked ? (
-            <Button
-              key={`mark-${file.path}`}
-              label={input.markedPaths.includes(file.path) ? 'x' : ' '}
-              onPress={() => input.actions.toggleMarked(file.path)}
-            />
-          ) : (
-            <Text color={ui.theme.muted}>  ·</Text>
-          )}
+      {input.stageStateByPath && (
+        <Box width={3} flexShrink={0}>
+          {renderStageMark(ui, file.path, input.stageStateByPath[file.path] ?? 'unstaged', input)}
         </Box>
       )}
       <Box width={2} flexShrink={0}>
@@ -372,43 +360,38 @@ function renderNavigationHints(ui: ViewElements, input: FileListInput) {
   )
 }
 
+function renderStageMark(ui: ViewElements, path: string, stageState: StageState, input: FileListInput) {
+  const { Button, Text } = ui
+  switch (stageState) {
+    case 'staged':
+      return <Text color={ui.theme.added}> ✓</Text>
+    case 'partlyStaged':
+    case 'unstaged':
+      return (
+        <Button
+          key={`stage-${path}`}
+          plain
+          label={stageState === 'partlyStaged' ? ' ±' : ' +'}
+          onPress={() => input.actions.stageFile(path)}
+        />
+      )
+  }
+}
+
 function renderStageActions(ui: ViewElements, input: FileListInput) {
   const { Box, Button } = ui
-  const markedCount = input.markedPaths.length
 
   return (
     <Box flexDirection="row" height={1} overflow="hidden">
-      {input.hasUntrackedFiles && (
-        <Box flexDirection="row">
-          <Box marginRight={2}>
-            <Button
-              key="mark-current"
-              plain
-              hotkey={input.hotkeyOf('markCurrentFile')}
-              label="mark"
-              onPress={() => input.actions.toggleCurrentFileMark()}
-            />
-          </Box>
-          <Box marginRight={2}>
-            <Button
-              key="mark-all"
-              plain
-              hotkey={input.hotkeyOf('markAllNewFiles')}
-              label="all new"
-              onPress={() => input.actions.markAllNewFiles()}
-            />
-          </Box>
-          <Box marginRight={2}>
-            <Button
-              key="stage"
-              plain
-              hotkey={input.hotkeyOf('stageMarkedFiles')}
-              label={`git add${markedCount > 0 ? ` (${markedCount})` : ''}`}
-              onPress={() => input.actions.stageMarkedFiles()}
-            />
-          </Box>
-        </Box>
-      )}
+      <Box marginRight={2}>
+        <Button
+          key="stage-current"
+          plain
+          hotkey={input.hotkeyOf('stageCurrentFile')}
+          label="add file"
+          onPress={() => input.actions.stageCurrentFile()}
+        />
+      </Box>
       <Button
         key="stage-all"
         plain
@@ -418,37 +401,6 @@ function renderStageActions(ui: ViewElements, input: FileListInput) {
       />
     </Box>
   )
-}
-
-function renderCommitAction(ui: ViewElements, input: FileListInput) {
-  const { Box, Button, Text } = ui
-  switch (input.commitRequest.state) {
-    case 'requested':
-      return (
-        <Box key="commit-box" height={1} overflow="hidden">
-          <Text color={ui.theme.muted}>Claude is committing…</Text>
-        </Box>
-      )
-    case 'idle':
-    case 'awaitingReply':
-      return (
-        <Box key="commit-box" flexDirection="row" height={1} overflow="hidden">
-          <Box flexShrink={0}>
-            <Button
-              key="commit"
-              hotkey={input.hotkeyOf('commitStaged')}
-              label={`✓ commit ${input.stagedFileCount} staged file${input.stagedFileCount === 1 ? '' : 's'}`}
-              onPress={() => input.actions.requestCommit()}
-            />
-          </Box>
-          {input.commitRequest.state === 'awaitingReply' && (
-            <Text color={ui.theme.muted} wrap="truncate-end">
-              {'  '}Claude awaits your reply
-            </Text>
-          )}
-        </Box>
-      )
-  }
 }
 
 // A for a file the change creates (or git does not track yet), D for one it deletes, M for one it modifies.

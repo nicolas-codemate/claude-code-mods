@@ -8,10 +8,13 @@ import type { QuestionState } from './types'
 // The columns a diff row spends before its code: the ask gutter, the line numbers and the change mark.
 const UNIFIED_CODE_GUTTER = 4 + 10 + 3
 const SPLIT_CODE_GUTTER = 4 + 5 + 3
-// A thread's indent and right margin, its border and its padding.
-const THREAD_HORIZONTAL_CHROME = 16 + 2 + 2 + 2
+// A thread's right margin, its border and its padding; under a line it is also indented.
+export const THREAD_HORIZONTAL_CHROME_WITHOUT_INDENT = 2 + 2 + 2
+const THREAD_HORIZONTAL_CHROME = 16 + THREAD_HORIZONTAL_CHROME_WITHOUT_INDENT
 // Its top and bottom margins and its border.
 const THREAD_VERTICAL_CHROME = 2 + 2
+// The banner that hands a question to the prompt: a thread's margins and border around two lines.
+export const ARMED_BANNER_ROWS = THREAD_VERTICAL_CHROME + 2
 const TAB_WIDTH = 4
 // Code wraps between words, leaving the end of each line short: a tenth of the width is counted as lost.
 const WORD_WRAP_LOSS = 0.9
@@ -67,12 +70,12 @@ function inlineContentHeight(row: DiffRow, input: RowHeightInput): number {
   const { questionState } = input
   const questionFieldHeight =
     questionState.anchorWithOpenInput === anchorKey && questionState.isQuestionFieldShown ? THREAD_VERTICAL_CHROME + 2 : 0
-  const armedBannerHeight = questionState.armedAnchorKey === anchorKey ? THREAD_VERTICAL_CHROME + 2 : 0
+  const armedBannerHeight = questionState.armedAnchorKey === anchorKey ? ARMED_BANNER_ROWS : 0
 
   return gitHubThreadsHeight + threadsHeight + questionFieldHeight + armedBannerHeight
 }
 
-function threadHeight(thread: ReviewThread, textWidth: number): number {
+export function threadHeight(thread: ReviewThread, textWidth: number): number {
   const exchangesHeight = thread.exchanges.reduce(
     (height, exchange, exchangeIndex) =>
       height +
