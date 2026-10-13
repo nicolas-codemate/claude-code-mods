@@ -20,6 +20,8 @@ import { renderWatchBar } from './watch-bar'
 import type { WatchBarInput } from './watch-bar'
 import { renderCommitBar } from './commit-bar'
 import type { CommitBarInput } from './commit-bar'
+import { renderCommitMessage } from './commit-message'
+import type { CommitMessageInput } from './commit-message'
 
 export type PaneInput = {
   bodyRows: number
@@ -48,6 +50,7 @@ export type PaneInput = {
   // Null while nothing is watched or being typed.
   watchBar: WatchBarInput | null
   commitBar: CommitBarInput | null
+  commitMessage: CommitMessageInput | null
   fileList: Omit<FileListInput, 'width' | 'height' | 'isDrawer' | 'canPin'>
   overview: OverviewInput | null
   diff: DiffViewInput
@@ -134,6 +137,7 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
           pushState: input.pushState,
           actions: input.actions,
         })}
+      {input.commitMessage && renderCommitMessage(ui, input.commitMessage)}
       {input.help && renderHelp(ui, input.help, geometry.panelsHeight, input.bodyColumns, input.actions)}
       {geometry.isTwoColumns ? (
         <Box flexDirection="row" height={geometry.panelsHeight} display={input.help ? 'none' : 'flex'}>

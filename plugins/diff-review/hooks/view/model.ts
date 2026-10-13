@@ -34,6 +34,8 @@ import { anchorKeyOf, fileAnchorPrefixOf, openThreadsByPath, threadsInReadingOrd
 import { groupFilesByDirectory } from '../git-parsing'
 import { pairRowsSideBySide, splitIndexOfRow } from '../split-rows'
 import { commitBarRows } from './commit-bar'
+import { commitMessageRows } from './commit-message'
+import type { CommitMessageInput } from './commit-message'
 import type { CommitBarInput } from './commit-bar'
 import { LINES_TO_VIEW_TILE_LABEL } from './drawings'
 import type { HeaderTile } from './drawings'
@@ -66,6 +68,7 @@ export type ExplorerSnapshot = {
   gitHubReviewThreads: GitHubReviewThread[]
   expandedGitHubThreadIds: string[]
   selectedCommitSha: string | null
+  selectedCommitMessage: string | null
   files: ChangedFile[]
   selectedFilePath: string | null
   isOverviewShown: boolean
@@ -169,6 +172,11 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
         isAnswerPulseLit: questionState.isAnswerPulseLit,
       }
     : null
+  const selectedCommit = snapshot.commits.find(commit => commit.sha === selectedCommitSha)
+  const commitMessage: CommitMessageInput | null =
+    view === 'commits' && selectedCommit && snapshot.selectedCommitMessage !== null
+      ? { commit: selectedCommit, message: snapshot.selectedCommitMessage }
+      : null
   const fileAnchorPrefix = selectedFilePath ? fileAnchorPrefixOf(view, selectedCommitSha, selectedFilePath) : null
   const gitHubThreads = pullRequest ? snapshot.gitHubReviewThreads : []
   const gitHubThreadsOfFile = gitHubThreads.filter(thread => thread.path === selectedFilePath)
@@ -237,6 +245,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     fileLineCount: fileLines.length,
     hasStageActions,
     commitBarRows: commitBar ? commitBarRows(commitBar, surface.bodyColumns) : 0,
+    commitMessageRows: commitMessage ? commitMessageRows(commitMessage, surface.bodyColumns) : 0,
     hasNoiseNotice: shown.hiddenNoiseCount > 0 || snapshot.isNoiseShown,
     hasWatchBar: isWatchBarShown,
     requestedFileListWidth: snapshot.fileListWidth,
@@ -319,6 +328,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
     linesToView,
     watchBar: isWatchBarShown ? { term: snapshot.watchedTerm, matchCountByPath: snapshot.watchedMatchCountByPath } : null,
     commitBar,
+    commitMessage,
     headerTiles: headerTilesOf(files, pullRequest, viewedCount, linesToView, gitHubThreads),
     commitGraph: snapshot.commitGraph,
     commitCount: snapshot.commits.length,

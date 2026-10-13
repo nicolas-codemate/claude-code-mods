@@ -146,6 +146,7 @@ const commitGraphAtom = atom({ plugin: 'diff-review', key: 'commitGraph' } as co
 const gitHubReviewThreadsAtom = atom({ plugin: 'diff-review', key: 'gitHubReviewThreads' } as const, [])
 const expandedGitHubThreadIdsAtom = atom({ plugin: 'diff-review', key: 'expandedGitHubThreadIds' } as const, [])
 const selectedCommitShaAtom = atom({ plugin: 'diff-review', key: 'selectedCommitSha' } as const, null)
+const selectedCommitMessageAtom = atom({ plugin: 'diff-review', key: 'selectedCommitMessage' } as const, null)
 const filesAtom = atom({ plugin: 'diff-review', key: 'files' } as const, [])
 const selectedFilePathAtom = atom({ plugin: 'diff-review', key: 'selectedFilePath' } as const, null)
 const isOverviewShownAtom = atom({ plugin: 'diff-review', key: 'isOverviewShown' } as const, true)
@@ -653,6 +654,9 @@ async function loadBranchCommits($: EngineInterface, baseRef: string | null): Pr
   if (!commits.some(commit => commit.sha === selectedCommitSha)) {
     await update($, selectedCommitShaAtom, () => commits[0]?.sha ?? null)
   }
+  const shownCommitSha = await read($, selectedCommitShaAtom)
+  const message = shownCommitSha ? await runGit($, ['log', '-1', '--format=%B', shownCommitSha]) : null
+  await update($, selectedCommitMessageAtom, () => (message?.isSuccess ? message.output.trimEnd() : null))
 }
 
 const WORKING_TREE_STATUS_ARGUMENTS = ['status', '--porcelain', '--untracked-files=all']
@@ -1632,6 +1636,7 @@ async function readExplorerSnapshot($: EngineInterface): Promise<ExplorerSnapsho
     gitHubReviewThreads: await read($, gitHubReviewThreadsAtom),
     expandedGitHubThreadIds: await read($, expandedGitHubThreadIdsAtom),
     selectedCommitSha: await read($, selectedCommitShaAtom),
+    selectedCommitMessage: await read($, selectedCommitMessageAtom),
     files: await read($, filesAtom),
     selectedFilePath: await read($, selectedFilePathAtom),
     isOverviewShown: await read($, isOverviewShownAtom),

@@ -82,6 +82,7 @@ export type GeometryInput = {
   fileLineCount: number
   hasStageActions: boolean
   commitBarRows: number
+  commitMessageRows: number
   hasNoiseNotice: boolean
   // The bar of the searched term, under the header.
   hasWatchBar: boolean
@@ -146,6 +147,7 @@ export function computePaneGeometry(input: GeometryInput): PaneGeometry {
     (input.hasLoadError ? 1 : 0) +
     (input.hasWatchBar ? WATCH_BAR_ROWS : 0) +
     input.commitBarRows +
+    input.commitMessageRows +
     input.errorNoticeCount * ERROR_NOTICE_ROWS +
     commitPanelRows
   const panelsHeight = Math.max(MIN_PANELS_HEIGHT, input.bodyRows - panelsTop)

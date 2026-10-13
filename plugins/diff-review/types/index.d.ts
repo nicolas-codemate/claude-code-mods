@@ -106,6 +106,8 @@ declare module 'claude-code' {
       commits: CommitSummary[]
       commitGraph: CommitGraphLine[]
       selectedCommitSha: string | null
+      // The whole message of the selected commit, its body included.
+      selectedCommitMessage: string | null
       files: ChangedFile[]
       selectedFilePath: string | null
       diffRows: DiffRow[]

@@ -68,7 +68,7 @@ dictated in the prompt. When the commit is made the pane moves to the commits vi
 
 ![The pull request description](docs/media/overview.png)
 
-**Commits**: the branch commits with their graph, one commit's diff at a time. Commits not pushed yet carry
+**Commits**: the branch commits with their graph, one commit's diff at a time, under its whole message. Commits not pushed yet carry
 `↑ not pushed`, their count shows on the tab after the branch's (`Commits 5 ↑2`), and a button pushes them: a second press confirms, a plain
 `git push` is used, never from `main` or `master`. When the remote refuses the push (after a rebase, say), the button
 and the notice that reports it offer a force push protected by `--force-with-lease --force-if-includes`, again on a

@@ -34,7 +34,7 @@ export function defaultGitAnswer(gitCommand: string): CommandAnswer {
   if (stdout !== undefined) {
     return { exitCode: 0, stdout }
   }
-  if (gitCommand.startsWith('log ')) {
+  if (gitCommand.startsWith('log --graph')) {
     return { exitCode: 0, stdout: COMMIT_LOG }
   }
   if (gitCommand.startsWith('diff --no-color')) {

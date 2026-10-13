@@ -294,7 +294,7 @@ test('the push button pushes on a second press only, plainly, and forgets the fi
 
 test('the wheel over the commit list scrolls it, and a commit picked there keeps the lines in place', async ($, on) => {
   const longLog = Array.from({ length: 20 }, (_, index) => `* c${index + 1}\u001fc${index + 1}s\u001fCommit ${index + 1}\u001fSomeone\u001f1 hour ago\u001f`).join('\n')
-  stubWorld(on, { git: gitCommand => (gitCommand.startsWith('log ') ? { exitCode: 0, stdout: longLog } : undefined) })
+  stubWorld(on, { git: gitCommand => (gitCommand.startsWith('log --graph') ? { exitCode: 0, stdout: longLog } : undefined) })
   await openExplorer($)
   const pane = await mountPane($)
   await pane.press({ key: 'view-commits' })
