@@ -35,7 +35,7 @@ const standInForTheEngine = (on: On, environment: Readonly<Record<string, string
   on('env.get', (_, e) => ({ value: environment[e.name] }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
-  on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('prompt.submit', (_, e) => ({ text: e.text, context: e.context }))
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
     return <Text>engine</Text>
@@ -77,7 +77,11 @@ test('talk mode asks Claude for spoken answers and shows them above the prompt u
   expect('text' in turnedOn ? turnedOn.text : '').toContain('Talk mode on (French)')
   const during = await $.prompt.compose(COMPOSE_INPUT)
   expect(during.sections.map(section => section.id)).toEqual(['engine', 'talk:voice-conversation'])
-  expect(during.sections[1]?.text).toContain('in French')
+  expect(during.sections[1]?.text).toContain('in French, the language the voice speaks, whatever language the person writes in or any other instruction asks for')
+
+  // Each message of the mode carries the voice's language, read after Claude Code's own language setting.
+  const submitted = await $.prompt.submit({ text: 'Where do we start?', wait: false, origin: { kind: 'composer' } })
+  expect(submitted.context).toEqual(['Talk mode: answer in French, the language the voice speaks, whatever language this message or any setting asks for.'])
 
   await $.turn.complete({ answer: 'On peut **commencer** par le cache.', durationMs: 10, isAborted: false, turnId: 'turn-1', reason: 'answer' })
   await clock.settle()
@@ -191,17 +195,28 @@ test('each setting of the band opens its own choices, saved as /config does', { 
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await band.find({ type: 'Text', text: /^1\.25x$/ }))?.text).toBe('1.25x')
 
-  // The speed opens the speeds; the voice opens the voices in their place.
+  // The speed opens the speeds: a choice is only selected, and the other settings wait, until it is applied.
   await band.press({ key: 'setting-speed' })
   await band.press({ key: 'speed-1.50' })
   await band.press({ key: 'faster' })
+  expect((await band.find({ type: 'Text', text: /selected/ }))?.text).toBe(undefined)
   await band.press({ key: 'setting-engine' })
+  expect((await band.find({ type: 'Button', text: /^1\.50x$/ }))?.key).toBe('speed-1.50')
+  expect(written).toEqual([])
+  await band.press({ key: 'apply-setting' })
   expect(await band.find({ type: 'Button', text: /^1\.50x$/ })).toBe(undefined)
+
+  // Cancel leaves the setting as it was; Apply saves the choice.
+  await band.press({ key: 'setting-engine' })
   await band.press({ key: 'engine-openai' })
+  expect((await band.find({ type: 'Text', text: /● selected/ }))?.text).toBe('● selected')
+  await band.press({ key: 'cancel-setting' })
+  await band.press({ key: 'setting-engine' })
+  await band.press({ key: 'engine-openai' })
+  await band.press({ key: 'apply-setting' })
 
   expect(written).toEqual([
-    { key: 'talk.speed', value: 1.5 },
-    { key: 'talk.speed', value: 1.3 },
+    { key: 'talk.speed', value: 1.55 },
     { key: 'talk.engine', value: 'openai' },
   ])
   await band.unmount()
@@ -310,11 +325,13 @@ test('the voice of the band lists the voices of the engine: each one is heard on
 
   await band.press({ key: 'hear-fr_FR-tom-medium' })
   await clock.advance(500)
-  // The sample sentence, read with the voice heard, not the one in force.
-  expect((await band.find({ type: 'Text', text: /pull request/ }))?.text).toContain('Tu veux que je crée la pull request sur GitHub')
+  // The sample sentence is read with the voice heard, not the one in force; the list keeps the band's rows meanwhile.
+  expect((await band.find({ type: 'Text', text: /^● Talk · / }))?.text).toBe('● Talk · Speaking')
   expect(runs.some(argv => argv[0] === 'piper' && argv.includes('/home/someone/.local/share/piper/voices/fr_FR-tom-medium.onnx'))).toBe(true)
 
   await band.press({ key: 'choose-fr_FR-tom-medium' })
+  expect(written).toEqual([])
+  await band.press({ key: 'apply-setting' })
   expect(written).toEqual([{ key: 'talk.piperVoiceName', value: 'fr_FR-tom-medium' }])
   await clock.advance(20_000)
   await band.unmount()
@@ -364,8 +381,8 @@ test('a voice not yet on the machine shows how far its download has come', async
   // The press lasts as long as the download it started: it is awaited once the clock has run it out.
   const hearing = band.press({ key: 'hear-fr_FR-tom-medium' })
   await clock.advance(1_000)
-  expect((await band.find({ type: 'Text', text: /%$/ }))?.text).toBe('50%')
-  expect((await band.find({ type: 'Text', text: /^Downloading/ }))?.text).toBe('Downloading Tom  ████████████░░░░░░░░░░░░  32 MB of 63 MB')
+  expect((await band.find({ type: 'Text', text: /%$/ }))?.text).toBe('↓ 50%')
+  expect((await band.find({ type: 'Text', text: /Downloading/ }))?.text).toBe('● Talk · Downloading Tom  ████████████░░░░░░░░░░░░  32 MB of 63 MB')
   await clock.advance(30_000)
   await hearing
   await band.unmount()

@@ -11,9 +11,10 @@ const entry = (code: string, name: string, quality: string, speakers: Record<str
   speaker_id_map: speakers,
 })
 
-test('the Piper voices of the language are listed, one per speaker, low quality and crowds left out', async () => {
+test('the Piper voices of the language are listed, one per speaker, medium quality alone, crowds left out', async () => {
   const catalog = {
     'fr_FR-gilles-low': entry('fr_FR', 'gilles', 'low'),
+    'fr_FR-tom-high': entry('fr_FR', 'tom', 'high'),
     'fr_FR-siwis-medium': entry('fr_FR', 'siwis', 'medium'),
     'fr_FR-upmc-medium': entry('fr_FR', 'upmc', 'medium', { jessica: 0, pierre: 1 }),
     'fr_FR-mls-medium': entry('fr_FR', 'mls', 'medium', Object.fromEntries(Array.from({ length: 125 }, (_, index) => [`${index}`, index]))),

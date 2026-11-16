@@ -17,11 +17,14 @@ export type BandActions = {
   toggleSetting: (setting: SettingName) => void
   previewVoice: (choice: VoiceChoice) => void
   selectVoice: (choice: VoiceChoice) => void
+  applySetting: () => void
+  cancelSetting: () => void
 }
 
 export type BandInput = {
   reading: Reading
   openSetting: SettingName | null
+  pendingChoice: string | null
   installation: Installation | null
   voiceCatalog: VoiceCatalog | null
   previewingVoice: string | null
@@ -50,7 +53,7 @@ const PHASE_LABELS: Readonly<Record<ReadingPhase, string>> = {
 
 export const LANGUAGES: readonly TalkLanguage[] = ['fr', 'en', 'es', 'de', 'it']
 
-const SPEED_PRESETS: readonly number[] = [0.75, 1, 1.1, 1.25, 1.5, 1.75, 2]
+const SPEED_PRESETS: readonly number[] = [0.75, 1, 1.25, 1.5, 2]
 const SPEED_STEP_LABEL = '0.05'
 // The wait for the next answer is drawn as Claude Code draws its own thinking: a star that pulses, and the word of its
 // spinner. Before the spinner has drawn one, a word of this list stands in, changing every few steps of the star.
@@ -65,24 +68,70 @@ export const thinkingLineOf = (frame: number): { glyph: string; word: string } =
   word: THINKING_WORDS[Math.floor(frame / FRAMES_PER_THINKING_WORD) % THINKING_WORDS.length] ?? 'Thinking',
 })
 
-// The rows of the band besides the answer: its two borders and its status line.
-const BAND_FRAME_ROWS = 3
-// The rows an open setting takes: its own borders, its title and its choices.
-const OPEN_SETTING_ROWS = 5
+// The rows of the band besides the answer and an open setting: its two borders, its status line, its settings line.
+const BAND_FRAME_ROWS = 4
+// The rows of an open setting besides its choices: its two borders and its title line, which holds Cancel and Apply.
+const OPEN_SETTING_FRAME_ROWS = 3
+// The line under the voice list that says how to use it, or how far a download has come, with the space above it.
+const VOICE_HINT_ROWS = 2
 
-const textRowsOf = (text: string, columns: number): number =>
-  text.split('\n').reduce((rows, line) => rows + Math.max(1, Math.ceil(line.length / Math.max(1, columns))), 0)
+// The rows a text takes once wrapped between words, as the terminal wraps it; a word longer than a row is cut.
+const textRowsOf = (text: string, columns: number): number => {
+  const width = Math.max(1, columns)
+  return text.split('\n').reduce((rows, line) => {
+    let lineRows = 1
+    let used = 0
+    for (const word of line.split(' ')) {
+      const needed = used === 0 ? word.length : used + 1 + word.length
+      if (needed <= width) {
+        used = needed
+        continue
+      }
+      lineRows += used === 0 ? 0 : 1
+      lineRows += Math.max(0, Math.ceil(word.length / width) - 1)
+      used = word.length % width === 0 && word.length > 0 ? width : word.length % width
+    }
+    return rows + lineRows
+  }, 0)
+}
 
-// The whole answer when it fits the rows the band is given; otherwise from the sentence being read on.
+const textOfTokens = (tokens: readonly SpokenToken[]): string => tokens.map(token => token.text).join('')
+
+// The whole answer when it fits the rows the band is given; otherwise from the sentence being read on, as much of it as
+// the rows hold, so that the band never grows past what Claude Code gives it.
 export const visibleTokensOf = (reading: Reading, columns: number, rows: number): SpokenToken[] => {
-  const wholeText = reading.tokens.map(token => token.text).join('')
-  if (textRowsOf(wholeText, columns) <= rows) return reading.tokens
+  if (rows <= 0) return []
+  if (textRowsOf(textOfTokens(reading.tokens), columns) <= rows) return reading.tokens
   const firstWord = sentenceStartOf(wordsOf(reading.tokens), Math.max(0, reading.currentWordIndex))
-  const firstToken = reading.tokens.findIndex(token => token.wordIndex === firstWord)
-  return reading.tokens.slice(Math.max(0, firstToken))
+  const fromSentence = reading.tokens.slice(Math.max(0, reading.tokens.findIndex(token => token.wordIndex === firstWord)))
+  const kept: SpokenToken[] = []
+  for (const token of fromSentence) {
+    if (textRowsOf(textOfTokens([...kept, token]), columns) > rows) break
+    kept.push(token)
+  }
+  return kept
 }
 
 const PROGRESS_BAR_COLUMNS = 24
+// The voice list's cells: the listen mark, then the name, cut past a length, then its state (in use, its size to
+// download, its progress).
+const HEAR_COLUMNS = 3
+const MAX_NAME_COLUMNS = 16
+const STATE_COLUMNS = 10
+// The line drawn between two columns of voices.
+const COLUMN_SEPARATOR = ' │ '
+const MAX_VOICES_IN_ONE_COLUMN = 8
+
+// How a list of voices is laid out: one column for a few voices, else columns filled from top to bottom, as few as keep
+// it within the rows it is given and never more than fit side by side.
+export const voiceListLayoutOf = (voiceCount: number, availableColumns: number, cellColumns: number, availableRows: number) => {
+  const fittingColumns = Math.max(1, Math.floor(availableColumns / cellColumns))
+  const wantedColumns = Math.max(Math.ceil(voiceCount / Math.max(1, availableRows)), Math.ceil(voiceCount / MAX_VOICES_IN_ONE_COLUMN))
+  const listColumns = Math.min(fittingColumns, wantedColumns)
+  return { listColumns, rowsPerColumn: Math.ceil(voiceCount / listColumns) }
+}
+
+const shortNameOf = (label: string): string => (label.length <= MAX_NAME_COLUMNS ? label : `${label.slice(0, MAX_NAME_COLUMNS - 1)}…`)
 const BYTES_PER_MEGABYTE = 1_000_000
 
 const percentOf = (download: VoiceDownload): number | null =>
@@ -176,29 +225,59 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
   // The frame says the state at a glance: Claude's color while the voice reads, another while Claude works.
   const frameColor =
     reading.phase === 'speaking' ? palette.claude : isAwaiting || isPreparingVoice ? palette.working : reading.phase === 'failed' ? palette.failed : palette.idle
-  const answerRows = e.props.maxRows - BAND_FRAME_ROWS - (reading.error === null ? 0 : 1) - (input.installation === null ? 0 : 1) - (input.openSetting === null ? 0 : OPEN_SETTING_ROWS)
+  // The band keeps to the rows Claude Code gives it: an open setting takes what it needs, the answer what is left.
+  const messageRows = (reading.error === null ? 0 : 1) + (input.installation === null ? 0 : 1)
+  // The voice list, the tallest, takes the answer's rows too while it is open.
+  const voiceListRows = e.props.maxRows - BAND_FRAME_ROWS - OPEN_SETTING_FRAME_ROWS - messageRows
+  // While a setting is open, its choices take the answer's place.
+  const answerRows = input.openSetting === null ? e.props.maxRows - BAND_FRAME_ROWS - messageRows : 0
+  const choiceRows = e.props.maxRows - BAND_FRAME_ROWS - OPEN_SETTING_FRAME_ROWS - messageRows
   const phaseColor = phaseColorOf(reading.phase, palette)
   const chosenEngineReason = engineSetting === 'auto' || engineAvailability === null ? null : engineAvailability[engineSetting]
   const { engineInUse } = input
 
   // One button per choice, a click away with the mouse: the chosen one stands out, one the machine cannot use is dimmed.
+  // After a choice: in use, selected (to apply), or what else is worth saying of it.
+  const stateOf = (isChosen: boolean, isSelected: boolean, otherwise: RenderChildren) =>
+    isSelected ? <Text color={palette.claude}>● selected</Text> : isChosen ? <Text color={palette.speaking}>✓ in use</Text> : otherwise
+
   // One choice per line, as the voices are: its name, a click away, and after it whether it is in use or unavailable.
   const picker = (key: string, value: string, choices: readonly Choice[], onSelect: (value: string) => void) => {
     const nameColumns = Math.max(...choices.map(choice => choice.label.length)) + 3
+    // A terminal too short for one choice per line gets them side by side.
+    if (choices.length > choiceRows) {
+      return (
+        <Box flexDirection="row" columnGap={2} flexWrap="wrap">
+          {choices.map(choice => {
+            const isChosen = choice.value === value
+            const isSelected = !isChosen && choice.value === input.pendingChoice
+            return (
+              <Button key={`${key}-${choice.value}`} plain onPress={() => onSelect(choice.value)}>
+                <Text bold={isChosen || isSelected} color={isSelected ? palette.claude : isChosen ? palette.speaking : undefined} dimColor={!isChosen && !isSelected && choice.isUnavailable === true}>
+                  {isSelected ? '● ' : isChosen ? '✓ ' : ''}
+                  {choice.label}
+                </Text>
+              </Button>
+            )
+          })}
+        </Box>
+      )
+    }
     return (
       <Box flexDirection="column">
         {choices.map(choice => {
           const isChosen = choice.value === value
+          const isSelected = !isChosen && choice.value === input.pendingChoice
           return (
             <Box key={`${key}-row-${choice.value}`} flexDirection="row">
               <Box width={nameColumns}>
                 <Button key={`${key}-${choice.value}`} plain onPress={() => onSelect(choice.value)}>
-                  <Text bold={isChosen} color={isChosen ? palette.speaking : undefined} dimColor={!isChosen && choice.isUnavailable === true}>
+                  <Text bold={isChosen || isSelected} color={isSelected ? palette.claude : isChosen ? palette.speaking : undefined} dimColor={!isChosen && !isSelected && choice.isUnavailable === true}>
                     {choice.label}
                   </Text>
                 </Button>
               </Box>
-              {isChosen ? <Text color={palette.speaking}>✓ in use</Text> : choice.isUnavailable === true && <Text dimColor>unavailable</Text>}
+              {stateOf(isChosen, isSelected, choice.isUnavailable === true ? <Text dimColor>unavailable</Text> : null)}
             </Box>
           )
         })}
@@ -216,51 +295,63 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
         return <Text color={palette.failed}>{catalog.error}</Text>
       case 'ready':
         if (catalog.choices.length === 0) return <Text dimColor>{engineLabels[catalog.engine]} has a single voice here.</Text>
-        // One voice per line, the names in a column wide enough for the longest, its state after it.
-        const nameColumns = Math.max(...catalog.choices.map(choice => choice.label.length)) + 3
+        // One voice per line, the names in a column wide enough for the longest, its state after it. A long list, as
+        // English has, is laid out in columns read from top to bottom, so that the band stays short.
+        const nameColumns = Math.max(...catalog.choices.map(choice => shortNameOf(choice.label).length)) + 1
+        const cellColumns = HEAR_COLUMNS + nameColumns + STATE_COLUMNS
+        const { listColumns, rowsPerColumn } = voiceListLayoutOf(catalog.choices.length, e.props.bodyColumns - 6, cellColumns + COLUMN_SEPARATOR.length, voiceListRows)
+        const isHintShown = rowsPerColumn + VOICE_HINT_ROWS <= voiceListRows
+        const voiceRowOf = (choice: VoiceChoice) => {
+          const isChosen = choice.value === input.currentVoice
+          const isSelected = !isChosen && choice.value === input.pendingChoice
+          const isPreviewing = choice.value === input.previewingVoice
+          const key = choice.download?.slice(choice.download.lastIndexOf('/') + 1) ?? null
+          const isOnMachine = key === null || catalog.downloaded.includes(key)
+          const download = input.voiceDownload !== null && input.voiceDownload.download === choice.download ? input.voiceDownload : null
+          const percent = download === null ? null : percentOf(download)
+          return (
+            <Box key={`voice-${choice.value}`} flexDirection="row" width={cellColumns}>
+              <Button key={`hear-${choice.value}`} plain onPress={() => actions.previewVoice(choice)}>
+                <Text color={isPreviewing ? palette.preparing : palette.claude}>{isPreviewing ? '…  ' : '▶  '}</Text>
+              </Button>
+              <Box width={nameColumns}>
+                <Button key={`choose-${choice.value}`} plain onPress={() => actions.selectVoice(choice)}>
+                  <Text bold={isChosen || isSelected} color={isSelected ? palette.claude : isChosen ? palette.speaking : undefined} dimColor={!isChosen && !isSelected && !isOnMachine && download === null}>
+                    {shortNameOf(choice.label)}
+                  </Text>
+                </Button>
+              </Box>
+              {download !== null ? (
+                <Text color={palette.preparing}>{percent === null ? 'downloading…' : `↓ ${percent}%`}</Text>
+              ) : (
+                stateOf(isChosen, isSelected, !isOnMachine && <Text dimColor>↓ {choice.sizeBytes === null ? 'to download' : megabytesOf(choice.sizeBytes)}</Text>)
+              )}
+            </Box>
+          )
+        }
         return (
           <Box flexDirection="column">
-            {catalog.choices.map(choice => {
-              const isChosen = choice.value === input.currentVoice
-              const isPreviewing = choice.value === input.previewingVoice
-              const key = choice.download?.slice(choice.download.lastIndexOf('/') + 1) ?? null
-              const isOnMachine = key === null || catalog.downloaded.includes(key)
-              const download = input.voiceDownload !== null && input.voiceDownload.download === choice.download ? input.voiceDownload : null
-              const percent = download === null ? null : percentOf(download)
-              return (
-                <Box key={`voice-${choice.value}`} flexDirection="row">
-                  <Button key={`hear-${choice.value}`} plain onPress={() => actions.previewVoice(choice)}>
-                    <Text color={isPreviewing ? palette.preparing : palette.claude}>{isPreviewing ? '…  ' : '▶  '}</Text>
-                  </Button>
-                  <Box width={nameColumns}>
-                    <Button key={`choose-${choice.value}`} plain onPress={() => actions.selectVoice(choice)}>
-                      <Text bold={isChosen} color={isChosen ? palette.speaking : undefined} dimColor={!isChosen && !isOnMachine && download === null}>
-                        {choice.label}
-                      </Text>
-                    </Button>
-                  </Box>
-                  {download !== null ? (
-                    <Text color={palette.preparing}>{percent === null ? 'downloading…' : `${percent}%`}</Text>
-                  ) : isChosen ? (
-                    <Text color={palette.speaking}>✓ in use</Text>
-                  ) : (
-                    !isOnMachine && <Text dimColor>↓ {choice.sizeBytes === null ? 'to download' : megabytesOf(choice.sizeBytes)}</Text>
+            <Box flexDirection="row">
+              {Array.from({ length: listColumns }, (_, column) => (
+                <Box key={`voices-column-${column}`} flexDirection="row">
+                  {column > 0 && (
+                    <Box flexDirection="column">
+                      {Array.from({ length: rowsPerColumn }, (_, row) => (
+                        <Text key={`separator-${column}-${row}`} dimColor>
+                          {COLUMN_SEPARATOR}
+                        </Text>
+                      ))}
+                    </Box>
                   )}
+                  <Box flexDirection="column">{catalog.choices.slice(column * rowsPerColumn, (column + 1) * rowsPerColumn).map(voiceRowOf)}</Box>
                 </Box>
-              )
-            })}
-            <Box marginTop={1}>
-            {input.voiceDownload !== null ? (
-              <Text color={palette.preparing}>
-                Downloading {input.voiceDownload.label}{'  '}
-                {percentOf(input.voiceDownload) === null
-                  ? megabytesOf(input.voiceDownload.receivedBytes)
-                  : `${progressBarOf(percentOf(input.voiceDownload) ?? 0)}  ${megabytesOf(input.voiceDownload.receivedBytes)} of ${megabytesOf(input.voiceDownload.totalBytes ?? 0)}`}
-              </Text>
-            ) : (
-              <Text dimColor>▶ listen · a name to choose it{catalog.engine === 'piper' ? ' · ↓ not on this machine yet: downloaded when first heard or chosen' : ''}</Text>
-            )}
+              ))}
             </Box>
+            {isHintShown && (
+              <Box marginTop={1}>
+                <Text dimColor>▶ listen · a name to choose it{catalog.engine === 'piper' ? ' · ↓ not on this machine yet: downloaded when first heard or chosen' : ''}</Text>
+              </Box>
+            )}
           </Box>
         )
     }
@@ -291,11 +382,6 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
         return (
           <Box flexDirection="column">
             {picker('speed', input.speed.toFixed(2), SPEED_PRESETS.map(speed => ({ value: speed.toFixed(2), label: `${speed.toFixed(2)}x` })), value => actions.selectSpeed(Number(value)))}
-            <Box flexDirection="row" columnGap={1} marginTop={1}>
-              <Button key="slower" label="-" onPress={actions.slower} />
-              <Button key="faster" label="+" onPress={actions.faster} />
-              <Text dimColor>by {SPEED_STEP_LABEL}</Text>
-            </Box>
           </Box>
         )
       case 'language':
@@ -306,9 +392,10 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
   }
 
   // Each part of the settings line is the shortcut to its own choices, opened above it.
+  // While a setting is open the others are dimmed: it is applied or cancelled first.
   const settingItem = (setting: SettingName, label: string) => (
     <Button key={`setting-${setting}`} plain onPress={() => actions.toggleSetting(setting)}>
-      <Text bold={input.openSetting === setting} underline={input.openSetting === setting}>
+      <Text bold={input.openSetting === setting} underline={input.openSetting === setting} dimColor={input.openSetting !== null && input.openSetting !== setting}>
         {label}
       </Text>
     </Button>
@@ -323,7 +410,17 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
             <Text color={palette.claude} bold>
               Talk
             </Text>
-            <Text dimColor> · {PHASE_LABELS[reading.phase]}</Text>
+            {input.voiceDownload !== null ? (
+              // A download says how far it has come where it is always in sight, whatever the list below takes.
+              <Text color={palette.preparing}>
+                {' '}· Downloading {input.voiceDownload.label}{'  '}
+                {percentOf(input.voiceDownload) === null
+                  ? megabytesOf(input.voiceDownload.receivedBytes)
+                  : `${progressBarOf(percentOf(input.voiceDownload) ?? 0)}  ${megabytesOf(input.voiceDownload.receivedBytes)} of ${megabytesOf(input.voiceDownload.totalBytes ?? 0)}`}
+              </Text>
+            ) : (
+              <Text dimColor> · {PHASE_LABELS[reading.phase]}</Text>
+            )}
           </Text>
           {isSounding ? (
             <Button key="stop" plain onPress={actions.stop}>
@@ -347,12 +444,12 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
         </Text>
       )}
       {reading.error !== null && <Text color={palette.failed}>{reading.error}</Text>}
-      {isShowingAnswer && isAwaiting && (
+      {isShowingAnswer && isAwaiting && answerRows > 0 && (
         <Text color={palette.muted} italic>
           Previous answer
         </Text>
       )}
-      {isShowingAnswer && isAwaiting && (
+      {isShowingAnswer && isAwaiting && answerRows > 0 && (
         <Text wrap="wrap" color={palette.muted}>
           {visibleTokensOf(reading, e.props.bodyColumns - 4, answerRows - 1 - THINKING_ROWS).map(token => token.text).join('')}
         </Text>
@@ -365,7 +462,7 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
           </Text>
         </Box>
       )}
-      {isShowingAnswer && !isAwaiting && (
+      {isShowingAnswer && !isAwaiting && answerRows > 0 && (
         <Text wrap="wrap">
           {visibleTokensOf(reading, e.props.bodyColumns - 4, answerRows).map(token => {
             const state = wordStateOf(token, reading)
@@ -383,7 +480,25 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
       {input.openSetting !== null && (
         // Opened above the item of the settings line it belongs to, on the right as that line is.
         <Box alignSelf="flex-end" flexDirection="column" borderStyle="round" borderDimColor paddingX={1}>
-          <Text dimColor>{SETTING_LABELS[input.openSetting]}</Text>
+          {/* The title line holds Cancel and Apply too, so that the choices keep every other row. */}
+          <Box flexDirection="row" justifyContent="space-between" columnGap={3}>
+            {input.openSetting === 'speed' ? (
+              // The fine steps share the title's line as well, so that the speeds take no more rows than they are.
+              <Box flexDirection="row" columnGap={1}>
+                <Text dimColor>{SETTING_LABELS.speed}</Text>
+                <Button key="slower" label="-" onPress={actions.slower} />
+                <Button key="faster" label="+" onPress={actions.faster} />
+                <Text dimColor>by {SPEED_STEP_LABEL}</Text>
+                {input.pendingChoice !== null && <Text color={palette.claude}>{Number(input.pendingChoice).toFixed(2)}x</Text>}
+              </Box>
+            ) : (
+              <Text dimColor>{SETTING_LABELS[input.openSetting]}</Text>
+            )}
+            <Box flexDirection="row" columnGap={1}>
+              <Button key="cancel-setting" label="Cancel" onPress={actions.cancelSetting} />
+              <Button key="apply-setting" label="Apply" variant="primary" onPress={actions.applySetting} />
+            </Box>
+          </Box>
           {settingChoicesOf(input.openSetting)}
         </Box>
       )}

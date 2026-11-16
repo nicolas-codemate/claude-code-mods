@@ -39,6 +39,7 @@ const isActiveAtom = atom({ plugin: 'talk', key: 'isActive' } as const, false)
 const readingAtom = atom({ plugin: 'talk', key: 'reading' } as const, EMPTY_READING)
 const engineAvailabilityAtom = atom({ plugin: 'talk', key: 'engineAvailability' } as const, null)
 const openSettingAtom = atom({ plugin: 'talk', key: 'openSetting' } as const, null)
+const pendingChoiceAtom = atom({ plugin: 'talk', key: 'pendingChoice' } as const, null)
 const claudeCodeThemeAtom = atom({ plugin: 'talk', key: 'claudeCodeTheme' } as const, null)
 const installationAtom = atom({ plugin: 'talk', key: 'installation' } as const, null)
 const voiceCatalogAtom = atom({ plugin: 'talk', key: 'voiceCatalog' } as const, null)
@@ -60,7 +61,7 @@ const TEST_SENTENCES: Readonly<Record<TalkLanguage, string>> = {
 
 const voiceConversationInstructions = (language: TalkLanguage): string => `# Talk mode
 
-Talk mode is on: the person is talking things through with you by voice, usually to brainstorm. They dictate their messages, and your final answer of each turn is read aloud to them by a speech synthesizer while a band above their prompt highlights each word. Write every final answer to be heard, in ${languageNameOf(language)}:
+Talk mode is on: the person is talking things through with you by voice, usually to brainstorm. They dictate their messages, and your final answer of each turn is read aloud to them by a speech synthesizer while a band above their prompt highlights each word. Write every final answer to be heard, in ${languageNameOf(language)}, the language the voice speaks, whatever language the person writes in or any other instruction asks for:
 
 - Talk like a colleague thinking out loud with them: short answers, two to six sentences, one idea at a time. When you need their view, end on one question, not several.
 - Plain spoken sentences only: no headings, tables, bullet lists, bold, emoji or links. Spell out what a symbol would say.
@@ -69,6 +70,9 @@ Talk mode is on: the person is talking things through with you by voice, usually
 - Sources and links go last, as a list of markdown links: they are shown and never spoken, so never name a URL or a source's title in a sentence.
 - Their messages come from dictation: read misheard technical words for what they sound like.
 - Tool calls and work go on as usual; only the final answer is spoken, so keep it to what they need to hear.`
+
+const spokenLanguageNoteOf = (language: TalkLanguage): string =>
+  `Talk mode: answer in ${languageNameOf(language)}, the language the voice speaks, whatever language this message or any setting asks for.`
 
 async function settingsOf($: EngineInterface, options: Readonly<Record<string, unknown>>): Promise<TalkSettings> {
   const text = (name: string): string => (typeof options[name] === 'string' ? (options[name] as string) : '')
@@ -252,10 +256,16 @@ async function setOption($: EngineInterface, field: OptionField, value: string |
   if ('deny' in result && result.deny !== undefined) $.ui.toast(`talk: ${result.deny}`)
 }
 
+// A choice in the open setting waits for Apply; the fine speed steps move from the speed chosen so far.
+async function choose($: EngineInterface, value: string): Promise<void> {
+  await update($, pendingChoiceAtom, () => value)
+}
+
 async function changeSpeed($: EngineInterface, steps: number): Promise<void> {
-  const settings = await settingsOf($, pluginOptions)
-  const speed = Math.round(Math.min(MAX_SPEED, Math.max(MIN_SPEED, settings.speed + steps * SPEED_STEP)) * 100) / 100
-  if (speed !== settings.speed) await setOption($, 'speed', speed)
+  const pending = await read($, pendingChoiceAtom)
+  const from = pending === null ? (await settingsOf($, pluginOptions)).speed : Number(pending)
+  const speed = Math.round(Math.min(MAX_SPEED, Math.max(MIN_SPEED, from + steps * SPEED_STEP)) * 100) / 100
+  await choose($, speed.toFixed(2))
 }
 
 async function readClaudeCodeTheme($: EngineInterface): Promise<void> {
@@ -426,7 +436,7 @@ async function previewVoice($: EngineInterface, choice: VoiceChoice): Promise<vo
   }
 }
 
-async function selectVoice($: EngineInterface, choice: VoiceChoice): Promise<void> {
+async function selectVoice($: EngineInterface, choice: VoiceChoice, beforeSaving: () => Promise<void>): Promise<void> {
   const catalog = await read($, voiceCatalogAtom)
   if (catalog === null) return
   switch (catalog.engine) {
@@ -437,23 +447,73 @@ async function selectVoice($: EngineInterface, choice: VoiceChoice): Promise<voi
       } finally {
         await update($, previewingVoiceAtom, () => null)
       }
+      await beforeSaving()
       await setOption($, 'piperVoiceName', choice.value)
       return
     case 'openai':
+      await beforeSaving()
       await setOption($, 'openaiVoice', choice.value)
       return
     case 'elevenlabs':
+      await beforeSaving()
       await setOption($, 'elevenlabsVoiceId', choice.value)
       return
     case 'system':
+      await beforeSaving()
       return
   }
 }
 
+// While a setting is open, the others wait: its own item closes it, as Cancel does.
 async function toggleSetting($: EngineInterface, setting: SettingName): Promise<void> {
   const open = await read($, openSettingAtom)
-  await update($, openSettingAtom, () => (open === setting ? null : setting))
-  if (setting === 'voice' && open !== 'voice') await loadVoiceCatalog($)
+  if (open !== null) {
+    if (open === setting) await closeSetting($)
+    return
+  }
+  await update($, pendingChoiceAtom, () => null)
+  await update($, openSettingAtom, () => setting)
+  if (setting === 'voice') await loadVoiceCatalog($)
+}
+
+async function closeSetting($: EngineInterface): Promise<void> {
+  await update($, openSettingAtom, () => null)
+  await update($, pendingChoiceAtom, () => null)
+}
+
+// Saves the choice made in the open setting and closes it; the save reloads the mod with it.
+async function applySetting($: EngineInterface): Promise<void> {
+  const open = await read($, openSettingAtom)
+  const pending = await read($, pendingChoiceAtom)
+  if (open === null || pending === null) {
+    await closeSetting($)
+    return
+  }
+  switch (open) {
+    case 'engine':
+      await closeSetting($)
+      await setOption($, 'engine', pending)
+      return
+    case 'language':
+      await closeSetting($)
+      await setOption($, 'language', pending)
+      return
+    case 'speed':
+      await closeSetting($)
+      await setOption($, 'speed', Number(pending))
+      return
+    case 'voice': {
+      const catalog = await read($, voiceCatalogAtom)
+      const choice = catalog?.status === 'ready' ? catalog.choices.find(candidate => candidate.value === pending) : undefined
+      if (choice === undefined) {
+        await closeSetting($)
+        return
+      }
+      // The voice is downloaded before the list closes, so that its progress stays in sight.
+      await selectVoice($, choice, () => closeSetting($))
+      return
+    }
+  }
 }
 
 async function stop($: EngineInterface) {
@@ -590,8 +650,12 @@ export const register: Register = (on, options) => {
   // Only what the person sends cuts the voice: Claude Code also starts turns of its own, right after a command runs.
   on('prompt.submit', async ($, e, next) => {
     if (e.isMeta === undefined) await stop($)
-    if (e.isMeta === undefined && e.command === undefined && (await read($, isActiveAtom))) await startAwaiting($)
-    return next(e)
+    if (e.isMeta !== undefined || e.command !== undefined || !(await read($, isActiveAtom))) return next(e)
+    await startAwaiting($)
+    // Claude Code's own language setting is told the model after the system prompt's sections, out of the mod's reach:
+    // the voice's language rides with each message, where it is read last.
+    const settings = await settingsOf($, pluginOptions)
+    return next({ ...e, context: [...(e.context ?? []), spokenLanguageNoteOf(settings.language)] })
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -637,6 +701,7 @@ export const register: Register = (on, options) => {
     return renderBand($, e, {
       reading,
       openSetting: await read($, openSettingAtom),
+      pendingChoice: await read($, pendingChoiceAtom),
       installation: await read($, installationAtom),
       voiceCatalog: await read($, voiceCatalogAtom),
       previewingVoice: await read($, previewingVoiceAtom),
@@ -655,14 +720,16 @@ export const register: Register = (on, options) => {
       stop: () => void stop($),
       replay: () => void replay($),
       turnOff: () => void turnOff($),
-      selectEngine: engine => void setOption($, 'engine', engine),
-      selectLanguage: language => void setOption($, 'language', language),
-      selectSpeed: speed => void setOption($, 'speed', speed),
+      selectEngine: engine => void choose($, engine),
+      selectLanguage: language => void choose($, language),
+      selectSpeed: speed => void choose($, speed.toFixed(2)),
       slower: () => void changeSpeed($, -1),
       faster: () => void changeSpeed($, 1),
       toggleSetting: setting => void toggleSetting($, setting),
       previewVoice: choice => void previewVoice($, choice),
-      selectVoice: choice => void selectVoice($, choice),
+      selectVoice: choice => void choose($, choice.value),
+      applySetting: () => void applySetting($),
+      cancelSetting: () => void closeSetting($),
     })
   })
 }

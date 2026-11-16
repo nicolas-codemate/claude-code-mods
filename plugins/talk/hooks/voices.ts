@@ -37,13 +37,13 @@ export const piperVoiceKeyOf = (value: string): string => value.split('#')[0] ??
 export const piperSpeakerOf = (value: string): string | null => value.split('#')[1] ?? null
 
 // The voices the Piper project publishes for the language, as the band offers them: one per voice, one per speaker of
-// a voice of a few speakers, the high quality ones first. The low quality ones, lighter models that sound worse, are
-// left out.
+// a voice of a few speakers, medium quality alone. A low quality voice sounds worse; a high quality one takes, on a
+// processor, as long to make a sentence as to say it, and several times longer with the timing of its words, too slow
+// for a conversation.
 export const piperChoicesOf = (catalog: Readonly<Record<string, PiperCatalogEntry>>, language: TalkLanguage): VoiceChoice[] => {
-  const qualityRank: Readonly<Record<string, number>> = { high: 0, medium: 1 }
   return Object.entries(catalog)
-    .filter(([, entry]) => entry.language.family === language && entry.num_speakers <= MAX_SPEAKERS_LISTED && entry.quality in qualityRank)
-    .sort(([keyA, a], [keyB, b]) => (qualityRank[a.quality] ?? 9) - (qualityRank[b.quality] ?? 9) || keyA.localeCompare(keyB))
+    .filter(([, entry]) => entry.language.family === language && entry.num_speakers <= MAX_SPEAKERS_LISTED && entry.quality === 'medium')
+    .sort(([keyA], [keyB]) => keyA.localeCompare(keyB))
     .flatMap(([key, entry]) => {
       const region = entry.language.code.split('_')[1] ?? ''
       const regionLabel = language === 'en' || language === 'es' ? ` ${region}` : ''

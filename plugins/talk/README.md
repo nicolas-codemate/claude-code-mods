@@ -38,15 +38,20 @@ second one sends the message; in hold mode, `"autoSubmit": true` sends it as you
 dictate cuts the voice short, as in a conversation.
 
 **The band.** Above the prompt, the whole answer being read, its word highlighted, with `stop` and `replay`; an answer
-too long for the band shows from the sentence being read on. Once you send your next message, it stays there dimmed as
-the previous answer, replay still at hand. Below it, a line pulses as Claude Code does while Claude is thinking, then,
-once the answer is in, while its voice is made ready. On its top line, the engine, the voice, the speed and the
-language: each one opens its own choices, a click away, and saves them as `/config` does. The voices are those of the
-engine in use: every Piper voice of the language, each speaker of a voice of a few, the OpenAI voices, the voices of
-your ElevenLabs account. `▶` beside one reads the same sentence with it, to compare; a Piper voice marked `↓` is
-downloaded the first time it is heard or chosen. An engine the machine cannot use is
-dimmed there. A change reloads the mod, and an answer being read goes on from its current sentence with the new
-setting.
+too long for the band shows from the sentence being read on. Once you send your next message, it stays there greyed as
+the previous answer, replay still at hand. Below it, a line pulses with the word of Claude Code's own spinner while
+Claude is thinking, then, once the answer is in, while its voice is made ready. The band's frame tells the state:
+Claude's color while the voice reads, blue while Claude works, grey at rest. Its top line ends with the button that
+ends the conversation, in the conversation's language.
+
+**Settings.** The line at the bottom right of the band names the engine, the voice, the speed and the language. Each
+one opens its choices above it; a choice is only selected until **Apply** saves it as `/config` does (the mod then
+reloads, and an answer being read goes on from its current sentence), and **Cancel** leaves the setting as it was.
+While one is open, the others wait. The voices are those of the engine in use: every Piper voice of the language in
+medium quality (each speaker of a voice of a few), the OpenAI voices, the voices of your ElevenLabs account. `▶` beside
+one reads the same sentence with it, to compare; a Piper voice marked `↓` is downloaded the first time it is heard or
+applied, its progress on the band's top line. An engine the machine cannot use is dimmed. The language chosen is the
+one Claude answers in, whatever Claude Code's own language setting says.
 
 **What is read.** While the mode is on, Claude is asked to answer for the ear: a few sentences, one idea at a time, no
 tables or lists. Code, commands and paths go in code blocks, which stay on screen and are never read. Only the final

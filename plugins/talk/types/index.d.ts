@@ -45,6 +45,8 @@ declare module 'claude-code' {
       reading: Reading
       engineAvailability: EngineAvailability | null
       openSetting: SettingName | null
+      // The choice made in the open setting, saved only once applied.
+      pendingChoice: string | null
       installation: Installation | null
       voiceCatalog: VoiceCatalog | null
       // The voice whose sample is being prepared or heard.
