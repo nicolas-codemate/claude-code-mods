@@ -134,6 +134,17 @@ test('the band shows the answer being read; a turn Claude Code starts by itself 
   await $.prompt.submit({ text: 'On en reparle', wait: false, origin: { kind: 'composer' } })
   await clock.advance(1_200)
   expect((await band.find({ type: 'Text', text: /…$/ }))?.text).toMatch(/^[·✢✳✶✻✽] Cogitating…$/)
+  // Once Claude Code's spinner draws its word for the turn, the band says the same.
+  const spinner = await $.ui.mount({
+    plugin: 'talk',
+    component: 'Spinner',
+    requestId: 'main',
+    props: { word: 'Unraveling', message: null, suffix: '…', mode: 'thinking' },
+    surface: 'terminal',
+  })
+  await spinner.unmount()
+  await clock.advance(300)
+  expect((await band.find({ type: 'Text', text: /…$/ }))?.text).toMatch(/^[·✢✳✶✻✽] Unraveling…$/)
   expect((await band.find({ type: 'Text', text: /^Previous answer$/ }))?.text).toBe('Previous answer')
   expect((await band.find({ type: 'Button', text: /replay/ }))?.key).toBe('replay')
 
@@ -386,10 +397,14 @@ test('between the answer and its voice, the band says the voice is being made re
   expect((await band.find({ type: 'Text', text: /^● Talk · / }))?.text).toBe('● Talk · Answer received')
   expect((await band.find({ type: 'Text', text: /réponse/ }))?.text).toBe('Voilà la réponse.')
   expect((await band.find({ type: 'Text', text: /…$/ }))?.text).toMatch(/^[·✢✳✶✻✽] Getting the voice ready \(Piper\)…$/)
+  // The frame is the working color while the voice is made ready, Claude's while it reads.
+  const frameColor = async () => (await band.find({ type: 'Box' }))?.props.borderColor
+  expect(await frameColor()).toBe('#5fb4e8')
 
   await clock.advance(2_000)
   expect((await band.find({ type: 'Text', text: /^● Talk · / }))?.text).toBe('● Talk · Speaking')
   expect(await band.find({ type: 'Text', text: /…$/ })).toBe(undefined)
+  expect(await frameColor()).toBe('#d97757')
   await clock.advance(20_000)
   await answering
   await band.unmount()

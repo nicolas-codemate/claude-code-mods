@@ -93,6 +93,8 @@ let capabilities: Capabilities | null = null
 let audioDirectory: string | null = null
 let readingGeneration = 0
 let stopPlayback: (() => void) | null = null
+// The word Claude Code's spinner draws for the turn under way, which the band says too; null between turns.
+let spinnerWord: string | null = null
 // The animation of a wait, running only while there is one.
 let animation: { cancel: () => void } | null = null
 // The installation of the local voice under way, which a reading waits for.
@@ -594,7 +596,10 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
-    if (e.agentId === undefined) await stopAwaiting($)
+    if (e.agentId === undefined) {
+      spinnerWord = null
+      await stopAwaiting($)
+    }
     if (e.agentId === undefined && e.reason === 'answer' && (await read($, isActiveAtom))) {
       // Saved before the hook returns: a reload at the end of the turn reads it from there.
       const tokens = tokensOf(spokenTextOf(e.answer))
@@ -609,6 +614,13 @@ export const register: Register = (on, options) => {
   // The person starting to type or dictate takes the floor, as in a conversation.
   on('prompt.change', async ($, e, next) => {
     if (e.origin.kind !== 'plugin' && e.text.trim() !== '' && stopPlayback !== null) await stop($)
+    return next(e)
+  })
+
+  // Read as the spinner goes by, left as Claude Code draws it. A drawing writes no state: the band's own animation
+  // draws it again several times a second, and reads the word then.
+  on('ui.render', { component: 'Spinner' }, ($, e, next) => {
+    spinnerWord = e.props.message ?? e.props.word
     return next(e)
   })
 
@@ -631,6 +643,7 @@ export const register: Register = (on, options) => {
       voiceDownload: await read($, voiceDownloadAtom),
       isAwaitingAnswer: await read($, isAwaitingAnswerAtom),
       animationFrame: await read($, animationFrameAtom),
+      thinkingWord: spinnerWord,
       engineInUse,
       currentVoice: currentVoiceOf(settings, capabilities, engineInUse),
       engineAvailability: await read($, engineAvailabilityAtom),

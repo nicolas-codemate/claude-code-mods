@@ -28,6 +28,8 @@ export type BandInput = {
   voiceDownload: VoiceDownload | null
   isAwaitingAnswer: boolean
   animationFrame: number
+  // The word of Claude Code's spinner for the turn under way, once drawn.
+  thinkingWord: string | null
   engineInUse: TalkEngineName | null
   currentVoice: string | null
   engineAvailability: EngineAvailability | null
@@ -50,8 +52,8 @@ export const LANGUAGES: readonly TalkLanguage[] = ['fr', 'en', 'es', 'de', 'it']
 
 const SPEED_PRESETS: readonly number[] = [0.75, 1, 1.1, 1.25, 1.5, 1.75, 2]
 const SPEED_STEP_LABEL = '0.05'
-// The wait for the next answer is drawn as Claude Code draws its own thinking: a star that pulses, and a word that
-// changes every few steps of it.
+// The wait for the next answer is drawn as Claude Code draws its own thinking: a star that pulses, and the word of its
+// spinner. Before the spinner has drawn one, a word of this list stands in, changing every few steps of the star.
 const THINKING_GLYPHS: readonly string[] = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢']
 const THINKING_WORDS: readonly string[] = ['Cogitating', 'Pondering', 'Mulling it over', 'Brewing', 'Musing', 'Noodling', 'Percolating', 'Thinking']
 const FRAMES_PER_THINKING_WORD = 16
@@ -171,6 +173,9 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
   const isAwaiting = input.isAwaitingAnswer && !isSounding
   const isPreparingVoice = reading.phase === 'synthesizing' && !isAwaiting
   const waitingLine = thinkingLineOf(input.animationFrame)
+  // The frame says the state at a glance: Claude's color while the voice reads, another while Claude works.
+  const frameColor =
+    reading.phase === 'speaking' ? palette.claude : isAwaiting || isPreparingVoice ? palette.working : reading.phase === 'failed' ? palette.failed : palette.idle
   const answerRows = e.props.maxRows - BAND_FRAME_ROWS - (reading.error === null ? 0 : 1) - (input.installation === null ? 0 : 1) - (input.openSetting === null ? 0 : OPEN_SETTING_ROWS)
   const phaseColor = phaseColorOf(reading.phase, palette)
   const chosenEngineReason = engineSetting === 'auto' || engineAvailability === null ? null : engineAvailability[engineSetting]
@@ -310,7 +315,7 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
   )
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={palette.claude} borderDimColor={!isSounding} paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor={frameColor} paddingX={1}>
       <Box flexDirection="row" justifyContent="space-between">
         <Box flexDirection="row" columnGap={2}>
           <Text>
@@ -342,9 +347,13 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
         </Text>
       )}
       {reading.error !== null && <Text color={palette.failed}>{reading.error}</Text>}
-      {isShowingAnswer && isAwaiting && <Text dimColor italic>Previous answer</Text>}
       {isShowingAnswer && isAwaiting && (
-        <Text wrap="wrap" dimColor>
+        <Text color={palette.muted} italic>
+          Previous answer
+        </Text>
+      )}
+      {isShowingAnswer && isAwaiting && (
+        <Text wrap="wrap" color={palette.muted}>
           {visibleTokensOf(reading, e.props.bodyColumns - 4, answerRows - 1 - THINKING_ROWS).map(token => token.text).join('')}
         </Text>
       )}
@@ -352,7 +361,7 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
         <Box flexDirection="column" marginTop={1}>
           <Text dimColor>{'─'.repeat(Math.max(1, e.props.bodyColumns - 4))}</Text>
           <Text color={isAwaiting ? palette.claude : palette.preparing}>
-            <Text bold>{waitingLine.glyph}</Text> {isAwaiting ? waitingLine.word : `Getting the voice ready${engineInUse === null ? '' : ` (${engineLabels[engineInUse]})`}`}…
+            <Text bold>{waitingLine.glyph}</Text> {isAwaiting ? (input.thinkingWord ?? waitingLine.word) : `Getting the voice ready${engineInUse === null ? '' : ` (${engineLabels[engineInUse]})`}`}…
           </Text>
         </Box>
       )}
