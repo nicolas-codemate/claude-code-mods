@@ -1,0 +1,111 @@
+{
+  "name": "talk",
+  "version": "0.1.0",
+  "description": "Voice conversation mode: Claude answers as if talking, its answers are read aloud and highlighted word by word above the prompt",
+  "author": {
+    "name": "Nicolas DEMAY",
+    "email": "nicolas@codemate.consulting",
+    "url": "https://codemate.consulting"
+  },
+  "homepage": "https://github.com/nicolas-codemate/claude-code-mods/tree/main/plugins/talk",
+  "repository": "https://github.com/nicolas-codemate/claude-code-mods",
+  "license": "MIT",
+  "keywords": [
+    "voice",
+    "speech",
+    "text-to-speech",
+    "brainstorm",
+    "mod"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "engine": {
+      "type": "string",
+      "title": "Voice engine",
+      "description": "Who reads the answers aloud: auto picks ElevenLabs or OpenAI when a key is set, then Piper, then the system voice.",
+      "options": [
+        "auto",
+        "elevenlabs",
+        "openai",
+        "piper",
+        "system"
+      ],
+      "default": "auto"
+    },
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "The language Claude answers in and the voice speaks.",
+      "options": [
+        "fr",
+        "en",
+        "es",
+        "de",
+        "it"
+      ],
+      "default": "fr"
+    },
+    "speed": {
+      "type": "number",
+      "title": "Speed",
+      "description": "Speaking rate, 1 for normal.",
+      "default": 1
+    },
+    "autoInstall": {
+      "type": "boolean",
+      "title": "Install the local voice",
+      "description": "When no cloud voice has a key, install Piper and a voice of the language under ~/.local/share/piper on its own.",
+      "default": true
+    },
+    "openaiApiKey": {
+      "type": "string",
+      "title": "OpenAI API key",
+      "description": "Left empty, the OPENAI_API_KEY environment variable is used.",
+      "sensitive": true,
+      "default": ""
+    },
+    "openaiModel": {
+      "type": "string",
+      "title": "OpenAI model",
+      "description": "The OpenAI speech model.",
+      "default": "gpt-4o-mini-tts-2025-12-15"
+    },
+    "openaiVoice": {
+      "type": "string",
+      "title": "OpenAI voice",
+      "description": "alloy, ash, ballad, coral, echo, fable, onyx, nova, sage, shimmer, verse, marin or cedar.",
+      "default": "marin"
+    },
+    "elevenlabsApiKey": {
+      "type": "string",
+      "title": "ElevenLabs API key",
+      "description": "Left empty, the ELEVENLABS_API_KEY environment variable is used.",
+      "sensitive": true,
+      "default": ""
+    },
+    "elevenlabsModel": {
+      "type": "string",
+      "title": "ElevenLabs model",
+      "description": "The ElevenLabs model id.",
+      "default": "eleven_multilingual_v2"
+    },
+    "elevenlabsVoiceId": {
+      "type": "string",
+      "title": "ElevenLabs voice id",
+      "description": "The id of the voice, as the ElevenLabs voice library shows it.",
+      "default": "21m00Tcm4TlvDq8ikWAM"
+    },
+    "piperCommand": {
+      "type": "string",
+      "title": "Piper command",
+      "description": "Path of the piper executable; left empty, piper on the PATH or in ~/.local/share/piper/venv.",
+      "default": ""
+    },
+    "piperVoice": {
+      "type": "string",
+      "title": "Piper voice",
+      "description": "Path of a Piper .onnx voice; left empty, the first voice of the language in ~/.local/share/piper/voices.",
+      "default": ""
+    }
+  }
+}
