@@ -1,11 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { EngineAvailability, Installation, Reading, SpokenToken, TalkEngineName, TalkLanguage } from '../types'
+import type { EngineAvailability, Installation, Reading, SettingName, SpokenToken, TalkEngineName, TalkLanguage, VoiceCatalog, VoiceChoice } from '../types'
 import {
   AUTO_ENGINE_ORDER,
   engineLabels,
   engineOf,
+  engineShownOf,
   isRespellingEnglishFor,
   languageNameOf,
   probeCapabilities,
@@ -14,17 +15,20 @@ import {
   whyUnavailable,
 } from './engines'
 import type { Capabilities, Synthesis, TalkSettings } from './engines'
-import { InstallError, installPiper } from './piper-install'
+import { InstallError, installPiper, piperHomeOf } from './piper-install'
 import { speakableWordOf } from './pronunciation'
 import { chunksOf, sentenceStartOf, spokenTextOf, tokensOf, wordsOf } from './spoken-text'
 import { wordAtElapsedMs } from './timing'
-import { renderBand } from './view/band'
+import { downloadPiperVoice, elevenLabsChoicesOf, openAiChoices, piperCatalogOf, piperChoicesOf, SAMPLE_SENTENCES } from './voices'
+import { renderBand, renderStartLine } from './view/band'
 import { paletteOf } from './view/theme'
 
 const COMMAND = 'talk'
 const PROMPT_SECTION_ID = 'talk:voice-conversation'
 const CHUNK_MAX_CHARACTERS = 260
 const KARAOKE_TICK_MS = 60
+const DOWNLOAD_PROGRESS_TICK_MS = 300
+const ANIMATION_TICK_MS = 150
 const SPEED_STEP = 0.05
 const MIN_SPEED = 0.5
 const MAX_SPEED = 2
@@ -37,6 +41,11 @@ const engineAvailabilityAtom = atom({ plugin: 'talk', key: 'engineAvailability' 
 const openSettingAtom = atom({ plugin: 'talk', key: 'openSetting' } as const, null)
 const claudeCodeThemeAtom = atom({ plugin: 'talk', key: 'claudeCodeTheme' } as const, null)
 const installationAtom = atom({ plugin: 'talk', key: 'installation' } as const, null)
+const voiceCatalogAtom = atom({ plugin: 'talk', key: 'voiceCatalog' } as const, null)
+const previewingVoiceAtom = atom({ plugin: 'talk', key: 'previewingVoice' } as const, null)
+const voiceDownloadAtom = atom({ plugin: 'talk', key: 'voiceDownload' } as const, null)
+const isAwaitingAnswerAtom = atom({ plugin: 'talk', key: 'isAwaitingAnswer' } as const, false)
+const animationFrameAtom = atom({ plugin: 'talk', key: 'animationFrame' } as const, 0)
 
 const SUBCOMMANDS = ['on', 'off', 'stop', 'replay', 'status', 'test', 'setup'] as const
 type Subcommand = (typeof SUBCOMMANDS)[number]
@@ -57,6 +66,7 @@ Talk mode is on: the person is talking things through with you by voice, usually
 - Plain spoken sentences only: no headings, tables, bullet lists, bold, emoji or links. Spell out what a symbol would say.
 - Name code (a method, a table, a class) only when the name matters; otherwise say what it does.
 - Anything that must be read rather than heard (code, a command, a path, a long list) goes in a fenced code block: it is shown on screen and never spoken, so the sentences around it must make sense without it.
+- Sources and links go last, as a list of markdown links: they are shown and never spoken, so never name a URL or a source's title in a sentence.
 - Their messages come from dictation: read misheard technical words for what they sound like.
 - Tool calls and work go on as usual; only the final answer is spoken, so keep it to what they need to hear.`
 
@@ -73,7 +83,7 @@ async function settingsOf($: EngineInterface, options: Readonly<Record<string, u
       model: text('elevenlabsModel'),
       voiceId: text('elevenlabsVoiceId'),
     },
-    piper: { command: text('piperCommand'), voice: text('piperVoice') },
+    piper: { command: text('piperCommand'), voice: text('piperVoice'), voiceName: text('piperVoiceName') },
   }
 }
 
@@ -83,6 +93,8 @@ let capabilities: Capabilities | null = null
 let audioDirectory: string | null = null
 let readingGeneration = 0
 let stopPlayback: (() => void) | null = null
+// The animation of a wait, running only while there is one.
+let animation: { cancel: () => void } | null = null
 // The installation of the local voice under way, which a reading waits for.
 let piperInstallation: Promise<void> | null = null
 
@@ -98,8 +110,23 @@ async function audioDirectoryOf($: EngineInterface): Promise<string> {
   return audioDirectory
 }
 
-function setReading($: EngineInterface, change: (reading: Reading) => Reading) {
-  return update($, readingAtom, reading => change(reading ?? EMPTY_READING))
+async function setReading($: EngineInterface, change: (reading: Reading) => Reading) {
+  await update($, readingAtom, reading => change(reading ?? EMPTY_READING))
+  await syncAnimation($)
+}
+
+// The band animates two waits: for Claude's answer, then for the voice that reads it.
+async function syncAnimation($: EngineInterface): Promise<void> {
+  const isWaiting = (await read($, isAwaitingAnswerAtom)) || (await read($, readingAtom)).phase === 'synthesizing'
+  if (isWaiting && animation === null) {
+    animation = $.clock.every(ANIMATION_TICK_MS, () => {
+      void update($, animationFrameAtom, frame => (frame ?? 0) + 1)
+    })
+  }
+  if (!isWaiting && animation !== null) {
+    animation.cancel()
+    animation = null
+  }
 }
 
 const silence = () => {
@@ -135,7 +162,10 @@ async function speak($: EngineInterface, answer: string) {
 }
 
 // Reads the words from fromWordIndex on, the ones before it shown as already spoken.
-async function readTokens($: EngineInterface, tokens: SpokenToken[], fromWordIndex: number) {
+// A voice other than the one in force, as a sample of it is read with.
+type ForcedVoice = { settings: TalkSettings; capabilities: Capabilities; engine: TalkEngineName }
+
+async function readTokens($: EngineInterface, tokens: SpokenToken[], fromWordIndex: number, forced: ForcedVoice | null = null) {
   silence()
   const generation = readingGeneration
   const words = wordsOf(tokens)
@@ -143,9 +173,9 @@ async function readTokens($: EngineInterface, tokens: SpokenToken[], fromWordInd
   await setReading($, () => ({ tokens, currentWordIndex: fromWordIndex - 1, phase: 'synthesizing', engine: null, error: null }))
   if (piperInstallation !== null) await piperInstallation
   if (generation !== readingGeneration) return
-  const settings = await settingsOf($, pluginOptions)
-  const found = await capabilitiesOf($, settings)
-  const engine = engineOf(settings, found)
+  const settings = forced?.settings ?? (await settingsOf($, pluginOptions))
+  const found = forced?.capabilities ?? (await capabilitiesOf($, settings))
+  const engine = forced?.engine ?? engineOf(settings, found)
   if (generation !== readingGeneration) return
   if (engine === null) {
     const wanted = settings.engine === 'auto' ? AUTO_ENGINE_ORDER : [settings.engine]
@@ -207,7 +237,9 @@ async function refreshEngineAvailability($: EngineInterface): Promise<void> {
 }
 
 // The band changes the mode's options as /config does: the setting is saved and the mod reloads with it.
-async function setOption($: EngineInterface, field: 'engine' | 'language' | 'speed', value: string | number): Promise<void> {
+type OptionField = 'engine' | 'language' | 'speed' | 'piperVoiceName' | 'openaiVoice' | 'elevenlabsVoiceId'
+
+async function setOption($: EngineInterface, field: OptionField, value: string | number): Promise<void> {
   const rows = await $.config.list()
   const row = rows.find(candidate => candidate.key === `talk.${field}` || (candidate.key.startsWith('talk') && candidate.key.endsWith(`.${field}`)))
   if (row === undefined) {
@@ -276,6 +308,152 @@ async function setUpLocalVoice($: EngineInterface, isAsked: boolean): Promise<vo
   return piperInstallation
 }
 
+async function engineInUseOf($: EngineInterface, settings: TalkSettings): Promise<TalkEngineName | null> {
+  return engineOf(settings, await capabilitiesOf($, settings))
+}
+
+// The voice in force for the engine, as the band's list names it, from what the machine was found to have: a drawing
+// runs no command.
+const currentVoiceOf = (settings: TalkSettings, found: Capabilities | null, engine: TalkEngineName | null): string | null => {
+  switch (engine) {
+    case 'elevenlabs':
+      return settings.elevenlabs.voiceId
+    case 'openai':
+      return settings.openai.voice
+    case 'piper': {
+      const piper = found?.piper ?? null
+      if (piper === null) return null
+      if (settings.piper.voiceName !== '' && piper.voice.endsWith(`/${settings.piper.voiceName.split('#')[0]}.onnx`)) return settings.piper.voiceName
+      return piper.voice.slice(piper.voice.lastIndexOf('/') + 1).replace(/\.onnx$/, '')
+    }
+    case 'system':
+    case null:
+      return null
+  }
+}
+
+async function piperVoicesDirectoryOf($: EngineInterface): Promise<string> {
+  return `${piperHomeOf((await $.env.get('HOME')) ?? '')}/voices`
+}
+
+async function loadVoiceCatalog($: EngineInterface): Promise<void> {
+  const settings = await settingsOf($, pluginOptions)
+  const engine = await engineInUseOf($, settings)
+  if (engine === null) {
+    await update($, voiceCatalogAtom, () => null)
+    return
+  }
+  await update($, voiceCatalogAtom, (): VoiceCatalog => ({ engine, status: 'loading' }))
+  try {
+    const choicesOf = async (): Promise<VoiceChoice[]> => {
+      switch (engine) {
+        case 'piper':
+          return piperChoicesOf(await piperCatalogOf($), settings.language)
+        case 'openai':
+          return [...openAiChoices]
+        case 'elevenlabs':
+          return elevenLabsChoicesOf($, settings.elevenlabs.apiKey)
+        case 'system':
+          return []
+      }
+    }
+    const choices = await choicesOf()
+    const directory = await piperVoicesDirectoryOf($)
+    const downloaded = (await $.fs.exists(directory)) ? (await $.fs.list(directory)).map(entry => entry.name.replace(/\.onnx$/, '')) : []
+    await update($, voiceCatalogAtom, (): VoiceCatalog => ({ engine, status: 'ready', choices, downloaded }))
+  } catch (error) {
+    await update($, voiceCatalogAtom, (): VoiceCatalog => ({ engine, status: 'failed', error: error instanceof Error ? error.message : String(error) }))
+  }
+}
+
+// A Piper voice is downloaded the first time it is heard or chosen.
+async function ensurePiperVoice($: EngineInterface, choice: VoiceChoice): Promise<void> {
+  if (choice.download === null) return
+  const directory = await piperVoicesDirectoryOf($)
+  const key = choice.download.slice(choice.download.lastIndexOf('/') + 1)
+  if (await $.fs.exists(`${directory}/${key}.onnx`)) return
+  const download = choice.download
+  await update($, voiceDownloadAtom, () => ({ download, label: choice.label, receivedBytes: 0, totalBytes: choice.sizeBytes }))
+  // The model is written under a temporary name while it comes: its size so far is the progress.
+  const partialModel = `${directory}/${key}.onnx.part`
+  const progress = $.clock.every(DOWNLOAD_PROGRESS_TICK_MS, () => {
+    void (async () => {
+      if (!(await $.fs.exists(partialModel))) return
+      const { size } = await $.fs.stat(partialModel)
+      await update($, voiceDownloadAtom, current => (current === null ? null : { ...current, receivedBytes: size }))
+    })()
+  })
+  try {
+    await downloadPiperVoice($, directory, download)
+  } finally {
+    progress.cancel()
+    await update($, voiceDownloadAtom, () => null)
+  }
+  await update($, voiceCatalogAtom, catalog => (catalog?.status === 'ready' ? { ...catalog, downloaded: [...catalog.downloaded, key] } : catalog))
+}
+
+function withVoice(settings: TalkSettings, engine: TalkEngineName, value: string): TalkSettings {
+  switch (engine) {
+    case 'elevenlabs':
+      return { ...settings, engine, elevenlabs: { ...settings.elevenlabs, voiceId: value } }
+    case 'openai':
+      return { ...settings, engine, openai: { ...settings.openai, voice: value } }
+    case 'piper':
+      return { ...settings, engine, piper: { ...settings.piper, voice: '', voiceName: value } }
+    case 'system':
+      return { ...settings, engine }
+  }
+}
+
+// Reads the same sample sentence with one voice of the list, so that voices can be compared.
+async function previewVoice($: EngineInterface, choice: VoiceChoice): Promise<void> {
+  const catalog = await read($, voiceCatalogAtom)
+  if (catalog === null) return
+  silence()
+  await update($, previewingVoiceAtom, () => choice.value)
+  try {
+    await ensurePiperVoice($, choice)
+    const settings = withVoice(await settingsOf($, pluginOptions), catalog.engine, choice.value)
+    const capabilitiesWithVoice = await probeCapabilities($, settings)
+    const tokens = tokensOf(SAMPLE_SENTENCES[settings.language])
+    await readTokens($, tokens, 0, { settings, capabilities: capabilitiesWithVoice, engine: catalog.engine })
+  } catch (error) {
+    await setReading($, reading => ({ ...reading, phase: 'failed', error: error instanceof Error ? error.message : String(error) }))
+  } finally {
+    await update($, previewingVoiceAtom, () => null)
+  }
+}
+
+async function selectVoice($: EngineInterface, choice: VoiceChoice): Promise<void> {
+  const catalog = await read($, voiceCatalogAtom)
+  if (catalog === null) return
+  switch (catalog.engine) {
+    case 'piper':
+      await update($, previewingVoiceAtom, () => choice.value)
+      try {
+        await ensurePiperVoice($, choice)
+      } finally {
+        await update($, previewingVoiceAtom, () => null)
+      }
+      await setOption($, 'piperVoiceName', choice.value)
+      return
+    case 'openai':
+      await setOption($, 'openaiVoice', choice.value)
+      return
+    case 'elevenlabs':
+      await setOption($, 'elevenlabsVoiceId', choice.value)
+      return
+    case 'system':
+      return
+  }
+}
+
+async function toggleSetting($: EngineInterface, setting: SettingName): Promise<void> {
+  const open = await read($, openSettingAtom)
+  await update($, openSettingAtom, () => (open === setting ? null : setting))
+  if (setting === 'voice' && open !== 'voice') await loadVoiceCatalog($)
+}
+
 async function stop($: EngineInterface) {
   silence()
   await setReading($, reading => (reading.phase === 'synthesizing' || reading.phase === 'speaking' ? { ...reading, phase: 'stopped' } : reading))
@@ -292,8 +470,21 @@ async function turnOn($: EngineInterface): Promise<string> {
   return `Talk mode on (${languageNameOf(settings.language)}): ${voice}. Dictate with the voice key (hold space), /talk off to stop.`
 }
 
+// From the person's message to Claude's answer, the band says the answer it shows is no longer the latest.
+async function startAwaiting($: EngineInterface): Promise<void> {
+  await update($, animationFrameAtom, () => 0)
+  await update($, isAwaitingAnswerAtom, () => true)
+  await syncAnimation($)
+}
+
+async function stopAwaiting($: EngineInterface): Promise<void> {
+  await update($, isAwaitingAnswerAtom, () => false)
+  await syncAnimation($)
+}
+
 async function turnOff($: EngineInterface): Promise<string> {
   await stop($)
+  await stopAwaiting($)
   await update($, isActiveAtom, () => false)
   return 'Talk mode off.'
 }
@@ -332,6 +523,7 @@ export const register: Register = (on, options) => {
     await readClaudeCodeTheme($)
     // A reload (an option changed, or the mod's own files) ends the player of the module it replaces: the reading goes
     // on from the sentence it was in, with the options now in force.
+    await syncAnimation($)
     const interrupted = await read($, readingAtom)
     if (interrupted.phase === 'synthesizing' || interrupted.phase === 'speaking') {
       const fromWordIndex = sentenceStartOf(wordsOf(interrupted.tokens), Math.max(0, interrupted.currentWordIndex))
@@ -340,6 +532,8 @@ export const register: Register = (on, options) => {
     if (await read($, isActiveAtom)) {
       void refreshEngineAvailability($)
       void setUpLocalVoice($, false)
+      // The engine or the language may have just changed: the list of voices is read again for them.
+      if ((await read($, openSettingAtom)) === 'voice') void loadVoiceCatalog($)
     }
     return next(e)
   })
@@ -394,11 +588,13 @@ export const register: Register = (on, options) => {
   // Only what the person sends cuts the voice: Claude Code also starts turns of its own, right after a command runs.
   on('prompt.submit', async ($, e, next) => {
     if (e.isMeta === undefined) await stop($)
+    if (e.isMeta === undefined && e.command === undefined && (await read($, isActiveAtom))) await startAwaiting($)
     return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
+    if (e.agentId === undefined) await stopAwaiting($)
     if (e.agentId === undefined && e.reason === 'answer' && (await read($, isActiveAtom))) {
       // Saved before the hook returns: a reload at the end of the turn reads it from there.
       const tokens = tokensOf(spokenTextOf(e.answer))
@@ -419,12 +615,24 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const reading = await read($, readingAtom)
     const isSounding = reading.phase === 'synthesizing' || reading.phase === 'speaking'
-    if (e.props.hasSurvey || !((await read($, isActiveAtom)) || isSounding)) return next(e)
+    if (e.props.hasSurvey) return next(e)
     const settings = await settingsOf($, pluginOptions)
+    if (!(await read($, isActiveAtom)) && !isSounding) {
+      if (pluginOptions.showStartButton === false) return next(e)
+      return renderStartLine($, e, settings.language, paletteOf(await read($, claudeCodeThemeAtom)), () => void turnOn($))
+    }
+    const engineInUse = engineShownOf(settings, capabilities)
     return renderBand($, e, {
       reading,
       openSetting: await read($, openSettingAtom),
       installation: await read($, installationAtom),
+      voiceCatalog: await read($, voiceCatalogAtom),
+      previewingVoice: await read($, previewingVoiceAtom),
+      voiceDownload: await read($, voiceDownloadAtom),
+      isAwaitingAnswer: await read($, isAwaitingAnswerAtom),
+      animationFrame: await read($, animationFrameAtom),
+      engineInUse,
+      currentVoice: currentVoiceOf(settings, capabilities, engineInUse),
       engineAvailability: await read($, engineAvailabilityAtom),
       engineSetting: settings.engine,
       language: settings.language,
@@ -439,7 +647,9 @@ export const register: Register = (on, options) => {
       selectSpeed: speed => void setOption($, 'speed', speed),
       slower: () => void changeSpeed($, -1),
       faster: () => void changeSpeed($, 1),
-      toggleSetting: setting => void update($, openSettingAtom, open => (open === setting ? null : setting)),
+      toggleSetting: setting => void toggleSetting($, setting),
+      previewVoice: choice => void previewVoice($, choice),
+      selectVoice: choice => void selectVoice($, choice),
     })
   })
 }

@@ -2,6 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { TalkEngineName, TalkLanguage } from '../types'
 import { alignedWordStartsMs, estimatedWordStartsMs, speakableTextOf, wordStartsFromVoiceWords } from './timing'
+import { piperSpeakerOf, piperVoiceKeyOf } from './voices'
 import { wavDurationMs } from './wav'
 
 export type TalkSettings = {
@@ -10,7 +11,8 @@ export type TalkSettings = {
   speed: number
   openai: { apiKey: string; model: string; voice: string }
   elevenlabs: { apiKey: string; model: string; voiceId: string }
-  piper: { command: string; voice: string }
+  // voice: the path of a voice file, which wins; voiceName: a voice of the Piper catalog, chosen in the band.
+  piper: { command: string; voice: string; voiceName: string }
 }
 
 export type SystemVoice = 'say' | 'espeak-ng' | 'spd-say'
@@ -19,7 +21,7 @@ export type Capabilities = {
   platform: string
   wavPlayer: readonly string[] | null
   // python: the interpreter of Piper's own environment, when it can tell when each word is spoken.
-  piper: { command: string; voice: string; python: string | null } | null
+  piper: { command: string; voice: string; speakerId: number | null; python: string | null } | null
   systemVoice: SystemVoice | null
   hasOpenAiKey: boolean
   hasElevenLabsKey: boolean
@@ -76,9 +78,22 @@ async function piperOf($: EngineInterface, settings: TalkSettings, installed: Se
   if (command === '' && installed.has('piper')) command = 'piper'
   if (command === '' && (await $.fs.exists(`${piperHome}/venv/bin/piper`))) command = `${piperHome}/venv/bin/piper`
   if (command === '') return null
-  const voice = settings.piper.voice !== '' ? settings.piper.voice : await firstPiperVoiceOf($, `${piperHome}/voices`, settings.language)
+  const chosen = settings.piper.voice === '' ? await chosenPiperVoiceOf($, `${piperHome}/voices`, settings) : null
+  const voice = settings.piper.voice !== '' ? settings.piper.voice : (chosen?.voice ?? (await firstPiperVoiceOf($, `${piperHome}/voices`, settings.language)))
   if (voice === null) return null
-  return { command, voice, python: await piperPythonOf($, command) }
+  return { command, voice, speakerId: chosen?.speakerId ?? null, python: await piperPythonOf($, command) }
+}
+
+// The catalog voice chosen in the band, when it is of the language and on the machine.
+async function chosenPiperVoiceOf($: EngineInterface, directory: string, settings: TalkSettings): Promise<{ voice: string; speakerId: number | null } | null> {
+  const key = piperVoiceKeyOf(settings.piper.voiceName)
+  if (key === '' || !key.startsWith(`${settings.language}_`)) return null
+  const voice = `${directory}/${key}.onnx`
+  if (!(await $.fs.exists(voice))) return null
+  const speaker = piperSpeakerOf(settings.piper.voiceName)
+  if (speaker === null) return { voice, speakerId: null }
+  const description = JSON.parse(await $.fs.read(`${voice}.json`)) as { speaker_id_map?: Record<string, number> }
+  return { voice, speakerId: description.speaker_id_map?.[speaker] ?? null }
 }
 
 // The timing of each phoneme comes from Piper's Python library, which needs the onnx package beside it.
@@ -122,6 +137,11 @@ export const engineOf = (settings: TalkSettings, capabilities: Capabilities): Ta
   if (settings.engine !== 'auto') return isEngineAvailable(settings.engine, capabilities) ? settings.engine : null
   return AUTO_ENGINE_ORDER.find(engine => isEngineAvailable(engine, capabilities)) ?? null
 }
+
+// The engine the settings line names: the one chosen, at once, or the one auto picks once the machine is probed. Not
+// the engine of the last answer read, which an engine just chosen has not read anything with yet.
+export const engineShownOf = (settings: TalkSettings, found: Capabilities | null): TalkEngineName | null =>
+  settings.engine !== 'auto' ? settings.engine : found === null ? null : engineOf(settings, found)
 
 export const whyUnavailable = (engine: TalkEngineName, capabilities: Capabilities): string => {
   if (capabilities.wavPlayer === null && !(engine === 'system' && capabilities.systemVoice === 'spd-say'))
@@ -219,9 +239,10 @@ const PIPER_TIMED_SYNTHESIS = `
 import json, sys, wave
 from piper import PiperVoice, SynthesisConfig
 voice = PiperVoice.load(sys.argv[1], include_alignments=True)
+speaker_id = int(sys.argv[4]) if sys.argv[4] else None
 starts, samples, rate, is_word_start = [], 0, 1, True
 with wave.open(sys.argv[2], "wb") as out:
-    for index, chunk in enumerate(voice.synthesize(sys.stdin.read(), SynthesisConfig(length_scale=float(sys.argv[3])), include_alignments=True)):
+    for index, chunk in enumerate(voice.synthesize(sys.stdin.read(), SynthesisConfig(length_scale=float(sys.argv[3]), speaker_id=speaker_id), include_alignments=True)):
         if index == 0:
             out.setframerate(chunk.sample_rate); out.setsampwidth(chunk.sample_width); out.setnchannels(chunk.sample_channels)
         rate = chunk.sample_rate
@@ -243,7 +264,8 @@ async function synthesizeWithPiper($: EngineInterface, request: SynthesisRequest
   const audioPath = `${request.outputPathWithoutExtension}.wav`
   const lengthScale = String(1 / request.settings.speed)
   if (piper.python !== null) {
-    const stdout = await runOrFail($, [piper.python, '-c', PIPER_TIMED_SYNTHESIS, piper.voice, audioPath, lengthScale], text, 'Piper')
+    const speaker = piper.speakerId === null ? '' : String(piper.speakerId)
+    const stdout = await runOrFail($, [piper.python, '-c', PIPER_TIMED_SYNTHESIS, piper.voice, audioPath, lengthScale, speaker], text, 'Piper')
     const voiceWordStartsMs = JSON.parse(stdout.trim().split('\n').pop() ?? '[]') as number[]
     const durationMs = await wavDurationOfFile($, audioPath)
     return {
@@ -252,7 +274,8 @@ async function synthesizeWithPiper($: EngineInterface, request: SynthesisRequest
       wordStartsMs: wordStartsFromVoiceWords(request.speakableWords, voiceWordStartsMs) ?? estimatedWordStartsMs(request.speakableWords, durationMs),
     }
   }
-  await runOrFail($, [piper.command, '-m', piper.voice, '-f', audioPath, '--length-scale', lengthScale], text, 'Piper')
+  const speakerArguments = piper.speakerId === null ? [] : ['-s', String(piper.speakerId)]
+  await runOrFail($, [piper.command, '-m', piper.voice, '-f', audioPath, '--length-scale', lengthScale, ...speakerArguments], text, 'Piper')
   const durationMs = await wavDurationOfFile($, audioPath)
   return { playback: wavPlaybackOf(request.capabilities, audioPath), durationMs, wordStartsMs: estimatedWordStartsMs(request.speakableWords, durationMs) }
 }

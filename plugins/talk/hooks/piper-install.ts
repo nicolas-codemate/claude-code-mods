@@ -2,8 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { TalkLanguage } from '../types'
 import { languageNameOf } from './engines'
-
-const VOICES_ADDRESS = 'https://huggingface.co/rhasspy/piper-voices/resolve/main'
+import { downloadPiperVoice } from './voices'
 
 // One voice per language, the clearest of those the Piper project publishes at medium quality.
 const VOICE_PATHS: Readonly<Record<TalkLanguage, string>> = {
@@ -16,7 +15,6 @@ const VOICE_PATHS: Readonly<Record<TalkLanguage, string>> = {
 
 const VENV_TIMEOUT_MS = 120_000
 const PIP_TIMEOUT_MS = 600_000
-const DOWNLOAD_TIMEOUT_MS = 600_000
 
 export class InstallError extends Error {}
 
@@ -133,11 +131,8 @@ export async function installPiper($: EngineInterface, home: string, language: T
   }
   if (missing.includes('voice')) {
     await onStep(`downloading the ${languageNameOf(language)} voice, about 60 MB`)
-    const voicePath = VOICE_PATHS[language]
-    const voiceName = voicePath.slice(voicePath.lastIndexOf('/') + 1)
-    const voicesDirectory = `${piperHome}/voices`
-    // Downloaded under a temporary name first: a voice cut short is never taken for a whole one.
-    const script = 'set -e; mkdir -p "$1"; for suffix in .onnx.json .onnx; do curl -fsSL -o "$1/$2$suffix.part" "$3$suffix"; mv "$1/$2$suffix.part" "$1/$2$suffix"; done'
-    await runStep($, ['sh', '-c', script, 'sh', voicesDirectory, voiceName, `${VOICES_ADDRESS}/${voicePath}`], DOWNLOAD_TIMEOUT_MS, 'Downloading the voice')
+    await downloadPiperVoice($, `${piperHome}/voices`, VOICE_PATHS[language]).catch(error => {
+      throw new InstallError(String(error instanceof Error ? error.message : error))
+    })
   }
 }

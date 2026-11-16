@@ -57,6 +57,12 @@
       "description": "When no cloud voice has a key, install Piper and a voice of the language under ~/.local/share/piper on its own.",
       "default": true
     },
+    "showStartButton": {
+      "type": "boolean",
+      "title": "Start button above the prompt",
+      "description": "While talk mode is off, keep a line above the prompt with a button that starts a voice conversation.",
+      "default": true
+    },
     "openaiApiKey": {
       "type": "string",
       "title": "OpenAI API key",
@@ -99,6 +105,12 @@
       "type": "string",
       "title": "Piper command",
       "description": "Path of the piper executable; left empty, piper on the PATH or in ~/.local/share/piper/venv.",
+      "default": ""
+    },
+    "piperVoiceName": {
+      "type": "string",
+      "title": "Piper voice name",
+      "description": "The Piper voice the band chose, as the Piper catalog names it (fr_FR-upmc-medium#pierre for one of its speakers); left empty, the first voice of the language.",
       "default": ""
     },
     "piperVoice": {

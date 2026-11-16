@@ -55,3 +55,16 @@ test('a reading taken up again starts from the sentence it was in', async () => 
   expect(sentenceStartOf(words, 0)).toBe(0)
   expect(sentenceStartOf(words, 4)).toBe(4)
 })
+
+test('sources and links listed after an answer are shown, not read', async () => {
+  const answer = [
+    'OpenAI costs about a cent and a half a minute.',
+    '',
+    'Sources :',
+    '- [OpenAI, the speech model](https://developers.openai.com/api/docs/models/gpt-4o-mini-tts)',
+    '- Pricing in 2026: https://example.com/pricing',
+  ].join('\n')
+
+  expect(spokenTextOf(answer)).toBe('OpenAI costs about a cent and a half a minute.')
+  expect(spokenTextOf('- Measure first.\n- Then [decide](https://example.com) together.')).toBe('Measure first.')
+})

@@ -90,12 +90,28 @@ test('talk mode asks Claude for spoken answers and shows them above the prompt u
   await $.command.run({ command: 'talk', args: 'off', ...TYPED_AT_PROMPT })
   const after = await $.prompt.compose(COMPOSE_INPUT)
   expect(after.sections.map(section => section.id)).toEqual(['engine'])
+  // Off, the band is one line whose button starts a conversation again.
   const bandWhenOff = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await bandWhenOff.find({ type: 'Text', text: /engine/ }))?.text).toBe('engine')
+  expect((await bandWhenOff.find({ type: 'Button', text: /conversation/ }))?.text).toBe('▶ Démarrer une conversation vocale')
+  await bandWhenOff.press({ key: 'start' })
+  expect((await $.prompt.compose(COMPOSE_INPUT)).sections.map(section => section.id)).toEqual(['engine', 'talk:voice-conversation'])
+  expect((await bandWhenOff.find({ type: 'Button', text: /conversation/ }))?.text).toBe('✕ Terminer la conversation vocale')
+  await bandWhenOff.press({ key: 'end' })
+  expect((await $.prompt.compose(COMPOSE_INPUT)).sections.map(section => section.id)).toEqual(['engine'])
   await bandWhenOff.unmount()
 })
 
-test('the band shows the answer being read; a turn Claude Code starts by itself leaves the voice, a message the person sends cuts it', async ($, on) => {
+test('the start line above the prompt can be turned off, leaving the prompt as it was', { options: { showStartButton: false } }, async ($, on) => {
+  standInForTheEngine(on)
+  machineWithoutVoice(on)
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Text', text: /engine/ }))?.text).toBe('engine')
+  await band.unmount()
+})
+
+test('the band shows the answer being read; a turn Claude Code starts by itself leaves the voice, a message the person sends cuts it and marks the answer as the previous one', async ($, on) => {
   const clock = mock.clock(on)
   standInForTheEngine(on)
   machineWithPiper(on, clock)
@@ -114,8 +130,17 @@ test('the band shows the answer being read; a turn Claude Code starts by itself 
   await clock.advance(500)
   expect(await phaseShown()).toBe('Speaking')
 
+  // The person speaks again: the voice stops, and the answer shown is no longer the latest one until the next comes.
   await $.prompt.submit({ text: 'On en reparle', wait: false, origin: { kind: 'composer' } })
-  expect(await phaseShown()).toBe('Stopped')
+  await clock.advance(1_200)
+  expect((await band.find({ type: 'Text', text: /…$/ }))?.text).toMatch(/^[·✢✳✶✻✽] Cogitating…$/)
+  expect((await band.find({ type: 'Text', text: /^Previous answer$/ }))?.text).toBe('Previous answer')
+  expect((await band.find({ type: 'Button', text: /replay/ }))?.key).toBe('replay')
+
+  await $.turn.complete({ answer: 'Alors parlons-en.', durationMs: 10, isAborted: false, turnId: 'turn-2', reason: 'answer' })
+  await clock.advance(500)
+  expect(await band.find({ type: 'Text', text: /^Previous answer$/ })).toBe(undefined)
+  expect((await band.find({ type: 'Text', text: /parlons/ }))?.text).toBe('Alors parlons-en.')
   await clock.advance(20_000)
   await band.unmount()
 })
@@ -227,5 +252,145 @@ test('a machine lacking what the install needs is told the command of its own sy
   expect((await band.find({ type: 'Text', text: /needs/ }))?.text).toBe(
     'The local voice needs the venv module of python3. Run: sudo apt install python3-venv  then /talk setup.',
   )
+  await band.unmount()
+})
+
+test('the voice of the band lists the voices of the engine: each one is heard on the same sentence, then chosen', async ($, on) => {
+  const clock = mock.clock(on)
+  const written: { key: string; value: unknown }[] = []
+  const runs: string[][] = []
+  standInForTheEngine(on, { HOME: '/home/someone' })
+  on('fs.list', () => ({ value: [{ name: 'fr_FR-siwis-medium.onnx', kind: 'file', size: 1, mtimeMs: 0, isLink: false }] }))
+  on('fs.read', () => ({ value: { base64: oneSecondWavBase64() } }))
+  on('process.spawn', async function* () {
+    await clock.sleep(10_000)
+    return { value: { code: 0, signal: null } }
+  })
+  on('process.run', (_, e) => {
+    runs.push([...e.argv])
+    const stdout = e.argv[0] === 'uname' ? 'Linux\n' : e.argv[0] === 'sh' && e.argv[2]?.includes('curl') !== true ? 'pw-play\npiper\n' : e.argv[0] === 'mktemp' ? '/tmp/talk-test\n' : ''
+    return { value: { ...NO_OUTPUT, stdout } }
+  })
+  on('fs.exists', (_, e) => ({ value: !e.path.includes('upmc') }))
+  on('http.fetch', () => ({
+    value: {
+      status: 200,
+      ok: true,
+      headers: {},
+      text: JSON.stringify({
+        'fr_FR-siwis-medium': { name: 'siwis', quality: 'medium', num_speakers: 1, language: { code: 'fr_FR', family: 'fr' } },
+        'fr_FR-tom-medium': { name: 'tom', quality: 'medium', num_speakers: 1, language: { code: 'fr_FR', family: 'fr' } },
+      }),
+    },
+  }))
+  on('config.list', () => ({ value: [{ key: 'talk.piperVoiceName', label: 'Piper voice name', kind: 'text', value: '', provider: { kind: 'engine' }, isLocked: false }] as never }))
+  on('config.set', (_, e) => {
+    written.push({ key: e.key, value: e.value })
+    return { value: e.value }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'talk', args: '', ...TYPED_AT_PROMPT })
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'setting-voice' })
+  // Tom is not on the machine yet: it is marked to be downloaded.
+  expect((await band.find({ type: 'Button', text: /^Tom$/ }))?.key).toBe('choose-fr_FR-tom-medium')
+  expect((await band.find({ type: 'Text', text: /^↓/ }))?.text).toBe('↓ to download')
+
+  await band.press({ key: 'hear-fr_FR-tom-medium' })
+  await clock.advance(500)
+  // The sample sentence, read with the voice heard, not the one in force.
+  expect((await band.find({ type: 'Text', text: /pull request/ }))?.text).toContain('Tu veux que je crée la pull request sur GitHub')
+  expect(runs.some(argv => argv[0] === 'piper' && argv.includes('/home/someone/.local/share/piper/voices/fr_FR-tom-medium.onnx'))).toBe(true)
+
+  await band.press({ key: 'choose-fr_FR-tom-medium' })
+  expect(written).toEqual([{ key: 'talk.piperVoiceName', value: 'fr_FR-tom-medium' }])
+  await clock.advance(20_000)
+  await band.unmount()
+})
+
+test('a voice not yet on the machine shows how far its download has come', async ($, on) => {
+  const clock = mock.clock(on)
+  standInForTheEngine(on, { HOME: '/home/someone' })
+  on('fs.list', () => ({ value: [{ name: 'fr_FR-siwis-medium.onnx', kind: 'file', size: 1, mtimeMs: 0, isLink: false }] }))
+  on('fs.read', () => ({ value: { base64: oneSecondWavBase64() } }))
+  on('fs.exists', (_, e) => ({ value: !e.path.endsWith('fr_FR-tom-medium.onnx') }))
+  on('fs.stat', () => ({ value: { kind: 'file', size: 31_500_000, mtimeMs: 0, isLink: false } }))
+  on('process.spawn', async function* () {
+    await clock.sleep(10_000)
+    return { value: { code: 0, signal: null } }
+  })
+  on('process.run', async (_, e) => {
+    // The download takes five seconds of the test's clock.
+    const isDownload = e.argv[0] === 'sh' && e.argv[2]?.includes('curl') === true
+    if (isDownload) await clock.sleep(5_000)
+    const stdout = e.argv[0] === 'uname' ? 'Linux\n' : e.argv[0] === 'sh' && !isDownload ? 'pw-play\npiper\n' : ''
+    return { value: { ...NO_OUTPUT, stdout } }
+  })
+  on('http.fetch', () => ({
+    value: {
+      status: 200,
+      ok: true,
+      headers: {},
+      text: JSON.stringify({
+        'fr_FR-tom-medium': {
+          name: 'tom',
+          quality: 'medium',
+          num_speakers: 1,
+          language: { code: 'fr_FR', family: 'fr' },
+          files: { 'fr/fr_FR/tom/medium/fr_FR-tom-medium.onnx': { size_bytes: 63_000_000 } },
+        },
+      }),
+    },
+  }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'talk', args: '', ...TYPED_AT_PROMPT })
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'setting-voice' })
+  expect((await band.find({ type: 'Text', text: /^↓/ }))?.text).toBe('↓ 63 MB')
+
+  // The press lasts as long as the download it started: it is awaited once the clock has run it out.
+  const hearing = band.press({ key: 'hear-fr_FR-tom-medium' })
+  await clock.advance(1_000)
+  expect((await band.find({ type: 'Text', text: /%$/ }))?.text).toBe('50%')
+  expect((await band.find({ type: 'Text', text: /^Downloading/ }))?.text).toBe('Downloading Tom  ████████████░░░░░░░░░░░░  32 MB of 63 MB')
+  await clock.advance(30_000)
+  await hearing
+  await band.unmount()
+})
+
+test('between the answer and its voice, the band says the voice is being made ready', async ($, on) => {
+  const clock = mock.clock(on)
+  standInForTheEngine(on)
+  on('fs.exists', () => ({ value: true }))
+  on('fs.list', () => ({ value: [{ name: 'fr_FR-test-medium.onnx', kind: 'file', size: 1, mtimeMs: 0, isLink: false }] }))
+  on('fs.read', () => ({ value: { base64: oneSecondWavBase64() } }))
+  on('process.spawn', async function* () {
+    await clock.sleep(10_000)
+    return { value: { code: 0, signal: null } }
+  })
+  on('process.run', async (_, e) => {
+    // Piper takes two seconds of the test's clock to make the voice.
+    if (e.argv[0] === 'piper') await clock.sleep(2_000)
+    const stdout = e.argv[0] === 'uname' ? 'Linux\n' : e.argv[0] === 'sh' ? 'pw-play\npiper\n' : e.argv[0] === 'mktemp' ? '/tmp/talk-test\n' : ''
+    return { value: { ...NO_OUTPUT, stdout } }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'talk', args: '', ...TYPED_AT_PROMPT })
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const answering = $.turn.complete({ answer: 'Voilà la réponse.', durationMs: 10, isAborted: false, turnId: 'turn-1', reason: 'answer' })
+  await clock.advance(500)
+
+  expect((await band.find({ type: 'Text', text: /^● Talk · / }))?.text).toBe('● Talk · Answer received')
+  expect((await band.find({ type: 'Text', text: /réponse/ }))?.text).toBe('Voilà la réponse.')
+  expect((await band.find({ type: 'Text', text: /…$/ }))?.text).toMatch(/^[·✢✳✶✻✽] Getting the voice ready \(Piper\)…$/)
+
+  await clock.advance(2_000)
+  expect((await band.find({ type: 'Text', text: /^● Talk · / }))?.text).toBe('● Talk · Speaking')
+  expect(await band.find({ type: 'Text', text: /…$/ })).toBe(undefined)
+  await clock.advance(20_000)
+  await answering
   await band.unmount()
 })

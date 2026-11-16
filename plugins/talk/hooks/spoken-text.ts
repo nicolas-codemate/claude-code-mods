@@ -8,6 +8,9 @@ const HEADING_MARK = /^[ \t]{0,3}#{1,6}[ \t]+/gm
 const BLOCKQUOTE_MARK = /^[ \t]*>[ \t]?/gm
 const LIST_MARK = /^[ \t]*(?:[-*+]|\d+[.)])[ \t]+/gm
 const HORIZONTAL_RULE = /^[ \t]*(?:[-*_][ \t]*){3,}$/gm
+// A list of sources or links is for the eye: its heading and every list line holding a link are left out.
+const SOURCES_HEADING = /^[ \t]*(?:#{1,6}[ \t]+)?(?:\*\*)?(?:sources?|références?|references?|liens?|links?)(?:\*\*)?[ \t]*:?[ \t]*$/gim
+const LINKED_LIST_ITEM = /^[ \t]*(?:[-*+]|\d+[.)])[ \t]+.*(?:\]\([^)]*\)|https?:\/\/).*$/gm
 const IMAGE = /!\[([^\]]*)\]\([^)]*\)/g
 const LINK = /\[([^\]]+)\]\([^)]*\)/g
 const BARE_URL = /\bhttps?:\/\/\S+/g
@@ -22,6 +25,8 @@ export const spokenTextOf = (markdown: string): string =>
     .replace(FENCED_BLOCK, '')
     .replace(UNCLOSED_FENCED_BLOCK, '')
     .replace(TABLE_LINE, '')
+    .replace(SOURCES_HEADING, '')
+    .replace(LINKED_LIST_ITEM, '')
     .replace(HTML_TAG, '')
     .replace(HORIZONTAL_RULE, '')
     .replace(HEADING_MARK, '')

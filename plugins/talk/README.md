@@ -28,14 +28,23 @@ Another system, terminal or way of working may well bring out bugs I have never 
 | `/talk status` | Lists the voices this machine can use, and why the others cannot |
 | `/talk setup` | Installs the local voice, Piper, and a voice of the language |
 
+**Starting and leaving.** While the mode is off, a line above the prompt holds a button that starts a voice
+conversation, in the language of the mode; the `Start button above the prompt` option in `/config` hides it. While
+it is on, the band's top line ends with the button that leaves it.
+
 **Speaking.** Claude Code has no microphone that stays open: you talk with its own dictation, `/voice`, holding the
 space bar while you speak. With `"voice": { "enabled": true, "mode": "tap" }` in your settings, one tap starts it and a
 second one sends the message; in hold mode, `"autoSubmit": true` sends it as you release the key. Starting to type or
 dictate cuts the voice short, as in a conversation.
 
 **The band.** Above the prompt, the whole answer being read, its word highlighted, with `stop` and `replay`; an answer
-too long for the band shows from the sentence being read on. On its top line, the voice, the speed and the language:
-each one opens its own choices, a click away, and saves them as `/config` does. An engine the machine cannot use is
+too long for the band shows from the sentence being read on. Once you send your next message, it stays there dimmed as
+the previous answer, replay still at hand. Below it, a line pulses as Claude Code does while Claude is thinking, then,
+once the answer is in, while its voice is made ready. On its top line, the engine, the voice, the speed and the
+language: each one opens its own choices, a click away, and saves them as `/config` does. The voices are those of the
+engine in use: every Piper voice of the language, each speaker of a voice of a few, the OpenAI voices, the voices of
+your ElevenLabs account. `▶` beside one reads the same sentence with it, to compare; a Piper voice marked `↓` is
+downloaded the first time it is heard or chosen. An engine the machine cannot use is
 dimmed there. A change reloads the mod, and an answer being read goes on from its current sentence with the new
 setting.
 
@@ -84,5 +93,5 @@ The mod finds `piper` there or on the `PATH`, and takes the first voice of the l
 ## Options
 
 In `/config`: the voice engine, the language (French, English, Spanish, German, Italian: the language Claude answers in
-and the voice speaks), the speaking speed, whether the local voice installs itself, and per engine its key, model and
-voice.
+and the voice speaks), the speaking speed, whether the local voice installs itself, whether the start button shows
+above the prompt, and per engine its key, model and voice.
