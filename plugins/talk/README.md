@@ -4,6 +4,8 @@ A voice conversation mode for [Claude Code](https://code.claude.com), for the mo
 together rather than hand over work: you dictate, Claude answers as a colleague would out loud, short and in plain
 sentences, and its answer is read aloud while a band above the prompt highlights each word as it is spoken.
 
+![Claude's answer read aloud, the word being spoken highlighted in the band above the prompt](docs/media/answer-read.png)
+
 **A personal tool.** talk was built for my own brainstorming and is mostly tested on my own machine, under Linux.
 Another system, terminal or way of working may well bring out bugs I have never met. If you hit one, an
 [issue](https://github.com/nicolas-codemate/claude-code-mods/issues) is welcome, a pull request even more: see
@@ -32,6 +34,8 @@ Another system, terminal or way of working may well bring out bugs I have never 
 conversation, in the language of the mode; the `Start button above the prompt` option in `/config` hides it. While
 it is on, the band's top line ends with the button that leaves it.
 
+![The button above the prompt that starts a voice conversation](docs/media/start-line.png)
+
 **Speaking.** Claude Code has no microphone that stays open: you talk with its own dictation, `/voice`, holding the
 space bar while you speak. With `"voice": { "enabled": true, "mode": "tap" }` in your settings, one tap starts it and a
 second one sends the message; in hold mode, `"autoSubmit": true` sends it as you release the key. Starting to type or
@@ -44,6 +48,8 @@ Claude is thinking, then, once the answer is in, while its voice is made ready. 
 Claude's color while the voice reads, blue while Claude works, grey at rest. Its top line ends with the button that
 ends the conversation, in the conversation's language.
 
+![The previous answer greyed while Claude thinks, its spinner's word pulsing below](docs/media/previous-answer.png)
+
 **Settings.** The line at the bottom right of the band names the engine, the voice, the speed and the language. Each
 one opens its choices above it; a choice is only selected until **Apply** saves it as `/config` does (the mod then
 reloads, and an answer being read goes on from its current sentence), and **Cancel** leaves the setting as it was.
@@ -52,6 +58,10 @@ medium quality (each speaker of a voice of a few), the OpenAI voices, the voices
 one reads the same sentence with it, to compare; a Piper voice marked `↓` is downloaded the first time it is heard or
 applied, its progress on the band's top line. An engine the machine cannot use is dimmed. The language chosen is the
 one Claude answers in, whatever Claude Code's own language setting says.
+
+![The speeds open above the settings line, 1.25x selected until Apply](docs/media/speed-settings.png)
+
+![The English voices in columns, one of them downloading with its progress on the band's top line](docs/media/voice-download.png)
 
 **What is read.** While the mode is on, Claude is asked to answer for the ear: a few sentences, one idea at a time, no
 tables or lists. Code, commands and paths go in code blocks, which stay on screen and are never read. Only the final

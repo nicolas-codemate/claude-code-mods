@@ -317,6 +317,8 @@ test('the voice of the band lists the voices of the engine: each one is heard on
 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await $.command.run({ command: 'talk', args: '', ...TYPED_AT_PROMPT })
+  await $.turn.complete({ answer: 'On garde le cache.', durationMs: 10, isAborted: false, turnId: 'turn-1', reason: 'answer' })
+  await clock.advance(11_000)
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   await band.press({ key: 'setting-voice' })
   // Tom is not on the machine yet: it is marked to be downloaded.
@@ -334,6 +336,8 @@ test('the voice of the band lists the voices of the engine: each one is heard on
   await band.press({ key: 'apply-setting' })
   expect(written).toEqual([{ key: 'talk.piperVoiceName', value: 'fr_FR-tom-medium' }])
   await clock.advance(20_000)
+  // Once the sample is heard, the answer it stood in for is back, for replay.
+  expect((await band.find({ type: 'Text', text: /cache/ }))?.text).toBe('On garde le cache.')
   await band.unmount()
 })
 

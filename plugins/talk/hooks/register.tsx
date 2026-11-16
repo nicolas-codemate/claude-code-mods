@@ -418,17 +418,27 @@ function withVoice(settings: TalkSettings, engine: TalkEngineName, value: string
 }
 
 // Reads the same sample sentence with one voice of the list, so that voices can be compared.
+const textOfTokens = (tokens: readonly SpokenToken[]): string => tokens.map(token => token.text).join('')
+
 async function previewVoice($: EngineInterface, choice: VoiceChoice): Promise<void> {
   const catalog = await read($, voiceCatalogAtom)
   if (catalog === null) return
   silence()
+  // The sample takes the band while it is heard; the answer it stood in for comes back after, for replay and as the
+  // previous answer.
+  const answerBefore = await read($, readingAtom)
   await update($, previewingVoiceAtom, () => choice.value)
   try {
     await ensurePiperVoice($, choice)
     const settings = withVoice(await settingsOf($, pluginOptions), catalog.engine, choice.value)
     const capabilitiesWithVoice = await probeCapabilities($, settings)
-    const tokens = tokensOf(SAMPLE_SENTENCES[settings.language])
-    await readTokens($, tokens, 0, { settings, capabilities: capabilitiesWithVoice, engine: catalog.engine })
+    const sampleTokens = tokensOf(SAMPLE_SENTENCES[settings.language])
+    await readTokens($, sampleTokens, 0, { settings, capabilities: capabilitiesWithVoice, engine: catalog.engine })
+    const reading = await read($, readingAtom)
+    if (reading.tokens === sampleTokens || textOfTokens(reading.tokens) === textOfTokens(sampleTokens)) {
+      const isAnswer = answerBefore.tokens.length > 0
+      await setReading($, () => ({ ...answerBefore, phase: isAnswer ? 'done' : 'idle', currentWordIndex: isAnswer ? wordsOf(answerBefore.tokens).length : -1, error: null }))
+    }
   } catch (error) {
     await setReading($, reading => ({ ...reading, phase: 'failed', error: error instanceof Error ? error.message : String(error) }))
   } finally {
