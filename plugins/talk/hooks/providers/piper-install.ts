@@ -67,7 +67,9 @@ async function missingPrerequisitesOf($: EngineInterface, needsPython: boolean, 
     const { exitCode } = await $.process.run(['python3', '-c', 'import venv, ensurepip']).catch(() => ({ exitCode: 127 }))
     if (exitCode !== 0) {
       const { exitCode: pythonExitCode } = await $.process.run(['python3', '--version']).catch(() => ({ exitCode: 127 }))
-      missing.push(pythonExitCode === 0 ? 'venv' : 'python')
+      // Without python3, its venv module cannot be looked for; some systems ship it apart (Debian's python3-venv): it is
+      // asked for in the same command, so that one install does it all.
+      missing.push(...(pythonExitCode === 0 ? (['venv'] as const) : (['python', 'venv'] as const)))
     }
   }
   if (needsCurl) {
