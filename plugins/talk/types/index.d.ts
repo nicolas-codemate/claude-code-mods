@@ -31,8 +31,8 @@ export type VoiceFilter = 'all' | VoiceGender
 // What this conversation has spent on a cloud voice: the characters it read and the seconds of voice it made.
 export type Spending = { characters: number; audioSeconds: number }
 
-// The credits of the ElevenLabs account as its API told them, and how many were used when the conversation began.
-export type ElevenLabsCredits = { used: number; limit: number; usedAtStart: number }
+// The credits of a voice service's account as its API told them, and how many were used when the session first read them.
+export type Credits = { used: number; limit: number; usedAtStart: number }
 
 // A Piper voice being downloaded: what has come so far, out of its size when the catalog gives it.
 export type VoiceDownload = { download: string; label: string; receivedBytes: number; totalBytes: number | null }
@@ -65,7 +65,8 @@ declare module 'claude-code' {
       voiceDownload: VoiceDownload | null
       voiceFilter: VoiceFilter
       spending: Record<TalkEngineName, Spending>
-      elevenLabsCredits: ElevenLabsCredits | null
+      // Per engine whose account counts credits, once read.
+      credits: Partial<Record<TalkEngineName, Credits>>
       // From the person's message until Claude's answer comes.
       isAwaitingAnswer: boolean
       // The step of the animation of a wait: for the answer, then for the voice.

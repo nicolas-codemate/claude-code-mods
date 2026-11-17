@@ -55,8 +55,8 @@ test('beside the engine, what the session cost: ElevenLabs credits, OpenAI dolla
   const nothing = { characters: 0, audioSeconds: 0 }
   const spending = { elevenlabs: { characters: 640, audioSeconds: 40 }, openai: { characters: 900, audioSeconds: 240 }, piper: nothing, system: nothing }
 
-  expect(costLabelOf('elevenlabs', spending, { used: 1_640, limit: 10_000, usedAtStart: 1_000 })).toBe('640 credits · 8,360 left')
-  expect(costLabelOf('elevenlabs', spending, null)).toBe('640 characters')
-  expect(costLabelOf('openai', spending, null)).toBe('≈ $0.06')
-  expect(costLabelOf('piper', spending, null)).toBe(null)
+  expect(costLabelOf('elevenlabs', spending, { elevenlabs: { used: 1_640, limit: 10_000, usedAtStart: 1_000 } })).toBe('640 credits · 8,360 left')
+  expect(costLabelOf('elevenlabs', spending, {})).toBe('640 characters')
+  expect(costLabelOf('openai', spending, {})).toBe('≈ $0.06')
+  expect(costLabelOf('piper', spending, {})).toBe(null)
 })

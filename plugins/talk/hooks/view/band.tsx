@@ -1,7 +1,8 @@
 import type { EngineInterface, RenderChildren, RenderInput } from 'claude-code'
 
-import type { EngineAvailability, Installation, Reading, ReadingPhase, SettingName, SpokenToken, TalkEngineName, TalkLanguage, VoiceCatalog, VoiceChoice, VoiceDownload, VoiceFilter, Spending, ElevenLabsCredits } from '../../types'
-import { AUTO_ENGINE_ORDER, effectiveSpeedOf, engineLabels, languageNameOf, OPENAI_DOLLARS_PER_AUDIO_MINUTE, speedRangeOf } from '../engines'
+import type { EngineAvailability, Installation, Reading, ReadingPhase, SettingName, SpokenToken, TalkEngineName, TalkLanguage, VoiceCatalog, VoiceChoice, VoiceDownload, VoiceFilter, Spending, Credits } from '../../types'
+import { AUTO_ENGINE_ORDER, effectiveSpeedOf, engineLabels, isVoiceNamedByIdFor, languageNameOf, OPENAI_DOLLARS_PER_AUDIO_MINUTE, speedRangeOf } from '../engines'
+import { elevenLabs } from '../providers/elevenlabs'
 import { sentenceStartOf, wordsOf } from '../spoken-text'
 import type { Palette } from './theme'
 
@@ -32,7 +33,7 @@ export type BandInput = {
   voiceDownload: VoiceDownload | null
   voiceFilter: VoiceFilter
   spending: Record<TalkEngineName, Spending>
-  elevenLabsCredits: ElevenLabsCredits | null
+  credits: Partial<Record<TalkEngineName, Credits>>
   isAwaitingAnswer: boolean
   animationFrame: number
   // The word of Claude Code's spinner for the turn under way, once drawn.
@@ -215,12 +216,11 @@ const VOICE_FILTER_LABELS: Readonly<Record<VoiceFilter, string>> = { all: 'All',
 export const isVoiceShownBy = (filter: VoiceFilter, choice: VoiceChoice): boolean => filter === 'all' || choice.gender === filter
 
 // What the session has cost so far, where the engine costs anything, as the settings line shows it after the engine:
-// ElevenLabs' credits as its account tells them, OpenAI's dollars as estimated from the minutes of voice made.
-export const costLabelOf = (engine: TalkEngineName | null, spending: Record<TalkEngineName, Spending>, credits: ElevenLabsCredits | null): string | null => {
+// OpenAI's dollars as estimated from the minutes of voice made.
+export const costLabelOf = (engine: TalkEngineName | null, spending: Record<TalkEngineName, Spending>, credits: Partial<Record<TalkEngineName, Credits>>): string | null => {
   switch (engine) {
     case 'elevenlabs':
-      if (credits === null) return spending.elevenlabs.characters === 0 ? null : `${spending.elevenlabs.characters.toLocaleString('en-US')} characters`
-      return `${(credits.used - credits.usedAtStart).toLocaleString('en-US')} credits · ${(credits.limit - credits.used).toLocaleString('en-US')} left`
+      return elevenLabs.costLabelOf(spending.elevenlabs, credits.elevenlabs ?? null)
     case 'openai':
       return `≈ $${((spending.openai.audioSeconds / 60) * OPENAI_DOLLARS_PER_AUDIO_MINUTE).toFixed(2)}`
     case 'piper':
@@ -236,8 +236,7 @@ const voiceLabelOf = (input: BandInput): string => {
   if (current === null) return 'Voice'
   const listed = input.voiceCatalog?.status === 'ready' ? input.voiceCatalog.choices.find(choice => choice.value === current) : undefined
   if (listed !== undefined) return listed.label
-  // An ElevenLabs voice is an id until its list is read: no id is shown in its place.
-  if (input.engineInUse === 'elevenlabs') return 'Voice'
+  if (input.engineInUse !== null && isVoiceNamedByIdFor(input.engineInUse)) return 'Voice'
   const [key = current, speaker] = current.split('#')
   const name = key.split('-')[1] ?? key
   const capitalized = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
@@ -268,7 +267,7 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
   const chosenEngineReason = engineSetting === 'auto' || engineAvailability === null ? null : engineAvailability[engineSetting]
   const { engineInUse } = input
   // What the session has spent on the engine in use, beside its name.
-  const cost = costLabelOf(engineInUse, input.spending, input.elevenLabsCredits)
+  const cost = costLabelOf(engineInUse, input.spending, input.credits)
   // The speed the engine reads at, which the line shows: the one chosen may be past what the engine takes.
   const speedInUse = effectiveSpeedOf(engineInUse, input.speed)
 

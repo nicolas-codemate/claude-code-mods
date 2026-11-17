@@ -89,20 +89,6 @@ export async function piperCatalogOf($: EngineInterface): Promise<Readonly<Recor
   return piperCatalog
 }
 
-export async function elevenLabsChoicesOf($: EngineInterface, apiKey: string): Promise<VoiceChoice[]> {
-  const { ok, status, text } = await $.http.fetch('https://api.elevenlabs.io/v1/voices', { headers: { 'xi-api-key': apiKey } })
-  if (!ok) throw new Error(`the ElevenLabs voices could not be read (HTTP ${status})`)
-  const { voices } = JSON.parse(text) as { voices: { voice_id: string; name: string; labels?: { gender?: string } }[] }
-  const genderOf = (gender: string | undefined): VoiceGender | null => (gender === 'female' || gender === 'male' ? gender : null)
-  return voices.map(voice => ({
-    value: voice.voice_id,
-    label: voice.name.split(' - ')[0] ?? voice.name,
-    download: null,
-    sizeBytes: null,
-    gender: genderOf(voice.labels?.gender),
-  }))
-}
-
 export const openAiChoices: readonly VoiceChoice[] = OPENAI_VOICES.map(voice => ({ value: voice, label: capitalized(voice), download: null, sizeBytes: null, gender: OPENAI_VOICE_GENDERS[voice] ?? null }))
 
 // Downloads one Piper voice, its model and its description, under a temporary name first: a voice cut short is never
@@ -114,12 +100,4 @@ export async function downloadPiperVoice($: EngineInterface, voicesDirectory: st
     timeoutMs: DOWNLOAD_TIMEOUT_MS,
   })
   if (exitCode !== 0) throw new Error(`Downloading the voice failed: ${stderr.trim().slice(0, 300)}`)
-}
-
-// The credits of an ElevenLabs account: those used this month and how many it has.
-export async function elevenLabsCreditsOf($: EngineInterface, apiKey: string): Promise<{ used: number; limit: number } | null> {
-  const { ok, text } = await $.http.fetch('https://api.elevenlabs.io/v1/user/subscription', { headers: { 'xi-api-key': apiKey } })
-  if (!ok) return null
-  const { character_count, character_limit } = JSON.parse(text) as { character_count?: number; character_limit?: number }
-  return character_count === undefined || character_limit === undefined ? null : { used: character_count, limit: character_limit }
 }

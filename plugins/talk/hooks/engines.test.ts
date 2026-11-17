@@ -1,7 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Capabilities, TalkSettings } from './engines'
-import { effectiveSpeedOf, engineShownOf, failureMessageOf } from './engines'
+import { effectiveSpeedOf, engineShownOf } from './engines'
+import { failureMessageOf } from './providers/synthesis'
 
 const settingsWith = (engine: TalkSettings['engine']): TalkSettings => ({
   engine,
@@ -18,7 +19,6 @@ const machineWithPiper: Capabilities = {
   piper: { command: 'piper', voice: '/voices/fr_FR-siwis-medium.onnx', speakerId: null, python: null },
   systemVoice: 'spd-say',
   hasOpenAiKey: false,
-  hasElevenLabsKey: false,
 }
 
 test('the settings line names the engine just chosen at once, and the one auto picks once the machine is known', async () => {
