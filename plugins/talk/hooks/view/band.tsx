@@ -1,7 +1,7 @@
 import type { EngineInterface, RenderChildren, RenderInput } from 'claude-code'
 
 import type { EngineAvailability, Installation, Reading, ReadingPhase, SettingName, SpokenToken, TalkEngineName, TalkLanguage, VoiceCatalog, VoiceChoice, VoiceDownload } from '../../types'
-import { AUTO_ENGINE_ORDER, engineLabels, languageNameOf } from '../engines'
+import { AUTO_ENGINE_ORDER, effectiveSpeedOf, engineLabels, languageNameOf, speedRangeOf } from '../engines'
 import { sentenceStartOf, wordsOf } from '../spoken-text'
 import type { Palette } from './theme'
 
@@ -54,6 +54,12 @@ const PHASE_LABELS: Readonly<Record<ReadingPhase, string>> = {
 export const LANGUAGES: readonly TalkLanguage[] = ['fr', 'en', 'es', 'de', 'it']
 
 const SPEED_PRESETS: readonly number[] = [0.75, 1, 1.25, 1.5, 2]
+
+// The speeds offered for an engine: the usual ones it takes, and its fastest.
+export const speedsOf = (engine: TalkEngineName | null): number[] => {
+  const { min, max } = speedRangeOf(engine)
+  return [...new Set([...SPEED_PRESETS.filter(speed => speed >= min && speed <= max), max])].sort((a, b) => a - b)
+}
 const SPEED_STEP_LABEL = '0.05'
 // The wait for the next answer is drawn as Claude Code draws its own thinking: a star that pulses, and the word of its
 // spinner. Before the spinner has drawn one, a word of this list stands in, changing every few steps of the star.
@@ -206,6 +212,8 @@ const voiceLabelOf = (input: BandInput): string => {
   if (current === null) return 'Voice'
   const listed = input.voiceCatalog?.status === 'ready' ? input.voiceCatalog.choices.find(choice => choice.value === current) : undefined
   if (listed !== undefined) return listed.label
+  // An ElevenLabs voice is an id until its list is read: no id is shown in its place.
+  if (input.engineInUse === 'elevenlabs') return 'Voice'
   const [key = current, speaker] = current.split('#')
   const name = key.split('-')[1] ?? key
   const capitalized = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
@@ -235,6 +243,8 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
   const phaseColor = phaseColorOf(reading.phase, palette)
   const chosenEngineReason = engineSetting === 'auto' || engineAvailability === null ? null : engineAvailability[engineSetting]
   const { engineInUse } = input
+  // The speed the engine reads at, which the line shows: the one chosen may be past what the engine takes.
+  const speedInUse = effectiveSpeedOf(engineInUse, input.speed)
 
   // One button per choice, a click away with the mouse: the chosen one stands out, one the machine cannot use is dimmed.
   // After a choice: in use, selected (to apply), or what else is worth saying of it.
@@ -381,7 +391,7 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
       case 'speed':
         return (
           <Box flexDirection="column">
-            {picker('speed', input.speed.toFixed(2), SPEED_PRESETS.map(speed => ({ value: speed.toFixed(2), label: `${speed.toFixed(2)}x` })), value => actions.selectSpeed(Number(value)))}
+            {picker('speed', speedInUse.toFixed(2), speedsOf(input.engineInUse).map(speed => ({ value: speed.toFixed(2), label: `${speed.toFixed(2)}x` })), value => actions.selectSpeed(Number(value)))}
           </Box>
         )
       case 'language':
@@ -507,7 +517,7 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
         <Text dimColor> · </Text>
         {settingItem('voice', voiceLabelOf(input))}
         <Text dimColor> · </Text>
-        {settingItem('speed', `${input.speed.toFixed(2)}x`)}
+        {settingItem('speed', `${speedInUse.toFixed(2)}x`)}
         <Text dimColor> · </Text>
         {settingItem('language', languageNameOf(input.language))}
       </Box>

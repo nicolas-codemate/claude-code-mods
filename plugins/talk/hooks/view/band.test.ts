@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import type { Reading } from '../../types'
 import { tokensOf } from '../spoken-text'
-import { thinkingLineOf, visibleTokensOf, voiceListLayoutOf } from './band'
+import { speedsOf, thinkingLineOf, visibleTokensOf, voiceListLayoutOf } from './band'
 
 const readingOf = (text: string, currentWordIndex: number): Reading => ({ tokens: tokensOf(text), currentWordIndex, phase: 'speaking', engine: 'piper', error: null })
 
@@ -35,4 +35,9 @@ test('an answer the band cannot hold whole is cut to its rows, even within a lon
   // Wrapped between words at 20 columns: 'One very long' / 'sentence that goes'.
   expect(shown.trim()).toBe('One very long sentence that goes')
   expect(visibleTokensOf(reading, 20, 0)).toEqual([])
+})
+
+test('the speeds offered are those the engine reads at, its fastest included', async () => {
+  expect(speedsOf('elevenlabs')).toEqual([0.75, 1, 1.2])
+  expect(speedsOf('piper')).toEqual([0.75, 1, 1.25, 1.5, 2])
 })

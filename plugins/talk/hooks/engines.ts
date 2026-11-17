@@ -167,9 +167,22 @@ async function wavDurationOfFile($: EngineInterface, path: string): Promise<numb
   return durationMs
 }
 
+// What a failed command says: the message of the JSON error a service answered with (curl keeps it on standard output),
+// else its own words.
+export const failureMessageOf = (stdout: string, stderr: string): string => {
+  try {
+    const answer = JSON.parse(stdout) as { detail?: { message?: string } | string; error?: { message?: string } }
+    const message = typeof answer.detail === 'string' ? answer.detail : (answer.detail?.message ?? answer.error?.message)
+    if (message !== undefined) return message
+  } catch {
+    // Not a JSON answer: the command's own output says what went wrong.
+  }
+  return (stdout.trim() || stderr.trim()).slice(0, 300)
+}
+
 async function runOrFail($: EngineInterface, argv: readonly string[], stdin: string | undefined, what: string): Promise<string> {
   const { exitCode, stdout, stderr } = await $.process.run(argv, { stdin, timeoutMs: SYNTHESIS_TIMEOUT_MS })
-  if (exitCode !== 0) throw new SynthesisError(`${what} failed: ${(stderr.trim() || stdout.trim()).slice(0, 300)}`)
+  if (exitCode !== 0) throw new SynthesisError(`${what} failed: ${failureMessageOf(stdout, stderr)}`)
   return stdout
 }
 
@@ -228,7 +241,7 @@ async function synthesizeWithOpenAi($: EngineInterface, request: SynthesisReques
   })
   if (exitCode !== 0) {
     const errorBody = (await $.fs.exists(audioPath)) ? await $.fs.read(audioPath) : ''
-    throw new SynthesisError(`OpenAI failed: ${(errorBody.trim() || stderr.trim()).slice(0, 300)}`)
+    throw new SynthesisError(`OpenAI failed: ${failureMessageOf(errorBody, stderr)}`)
   }
   const durationMs = await wavDurationOfFile($, audioPath)
   return { playback: wavPlaybackOf(request.capabilities, audioPath), durationMs, wordStartsMs: estimatedWordStartsMs(request.speakableWords, durationMs) }
@@ -303,7 +316,26 @@ async function synthesizeWithSystemVoice($: EngineInterface, request: SynthesisR
   return { playback: wavPlaybackOf(capabilities, audioPath), durationMs, wordStartsMs: estimatedWordStartsMs(speakableWords, durationMs) }
 }
 
-export function synthesize($: EngineInterface, engine: TalkEngineName, request: SynthesisRequest): Promise<Synthesis> {
+export type SpeedRange = { min: number; max: number }
+
+// The speeds each engine reads at: ElevenLabs refuses any other, the band offers no more than twice the normal pace.
+const SPEED_RANGES: Readonly<Record<TalkEngineName, SpeedRange>> = {
+  elevenlabs: { min: 0.7, max: 1.2 },
+  openai: { min: 0.5, max: 2 },
+  piper: { min: 0.5, max: 2 },
+  system: { min: 0.5, max: 2 },
+}
+
+export const speedRangeOf = (engine: TalkEngineName | null): SpeedRange => (engine === null ? SPEED_RANGES.piper : SPEED_RANGES[engine])
+
+// The speed an engine reads at: the one chosen, brought within what the engine takes.
+export const effectiveSpeedOf = (engine: TalkEngineName | null, speed: number): number => {
+  const { min, max } = speedRangeOf(engine)
+  return Math.min(max, Math.max(min, speed))
+}
+
+export function synthesize($: EngineInterface, engine: TalkEngineName, chosen: SynthesisRequest): Promise<Synthesis> {
+  const request = { ...chosen, settings: { ...chosen.settings, speed: effectiveSpeedOf(engine, chosen.settings.speed) } }
   switch (engine) {
     case 'elevenlabs':
       return synthesizeWithElevenLabs($, request)

@@ -69,11 +69,11 @@ answer of a turn is read; the work in between goes on as usual.
 
 ## Voices
 
-The mod picks the best voice the machine has, in this order, unless you choose one in `/config`:
+The mod picks the best voice the machine has, in this order, unless you choose one in the band or `/config`:
 
 | Voice | Quality | English words in French | Cost | Where the text goes |
 | --- | --- | --- | --- | --- |
-| **ElevenLabs** | The most natural | Read as a developer says them | Subscription | ElevenLabs |
+| **ElevenLabs** | The most natural | Read as a developer says them | A free plan, then a subscription | ElevenLabs |
 | **OpenAI** | Natural | Read as a developer says them | A few cents per hour of talk | OpenAI |
 | **Piper** | A little robotic | Respelled for the French voice (`GitHub` becomes « guite heube ») | Free | Stays on the machine |
 | **System voice** | Robotic (`say` on macOS is better) | Respelled | Free | Stays on the machine |
@@ -82,8 +82,40 @@ The words of the band follow the voice exactly with ElevenLabs, which times each
 with `onnx` as below, which times each sound it makes. With the other voices their timing is estimated from the length
 of each word, close enough to follow along.
 
-**ElevenLabs or OpenAI.** Set the API key in `/config` (it is kept in the system's secure storage), or as
-`ELEVENLABS_API_KEY` or `OPENAI_API_KEY` in the environment. The model and the voice are options too.
+**The API key of ElevenLabs or OpenAI.** Give it when `/plugin install` asks for the mod's options (it is kept in
+the system's secure storage; `/config` does not show it), or set `ELEVENLABS_API_KEY` or `OPENAI_API_KEY` in the
+environment Claude Code starts in, `~/.zshrc` say:
+
+```
+export ELEVENLABS_API_KEY=...
+```
+
+Claude Code reads its environment when it starts: open a new terminal and start it again (`claude --resume` takes the
+conversation back). With a key set, `Auto` picks that engine.
+
+**ElevenLabs, step by step.**
+
+1. Create an account on elevenlabs.io. Of the two platforms it offers, ElevenCreative holds the speech the mod uses;
+   ElevenAgents, for agents that answer phone calls, is not needed, nor is connecting ElevenLabs to Claude or ChatGPT.
+2. Under **Developers**, **API Keys**, create a key. Where it asks for permissions, the mod needs **Text to Speech**
+   and, to list the voices in the band, **Voices** read access. A limit of credits keeps the costs in hand. Copy the
+   key: it shows once.
+3. Set it as above, then `/talk test` reads the sample sentence with it.
+
+ElevenLabs counts characters read, not minutes. Answers in talk mode are short: an hour of conversation reads about
+10,000 characters. The free plan gives 10,000 a month; the paid plans start around $6 for 30,000 and $22 for 100,000
+(check their pricing page). The `ElevenLabs model` option set to `eleven_flash_v2_5` counts half a credit per
+character instead of one, and answers sooner.
+
+**Its voices.** The free plan reads, through its API, only the voices every account has, Sarah (the default) among
+them: they are English voices, which speak French with their English accent. A native voice of another language comes
+from the **Voice Library** (under **Voices**, filtered by language: the conversational ones suit talk mode best), and
+needs a paid plan: **Add to my voices** on its page, and it shows in the band's list of voices, to choose and apply.
+ElevenLabs reads between 0.7 and 1.2 times the normal speed: the band offers no other speed while it is the engine, and
+a faster speed set for another engine is read at 1.2.
+
+**OpenAI.** A key from platform.openai.com, set the same way; it is paid as used, with no plan, about a cent and a
+half per minute of voice. Its thirteen voices are listed in the band.
 
 **Piper.** A local voice, free, about 60 MB per voice. With no cloud key set, `/talk` installs it by itself the first
 time, under `~/.local/share/piper`: a Python environment of its own with Piper and `onnx`, and a voice of the language,

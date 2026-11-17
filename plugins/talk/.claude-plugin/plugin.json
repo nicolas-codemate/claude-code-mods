@@ -66,7 +66,7 @@
     "openaiApiKey": {
       "type": "string",
       "title": "OpenAI API key",
-      "description": "Left empty, the OPENAI_API_KEY environment variable is used.",
+      "description": "Set when the mod is installed from the marketplace; left empty, the OPENAI_API_KEY environment variable is used.",
       "sensitive": true,
       "default": ""
     },
@@ -85,7 +85,7 @@
     "elevenlabsApiKey": {
       "type": "string",
       "title": "ElevenLabs API key",
-      "description": "Left empty, the ELEVENLABS_API_KEY environment variable is used.",
+      "description": "Set when the mod is installed from the marketplace; left empty, the ELEVENLABS_API_KEY environment variable is used.",
       "sensitive": true,
       "default": ""
     },
@@ -98,8 +98,8 @@
     "elevenlabsVoiceId": {
       "type": "string",
       "title": "ElevenLabs voice id",
-      "description": "The id of the voice, as the ElevenLabs voice library shows it.",
-      "default": "21m00Tcm4TlvDq8ikWAM"
+      "description": "The id of the voice, as the ElevenLabs voice library shows it; by default Sarah, one of the voices every account has, the free one included (library voices need a paid plan).",
+      "default": "EXAVITQu4vr4xnSDxMaL"
     },
     "piperCommand": {
       "type": "string",

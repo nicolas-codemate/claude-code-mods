@@ -6,6 +6,7 @@ import {
   AUTO_ENGINE_ORDER,
   engineLabels,
   engineOf,
+  effectiveSpeedOf,
   engineShownOf,
   isRespellingEnglishFor,
   languageNameOf,
@@ -30,8 +31,6 @@ const KARAOKE_TICK_MS = 60
 const DOWNLOAD_PROGRESS_TICK_MS = 300
 const ANIMATION_TICK_MS = 150
 const SPEED_STEP = 0.05
-const MIN_SPEED = 0.5
-const MAX_SPEED = 2
 
 const EMPTY_READING: Reading = { tokens: [], currentWordIndex: -1, phase: 'idle', engine: null, error: null }
 
@@ -240,6 +239,9 @@ async function refreshEngineAvailability($: EngineInterface): Promise<void> {
     system: reasonOf('system'),
   }
   await update($, engineAvailabilityAtom, () => availability)
+  // A cloud voice is named by an id: its list is read now, so that the settings line can show its name.
+  const engine = engineOf(settings, found)
+  if ((engine === 'elevenlabs' || engine === 'openai') && (await read($, voiceCatalogAtom)) === null) void loadVoiceCatalog($)
 }
 
 // The band changes the mode's options as /config does: the setting is saved and the mod reloads with it.
@@ -263,8 +265,10 @@ async function choose($: EngineInterface, value: string): Promise<void> {
 
 async function changeSpeed($: EngineInterface, steps: number): Promise<void> {
   const pending = await read($, pendingChoiceAtom)
-  const from = pending === null ? (await settingsOf($, pluginOptions)).speed : Number(pending)
-  const speed = Math.round(Math.min(MAX_SPEED, Math.max(MIN_SPEED, from + steps * SPEED_STEP)) * 100) / 100
+  const settings = await settingsOf($, pluginOptions)
+  const engine = engineShownOf(settings, capabilities)
+  const from = pending === null ? effectiveSpeedOf(engine, settings.speed) : Number(pending)
+  const speed = Math.round(effectiveSpeedOf(engine, from + steps * SPEED_STEP) * 100) / 100
   await choose($, speed.toFixed(2))
 }
 
