@@ -1,8 +1,9 @@
 import type { EngineInterface } from 'claude-code'
 
-import type { TalkLanguage } from '../types'
-import { languageNameOf } from './engines'
-import { downloadPiperVoice } from './voices'
+import type { TalkLanguage } from '../../types'
+import { languageNameOf } from '../languages'
+import { downloadPiperVoice, piperHomeOf } from './piper'
+import { voiceToolkitOf } from './toolkit'
 
 // One voice per language, the clearest of those the Piper project publishes at medium quality.
 const VOICE_PATHS: Readonly<Record<TalkLanguage, string>> = {
@@ -80,8 +81,6 @@ async function systemFamilyOfMachine($: EngineInterface): Promise<SystemFamily> 
   return systemFamilyOf(kernel.trim(), osRelease)
 }
 
-export const piperHomeOf = (home: string): string => `${home}/.local/share/piper`
-
 async function runStep($: EngineInterface, argv: readonly string[], timeoutMs: number, what: string): Promise<void> {
   const { exitCode, stdout, stderr } = await $.process.run(argv, { timeoutMs }).catch(error => {
     throw new InstallError(`${what} failed: ${String(error)}`)
@@ -131,7 +130,7 @@ export async function installPiper($: EngineInterface, home: string, language: T
   }
   if (missing.includes('voice')) {
     await onStep(`downloading the ${languageNameOf(language)} voice, about 60 MB`)
-    await downloadPiperVoice($, `${piperHome}/voices`, VOICE_PATHS[language]).catch(error => {
+    await downloadPiperVoice(voiceToolkitOf($), `${piperHome}/voices`, VOICE_PATHS[language]).catch(error => {
       throw new InstallError(String(error instanceof Error ? error.message : error))
     })
   }

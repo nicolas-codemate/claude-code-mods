@@ -96,10 +96,10 @@ test('talk mode asks Claude for spoken answers and shows them above the prompt u
   expect(after.sections.map(section => section.id)).toEqual(['engine'])
   // Off, the band is one line whose button starts a conversation again.
   const bandWhenOff = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await bandWhenOff.find({ type: 'Button', text: /conversation/ }))?.text).toBe('▶ Démarrer une conversation vocale')
+  expect((await bandWhenOff.find({ type: 'Button', text: /conversation/ }))?.text).toBe('▶ Start a voice conversation')
   await bandWhenOff.press({ key: 'start' })
   expect((await $.prompt.compose(COMPOSE_INPUT)).sections.map(section => section.id)).toEqual(['engine', 'talk:voice-conversation'])
-  expect((await bandWhenOff.find({ type: 'Button', text: /conversation/ }))?.text).toBe('✕ Terminer la conversation vocale')
+  expect((await bandWhenOff.find({ type: 'Button', text: /conversation/ }))?.text).toBe('✕ End the voice conversation')
   await bandWhenOff.press({ key: 'end' })
   expect((await $.prompt.compose(COMPOSE_INPUT)).sections.map(section => section.id)).toEqual(['engine'])
   await bandWhenOff.unmount()

@@ -1,10 +1,10 @@
 import { expect, test } from 'claude-code/testing'
 
-import type { Capabilities } from '../engines'
 import { elevenLabs } from './elevenlabs'
+import type { Machine } from './synthesis'
 import type { VoiceToolkit } from './toolkit'
 
-const machine: Capabilities = { platform: 'Linux', wavPlayer: ['pw-play'], piper: null, systemVoice: null, hasOpenAiKey: false }
+const machine: Machine<null> = { platform: 'Linux', wavPlayer: ['pw-play'], found: null }
 
 const options = { apiKey: 'secret-key', model: 'eleven_multilingual_v2', voiceId: 'EXAVITQu4vr4xnSDxMaL' }
 
@@ -38,6 +38,7 @@ const toolkitAnswering = (answer: object, calls: Call[], written: Map<string, st
     written.set(path, text)
   },
   exists: async () => true,
+  fileNamesOf: async () => [],
   environmentVariable: async () => undefined,
 })
 

@@ -5,26 +5,33 @@ import type { Credits, EngineAvailability, Spending, Installation, Reading, Sett
 import {
   AUTO_ENGINE_ORDER,
   chunkingOf,
-  engineLabels,
+  creditsOf,
+  currentVoiceOf,
+  engineLabelOf,
   engineOf,
   effectiveSpeedOf,
   engineShownOf,
+  isCloudEngine,
   isRespellingEnglishFor,
-  languageNameOf,
   probeCapabilities,
+  settingsOf,
   synthesize,
+  voiceOptionFieldOf,
+  voicesOf,
   whyUnavailable,
+  withVoice,
 } from './engines'
 import type { Capabilities, TalkSettings } from './engines'
-import { InstallError, installPiper, piperHomeOf } from './piper-install'
-import { elevenLabs } from './providers/elevenlabs'
+import { languageNameOf } from './languages'
+import { downloadPiperVoice, piperHomeOf } from './providers/piper'
+import { InstallError, installPiper } from './providers/piper-install'
 import { SynthesisError } from './providers/synthesis'
-import { voiceToolkitOf } from './providers/toolkit'
 import type { Synthesis } from './providers/synthesis'
+import { voiceToolkitOf } from './providers/toolkit'
 import { speakableWordOf } from './pronunciation'
 import { chunksOf, sentenceStartOf, spokenTextOf, tokensOf, wordsOf } from './spoken-text'
 import { wordAtElapsedMs } from './timing'
-import { downloadPiperVoice, openAiChoices, piperCatalogOf, piperChoicesOf, SAMPLE_SENTENCES } from './voices'
+import { SAMPLE_SENTENCES } from './voices'
 import { renderBand, renderStartLine } from './view/band'
 import { paletteOf } from './view/theme'
 
@@ -48,12 +55,7 @@ const voiceCatalogAtom = atom({ plugin: 'talk', key: 'voiceCatalog' } as const, 
 const previewingVoiceAtom = atom({ plugin: 'talk', key: 'previewingVoice' } as const, null)
 const voiceDownloadAtom = atom({ plugin: 'talk', key: 'voiceDownload' } as const, null)
 const voiceFilterAtom = atom({ plugin: 'talk', key: 'voiceFilter' } as const, 'all')
-const NOTHING_SPENT: Record<TalkEngineName, Spending> = {
-  elevenlabs: { characters: 0, audioSeconds: 0 },
-  openai: { characters: 0, audioSeconds: 0 },
-  piper: { characters: 0, audioSeconds: 0 },
-  system: { characters: 0, audioSeconds: 0 },
-}
+const NOTHING_SPENT = Object.fromEntries(AUTO_ENGINE_ORDER.map(engine => [engine, { characters: 0, audioSeconds: 0 }])) as Record<TalkEngineName, Spending>
 const spendingAtom = atom({ plugin: 'talk', key: 'spending' } as const, NOTHING_SPENT)
 const creditsAtom = atom({ plugin: 'talk', key: 'credits' } as const, {})
 const isAwaitingAnswerAtom = atom({ plugin: 'talk', key: 'isAwaitingAnswer' } as const, false)
@@ -84,19 +86,6 @@ Talk mode is on: the person is talking things through with you by voice, usually
 
 const spokenLanguageNoteOf = (language: TalkLanguage): string =>
   `Talk mode: answer in ${languageNameOf(language)}, the language the voice speaks, whatever language this message or any setting asks for.`
-
-async function settingsOf($: EngineInterface, options: Readonly<Record<string, unknown>>): Promise<TalkSettings> {
-  const text = (name: string): string => (typeof options[name] === 'string' ? (options[name] as string) : '')
-  const speed = typeof options.speed === 'number' && options.speed > 0 ? options.speed : 1
-  return {
-    engine: (text('engine') || 'auto') as TalkEngineName | 'auto',
-    language: (text('language') || 'fr') as TalkLanguage,
-    speed,
-    openai: { apiKey: text('openaiApiKey') || ((await $.env.get('OPENAI_API_KEY')) ?? ''), model: text('openaiModel'), voice: text('openaiVoice') },
-    elevenlabs: await elevenLabs.optionsOf(voiceToolkitOf($), options),
-    piper: { command: text('piperCommand'), voice: text('piperVoice'), voiceName: text('piperVoiceName') },
-  }
-}
 
 // The session's sound, kept by the module: a reload drops it with the player it started.
 let pluginOptions: Readonly<Record<string, unknown>> = {}
@@ -192,7 +181,7 @@ async function readTokens($: EngineInterface, tokens: SpokenToken[], fromWordInd
   if (generation !== readingGeneration) return
   if (engine === null) {
     const wanted = settings.engine === 'auto' ? AUTO_ENGINE_ORDER : [settings.engine]
-    const error = `No voice available: ${wanted.map(name => `${engineLabels[name]}: ${whyUnavailable(name, settings, found)}`).join('; ')}`
+    const error = `No voice available: ${wanted.map(name => `${engineLabelOf(name)}: ${whyUnavailable(name, settings, found)}`).join('; ')}`
     await setReading($, reading => ({ ...reading, phase: 'failed', error }))
     return
   }
@@ -244,20 +233,10 @@ async function recordSpending($: EngineInterface, engine: TalkEngineName, charac
 // The account's credits as the engine's API tells them, for an engine that counts them; those used when the session
 // first read them are kept, to count what it spent since.
 async function refreshCredits($: EngineInterface, engine: TalkEngineName | null): Promise<void> {
+  if (engine === null) return
   const settings = await settingsOf($, pluginOptions)
-  const creditsOf = async () => {
-    switch (engine) {
-      case 'elevenlabs':
-        return elevenLabs.creditsOf?.(voiceToolkitOf($), settings.elevenlabs) ?? null
-      case 'openai':
-      case 'piper':
-      case 'system':
-      case null:
-        return null
-    }
-  }
-  const credits = await creditsOf().catch(() => null)
-  if (engine === null || credits === null) return
+  const credits = await creditsOf($, engine, settings).catch(() => null)
+  if (credits === null) return
   await update($, creditsAtom, (known): Partial<Record<TalkEngineName, Credits>> => ({
     ...known,
     [engine]: { ...credits, usedAtStart: known?.[engine]?.usedAtStart ?? credits.used },
@@ -274,16 +253,11 @@ async function refreshEngineAvailability($: EngineInterface): Promise<void> {
   capabilities = null
   const found = await capabilitiesOf($, settings)
   const reasonOf = (engine: TalkEngineName): string | null => (engineOf({ ...settings, engine }, found) === null ? whyUnavailable(engine, settings, found) : null)
-  const availability: EngineAvailability = {
-    elevenlabs: reasonOf('elevenlabs'),
-    openai: reasonOf('openai'),
-    piper: reasonOf('piper'),
-    system: reasonOf('system'),
-  }
+  const availability = Object.fromEntries(AUTO_ENGINE_ORDER.map(engine => [engine, reasonOf(engine)])) as EngineAvailability
   await update($, engineAvailabilityAtom, () => availability)
   // A cloud voice is named by an id: its list is read now, so that the settings line can show its name.
   const engine = engineOf(settings, found)
-  if ((engine === 'elevenlabs' || engine === 'openai') && (await read($, voiceCatalogAtom)) === null) void loadVoiceCatalog($)
+  if (engine !== null && isCloudEngine(engine) && (await read($, voiceCatalogAtom)) === null) void loadVoiceCatalog($)
 }
 
 // The band changes the mode's options as /config does: the setting is saved and the mod reloads with it.
@@ -321,21 +295,13 @@ async function readClaudeCodeTheme($: EngineInterface): Promise<void> {
 // With no cloud voice to use, a natural voice is one install away: the local voice is set up unless the person
 // chose another engine, named their own Piper, or turned the automatic install off.
 async function shouldInstallPiper($: EngineInterface, settings: TalkSettings): Promise<boolean> {
-  if (pluginOptions.autoInstall === false || settings.piper.command !== '' || settings.piper.voice !== '') return false
+  const piperOptions = settings.providers.piper
+  if (pluginOptions.autoInstall === false || piperOptions.command !== '' || piperOptions.voice !== '') return false
   const found = await capabilitiesOf($, settings)
-  const isLocalVoiceComplete = found.piper !== null && found.piper.python !== null
-  switch (settings.engine) {
-    case 'elevenlabs':
-    case 'openai':
-    case 'system':
-      return false
-    case 'piper':
-      return !isLocalVoiceComplete
-    case 'auto': {
-      const hasCloudVoice = engineOf({ ...settings, engine: 'elevenlabs' }, found) !== null || engineOf({ ...settings, engine: 'openai' }, found) !== null
-      return !hasCloudVoice && !isLocalVoiceComplete
-    }
-  }
+  const isLocalVoiceComplete = found.providers.piper !== null && found.providers.piper.python !== null
+  if (settings.engine !== 'auto') return settings.engine === 'piper' && !isLocalVoiceComplete
+  const hasCloudVoice = AUTO_ENGINE_ORDER.some(engine => isCloudEngine(engine) && engineOf({ ...settings, engine }, found) === engine)
+  return !hasCloudVoice && !isLocalVoiceComplete
 }
 
 function setInstallation($: EngineInterface, installation: Installation | null) {
@@ -368,26 +334,6 @@ async function engineInUseOf($: EngineInterface, settings: TalkSettings): Promis
   return engineOf(settings, await capabilitiesOf($, settings))
 }
 
-// The voice in force for the engine, as the band's list names it, from what the machine was found to have: a drawing
-// runs no command.
-const currentVoiceOf = (settings: TalkSettings, found: Capabilities | null, engine: TalkEngineName | null): string | null => {
-  switch (engine) {
-    case 'elevenlabs':
-      return elevenLabs.voiceOf(settings.elevenlabs)
-    case 'openai':
-      return settings.openai.voice
-    case 'piper': {
-      const piper = found?.piper ?? null
-      if (piper === null) return null
-      if (settings.piper.voiceName !== '' && piper.voice.endsWith(`/${settings.piper.voiceName.split('#')[0]}.onnx`)) return settings.piper.voiceName
-      return piper.voice.slice(piper.voice.lastIndexOf('/') + 1).replace(/\.onnx$/, '')
-    }
-    case 'system':
-    case null:
-      return null
-  }
-}
-
 async function piperVoicesDirectoryOf($: EngineInterface): Promise<string> {
   return `${piperHomeOf((await $.env.get('HOME')) ?? '')}/voices`
 }
@@ -401,19 +347,7 @@ async function loadVoiceCatalog($: EngineInterface): Promise<void> {
   }
   await update($, voiceCatalogAtom, (): VoiceCatalog => ({ engine, status: 'loading' }))
   try {
-    const choicesOf = async (): Promise<VoiceChoice[]> => {
-      switch (engine) {
-        case 'piper':
-          return piperChoicesOf(await piperCatalogOf($), settings.language)
-        case 'openai':
-          return [...openAiChoices]
-        case 'elevenlabs':
-          return elevenLabs.voicesOf(voiceToolkitOf($), settings.elevenlabs, settings.language)
-        case 'system':
-          return []
-      }
-    }
-    const choices = await choicesOf()
+    const choices = await voicesOf($, engine, settings)
     const directory = await piperVoicesDirectoryOf($)
     const downloaded = (await $.fs.exists(directory)) ? (await $.fs.list(directory)).map(entry => entry.name.replace(/\.onnx$/, '')) : []
     await update($, voiceCatalogAtom, (): VoiceCatalog => ({ engine, status: 'ready', choices, downloaded }))
@@ -440,25 +374,12 @@ async function ensurePiperVoice($: EngineInterface, choice: VoiceChoice): Promis
     })()
   })
   try {
-    await downloadPiperVoice($, directory, download)
+    await downloadPiperVoice(voiceToolkitOf($), directory, download)
   } finally {
     progress.cancel()
     await update($, voiceDownloadAtom, () => null)
   }
   await update($, voiceCatalogAtom, catalog => (catalog?.status === 'ready' ? { ...catalog, downloaded: [...catalog.downloaded, key] } : catalog))
-}
-
-function withVoice(settings: TalkSettings, engine: TalkEngineName, value: string): TalkSettings {
-  switch (engine) {
-    case 'elevenlabs':
-      return { ...settings, engine, elevenlabs: elevenLabs.withVoice(settings.elevenlabs, value) }
-    case 'openai':
-      return { ...settings, engine, openai: { ...settings.openai, voice: value } }
-    case 'piper':
-      return { ...settings, engine, piper: { ...settings.piper, voice: '', voiceName: value } }
-    case 'system':
-      return { ...settings, engine }
-  }
 }
 
 // Reads the same sample sentence with one voice of the list, so that voices can be compared.
@@ -493,29 +414,17 @@ async function previewVoice($: EngineInterface, choice: VoiceChoice): Promise<vo
 async function selectVoice($: EngineInterface, choice: VoiceChoice, beforeSaving: () => Promise<void>): Promise<void> {
   const catalog = await read($, voiceCatalogAtom)
   if (catalog === null) return
-  switch (catalog.engine) {
-    case 'piper':
-      await update($, previewingVoiceAtom, () => choice.value)
-      try {
-        await ensurePiperVoice($, choice)
-      } finally {
-        await update($, previewingVoiceAtom, () => null)
-      }
-      await beforeSaving()
-      await setOption($, 'piperVoiceName', choice.value)
-      return
-    case 'openai':
-      await beforeSaving()
-      await setOption($, 'openaiVoice', choice.value)
-      return
-    case 'elevenlabs':
-      await beforeSaving()
-      await setOption($, elevenLabs.voiceOptionField, choice.value)
-      return
-    case 'system':
-      await beforeSaving()
-      return
+  if (choice.download !== null) {
+    await update($, previewingVoiceAtom, () => choice.value)
+    try {
+      await ensurePiperVoice($, choice)
+    } finally {
+      await update($, previewingVoiceAtom, () => null)
+    }
   }
+  await beforeSaving()
+  const field = voiceOptionFieldOf(catalog.engine)
+  if (field !== null) await setOption($, field, choice.value)
 }
 
 // While a setting is open, the others wait: its own item closes it, as Cancel does.
@@ -584,7 +493,7 @@ async function turnOn($: EngineInterface): Promise<string> {
   await refreshEngineAvailability($)
   const engine = engineOf(settings, await capabilitiesOf($, settings))
   void refreshCredits($, engine)
-  const voice = engine === null ? 'no voice is available, see /talk status' : `${engineLabels[engine]} reads the answers`
+  const voice = engine === null ? 'no voice is available, see /talk status' : `${engineLabelOf(engine)} reads the answers`
   return `Talk mode on (${languageNameOf(settings.language)}): ${voice}. Dictate with the voice key (hold space), /talk off to stop.`
 }
 
@@ -616,9 +525,9 @@ async function statusOf($: EngineInterface): Promise<string> {
     `Platform: ${found.platform}; audio player: ${found.wavPlayer?.[0] ?? 'none'}`,
     ...AUTO_ENGINE_ORDER.map(name => {
       const isAvailable = engineOf({ ...settings, engine: name }, found) !== null
-      return `${engineLabels[name]}: ${isAvailable ? 'available' : whyUnavailable(name, settings, found)}`
+      return `${engineLabelOf(name)}: ${isAvailable ? 'available' : whyUnavailable(name, settings, found)}`
     }),
-    `Engine setting: ${settings.engine}; speaking now: ${engine === null ? 'none' : engineLabels[engine]}; language: ${settings.language}`,
+    `Engine setting: ${settings.engine}; speaking now: ${engine === null ? 'none' : engineLabelOf(engine)}; language: ${settings.language}`,
   ]
   return lines.join('\n')
 }
@@ -751,7 +660,7 @@ export const register: Register = (on, options) => {
     const settings = await settingsOf($, pluginOptions)
     if (!(await read($, isActiveAtom)) && !isSounding) {
       if (pluginOptions.showStartButton === false) return next(e)
-      return renderStartLine($, e, settings.language, paletteOf(await read($, claudeCodeThemeAtom)), () => void turnOn($))
+      return renderStartLine($, e, paletteOf(await read($, claudeCodeThemeAtom)), () => void turnOn($))
     }
     const engineInUse = engineShownOf(settings, capabilities)
     return renderBand($, e, {

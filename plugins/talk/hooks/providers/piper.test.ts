@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { piperChoicesOf, piperSpeakerOf, piperVoiceKeyOf } from './voices'
+import { piperChoicesOf, piperSpeakerOf, piperVoiceKeyOf } from './piper'
 
 const entry = (code: string, name: string, quality: string, speakers: Record<string, number> = {}) => ({
   files: { [`${code.split('_')[0]}/${code}/${name}/${quality}/${code}-${name}-${quality}.onnx`]: { size_bytes: 63_000_000 } },

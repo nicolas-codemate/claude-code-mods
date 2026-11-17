@@ -9,6 +9,8 @@ export interface VoiceToolkit {
   readBase64(path: string): Promise<string>
   write(path: string, text: string): Promise<void>
   exists(path: string): Promise<boolean>
+  // The names of the files of a directory.
+  fileNamesOf(directory: string): Promise<string[]>
   environmentVariable(name: ProviderVariable): Promise<string | undefined>
 }
 
@@ -16,6 +18,7 @@ export interface VoiceToolkit {
 // provider reads is named here.
 async function providerEnvironmentOf($: EngineInterface) {
   return {
+    HOME: (await $.env.get('HOME')) ?? undefined,
     ELEVENLABS_API_KEY: (await $.env.get('ELEVENLABS_API_KEY')) ?? undefined,
     OPENAI_API_KEY: (await $.env.get('OPENAI_API_KEY')) ?? undefined,
   }
@@ -33,6 +36,7 @@ export function voiceToolkitOf($: EngineInterface): VoiceToolkit {
       await $.fs.write(path, text)
     },
     exists: async path => $.fs.exists(path),
+    fileNamesOf: async directory => (await $.fs.list(directory)).filter(entry => entry.kind === 'file').map(entry => entry.name),
     environmentVariable: async name => (await providerEnvironmentOf($))[name],
   }
 }

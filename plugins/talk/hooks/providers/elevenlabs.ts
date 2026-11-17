@@ -2,7 +2,7 @@ import type { Credits, Spending, VoiceChoice, VoiceGender } from '../../types'
 import { alignedWordStartsMs, estimatedWordStartsMs, speakableTextOf } from '../timing'
 import type { VoiceProvider } from './provider'
 import type { Synthesis, SynthesisRequest } from './synthesis'
-import { curlPost, runOrFail, SynthesisError, textOptionOf, wavDurationOfFile, wavPlaybackOf } from './synthesis'
+import { curlPost, NO_AUDIO_PLAYER, runOrFail, SynthesisError, textOptionOf, wavDurationOfFile, wavPlaybackOf } from './synthesis'
 import type { VoiceToolkit } from './toolkit'
 
 export type ElevenLabsOptions = { apiKey: string; model: string; voiceId: string }
@@ -40,7 +40,7 @@ async function creditsOf(toolkit: VoiceToolkit, options: ElevenLabsOptions): Pro
   return character_count === undefined || character_limit === undefined ? null : { used: character_count, limit: character_limit }
 }
 
-async function synthesize(toolkit: VoiceToolkit, request: SynthesisRequest<ElevenLabsOptions>): Promise<Synthesis> {
+async function synthesize(toolkit: VoiceToolkit, request: SynthesisRequest<ElevenLabsOptions, null>): Promise<Synthesis> {
   const { options, outputPathWithoutExtension } = request
   const { text, wordStartOffsets } = speakableTextOf(request.speakableWords)
   const bodyPath = `${outputPathWithoutExtension}.request.json`
@@ -71,16 +71,22 @@ const costLabelOf = (spending: Spending, credits: Credits | null): string | null
   return `${(credits.used - credits.usedAtStart).toLocaleString('en-US')} credits · ${(credits.limit - credits.used).toLocaleString('en-US')} left`
 }
 
-export const elevenLabs: VoiceProvider<ElevenLabsOptions> = {
+export const elevenLabs: VoiceProvider<ElevenLabsOptions, null> = {
   label: 'ElevenLabs',
+  kind: 'cloud',
   voiceOptionField: 'elevenlabsVoiceId',
   // ElevenLabs refuses any other speed.
   speedRange: { min: 0.7, max: 1.2 },
   chunking: { maxCharacters: 2_400, isFirstSentenceAlone: false },
   isRespellingEnglish: false,
   isVoiceNamedById: true,
+  commandsLookedFor: [],
   optionsOf,
-  unavailabilityOf: options => (options.apiKey === '' ? 'no ElevenLabs API key: set it in /config or as ELEVENLABS_API_KEY' : null),
+  findOnMachine: async () => null,
+  unavailabilityOf: (options, machine) => {
+    if (options.apiKey === '') return 'no ElevenLabs API key: set it in /config or as ELEVENLABS_API_KEY'
+    return machine.wavPlayer === null ? NO_AUDIO_PLAYER : null
+  },
   voiceOf: options => options.voiceId,
   withVoice: (options, voice) => ({ ...options, voiceId: voice }),
   voicesOf,

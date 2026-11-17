@@ -1,47 +1,27 @@
 import type { EngineInterface } from 'claude-code'
 
-import type { TalkEngineName, TalkLanguage } from '../types'
-import { alignedWordStartsMs, estimatedWordStartsMs, speakableTextOf, wordStartsFromVoiceWords } from './timing'
-import { elevenLabs } from './providers/elevenlabs'
-import type { ElevenLabsOptions } from './providers/elevenlabs'
-import type { Chunking, SpeedRange, Synthesis } from './providers/synthesis'
-import { curlPost, failureMessageOf, runOrFail, SYNTHESIS_TIMEOUT_MS, SynthesisError, wavDurationOfFile, wavPlaybackOf } from './providers/synthesis'
+import type { Credits, Spending, TalkEngineName, TalkLanguage, VoiceChoice } from '../types'
+import { ENGINE_NAMES, PROVIDERS } from './providers'
+import type { ProviderFindings, ProviderOptions } from './providers'
+import type { Chunking, Machine, SpeedRange, Synthesis } from './providers/synthesis'
 import { voiceToolkitOf } from './providers/toolkit'
-import { piperSpeakerOf, piperVoiceKeyOf } from './voices'
 
 export type TalkSettings = {
   engine: TalkEngineName | 'auto'
   language: TalkLanguage
   speed: number
-  openai: { apiKey: string; model: string; voice: string }
-  elevenlabs: ElevenLabsOptions
-  // voice: the path of a voice file, which wins; voiceName: a voice of the Piper catalog, chosen in the band.
-  piper: { command: string; voice: string; voiceName: string }
+  // Each engine's own options, as its provider reads them.
+  providers: ProviderOptions
 }
-
-export type SystemVoice = 'say' | 'espeak-ng' | 'spd-say'
 
 export type Capabilities = {
   platform: string
   wavPlayer: readonly string[] | null
-  // python: the interpreter of Piper's own environment, when it can tell when each word is spoken.
-  piper: { command: string; voice: string; speakerId: number | null; python: string | null } | null
-  systemVoice: SystemVoice | null
-  hasOpenAiKey: boolean
+  // What each engine found on the machine.
+  providers: ProviderFindings
 }
 
-// How long a system voice that writes no file takes per character at normal speed, to pace the words on screen.
-const SYSTEM_VOICE_MS_PER_CHARACTER = 65
-
-const LANGUAGE_NAMES: Readonly<Record<TalkLanguage, string>> = {
-  fr: 'French',
-  en: 'English',
-  es: 'Spanish',
-  de: 'German',
-  it: 'Italian',
-}
-
-export const languageNameOf = (language: TalkLanguage): string => LANGUAGE_NAMES[language]
+export const AUTO_ENGINE_ORDER: readonly TalkEngineName[] = ENGINE_NAMES
 
 const WAV_PLAYERS: readonly (readonly string[])[] = [
   ['afplay'],
@@ -51,86 +31,51 @@ const WAV_PLAYERS: readonly (readonly string[])[] = [
   ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet'],
 ]
 
-const SYSTEM_VOICES: readonly SystemVoice[] = ['say', 'espeak-ng', 'spd-say']
-
 async function installedCommandsOf($: EngineInterface, commands: readonly string[]): Promise<Set<string>> {
   const { stdout } = await $.process.run(['sh', '-c', 'for c in "$@"; do command -v "$c" >/dev/null 2>&1 && echo "$c"; done', 'sh', ...commands])
   return new Set(stdout.split('\n').filter(line => line !== ''))
 }
 
-async function firstPiperVoiceOf($: EngineInterface, directory: string, language: TalkLanguage): Promise<string | null> {
-  if (!(await $.fs.exists(directory))) return null
-  const voices = (await $.fs.list(directory))
-    .filter(entry => entry.kind === 'file' && entry.name.endsWith('.onnx') && entry.name.startsWith(`${language}_`))
-    .map(entry => entry.name)
-    .sort()
-  return voices[0] === undefined ? null : `${directory}/${voices[0]}`
-}
-
-async function piperOf($: EngineInterface, settings: TalkSettings, installed: Set<string>): Promise<Capabilities['piper']> {
-  const home = (await $.env.get('HOME')) ?? ''
-  const piperHome = `${home}/.local/share/piper`
-  let command = settings.piper.command
-  if (command === '' && installed.has('piper')) command = 'piper'
-  if (command === '' && (await $.fs.exists(`${piperHome}/venv/bin/piper`))) command = `${piperHome}/venv/bin/piper`
-  if (command === '') return null
-  const chosen = settings.piper.voice === '' ? await chosenPiperVoiceOf($, `${piperHome}/voices`, settings) : null
-  const voice = settings.piper.voice !== '' ? settings.piper.voice : (chosen?.voice ?? (await firstPiperVoiceOf($, `${piperHome}/voices`, settings.language)))
-  if (voice === null) return null
-  return { command, voice, speakerId: chosen?.speakerId ?? null, python: await piperPythonOf($, command) }
-}
-
-// The catalog voice chosen in the band, when it is of the language and on the machine.
-async function chosenPiperVoiceOf($: EngineInterface, directory: string, settings: TalkSettings): Promise<{ voice: string; speakerId: number | null } | null> {
-  const key = piperVoiceKeyOf(settings.piper.voiceName)
-  if (key === '' || !key.startsWith(`${settings.language}_`)) return null
-  const voice = `${directory}/${key}.onnx`
-  if (!(await $.fs.exists(voice))) return null
-  const speaker = piperSpeakerOf(settings.piper.voiceName)
-  if (speaker === null) return { voice, speakerId: null }
-  const description = JSON.parse(await $.fs.read(`${voice}.json`)) as { speaker_id_map?: Record<string, number> }
-  return { voice, speakerId: description.speaker_id_map?.[speaker] ?? null }
-}
-
-// The timing of each phoneme comes from Piper's Python library, which needs the onnx package beside it.
-async function piperPythonOf($: EngineInterface, command: string): Promise<string | null> {
-  if (!command.includes('/')) return null
-  const python = `${command.slice(0, command.lastIndexOf('/'))}/python`
-  if (!(await $.fs.exists(python))) return null
-  const { exitCode } = await $.process.run([python, '-c', 'import piper, onnx'])
-  return exitCode === 0 ? python : null
+export async function settingsOf($: EngineInterface, values: Readonly<Record<string, unknown>>): Promise<TalkSettings> {
+  const text = (name: string): string => (typeof values[name] === 'string' ? (values[name] as string) : '')
+  const toolkit = voiceToolkitOf($)
+  const optionsOf = async <Name extends TalkEngineName>(engine: Name): Promise<ProviderOptions[Name]> => PROVIDERS[engine].optionsOf(toolkit, values)
+  const providers = Object.fromEntries(await Promise.all(ENGINE_NAMES.map(async engine => [engine, await optionsOf(engine)]))) as ProviderOptions
+  return {
+    engine: (text('engine') || 'auto') as TalkEngineName | 'auto',
+    language: (text('language') || 'fr') as TalkLanguage,
+    speed: typeof values.speed === 'number' && values.speed > 0 ? values.speed : 1,
+    providers,
+  }
 }
 
 export async function probeCapabilities($: EngineInterface, settings: TalkSettings): Promise<Capabilities> {
   const { stdout: platform } = await $.process.run(['uname', '-s'])
-  const installed = await installedCommandsOf($, [...WAV_PLAYERS.map(player => player[0] ?? ''), ...SYSTEM_VOICES, 'piper'])
-  return {
-    platform: platform.trim(),
-    wavPlayer: WAV_PLAYERS.find(player => installed.has(player[0] ?? '')) ?? null,
-    piper: await piperOf($, settings, installed),
-    systemVoice: SYSTEM_VOICES.find(voice => installed.has(voice)) ?? null,
-    hasOpenAiKey: settings.openai.apiKey !== '',
-  }
+  const looked = [...WAV_PLAYERS.map(player => player[0] ?? ''), ...ENGINE_NAMES.flatMap(engine => PROVIDERS[engine].commandsLookedFor)]
+  const installed = await installedCommandsOf($, looked)
+  const toolkit = voiceToolkitOf($)
+  const foundBy = async <Name extends TalkEngineName>(engine: Name): Promise<ProviderFindings[Name]> =>
+    PROVIDERS[engine].findOnMachine(toolkit, settings.providers[engine], settings.language, installed)
+  const providers = Object.fromEntries(await Promise.all(ENGINE_NAMES.map(async engine => [engine, await foundBy(engine)]))) as ProviderFindings
+  return { platform: platform.trim(), wavPlayer: WAV_PLAYERS.find(player => installed.has(player[0] ?? '')) ?? null, providers }
 }
 
-const isEngineAvailable = (engine: TalkEngineName, settings: TalkSettings, capabilities: Capabilities): boolean => {
-  switch (engine) {
-    case 'elevenlabs':
-      return elevenLabs.unavailabilityOf(settings.elevenlabs, capabilities) === null && capabilities.wavPlayer !== null
-    case 'openai':
-      return capabilities.hasOpenAiKey && capabilities.wavPlayer !== null
-    case 'piper':
-      return capabilities.piper !== null && capabilities.wavPlayer !== null
-    case 'system':
-      return capabilities.systemVoice !== null && (capabilities.systemVoice === 'spd-say' || capabilities.wavPlayer !== null)
-  }
-}
+const machineOf = <Name extends TalkEngineName>(engine: Name, capabilities: Capabilities): Machine<ProviderFindings[Name]> => ({
+  platform: capabilities.platform,
+  wavPlayer: capabilities.wavPlayer,
+  found: capabilities.providers[engine],
+})
 
-export const AUTO_ENGINE_ORDER: readonly TalkEngineName[] = ['elevenlabs', 'openai', 'piper', 'system']
+// Why this machine cannot use the engine; null when it can.
+export const unavailabilityOf = <Name extends TalkEngineName>(engine: Name, settings: TalkSettings, capabilities: Capabilities): string | null =>
+  PROVIDERS[engine].unavailabilityOf(settings.providers[engine], machineOf(engine, capabilities))
+
+export const whyUnavailable = (engine: TalkEngineName, settings: TalkSettings, capabilities: Capabilities): string =>
+  unavailabilityOf(engine, settings, capabilities) ?? ''
 
 export const engineOf = (settings: TalkSettings, capabilities: Capabilities): TalkEngineName | null => {
-  if (settings.engine !== 'auto') return isEngineAvailable(settings.engine, settings, capabilities) ? settings.engine : null
-  return AUTO_ENGINE_ORDER.find(engine => isEngineAvailable(engine, settings, capabilities)) ?? null
+  if (settings.engine !== 'auto') return unavailabilityOf(settings.engine, settings, capabilities) === null ? settings.engine : null
+  return AUTO_ENGINE_ORDER.find(engine => unavailabilityOf(engine, settings, capabilities) === null) ?? null
 }
 
 // The engine the settings line names: the one chosen, at once, or the one auto picks once the machine is probed. Not
@@ -138,141 +83,37 @@ export const engineOf = (settings: TalkSettings, capabilities: Capabilities): Ta
 export const engineShownOf = (settings: TalkSettings, found: Capabilities | null): TalkEngineName | null =>
   settings.engine !== 'auto' ? settings.engine : found === null ? null : engineOf(settings, found)
 
-export const whyUnavailable = (engine: TalkEngineName, settings: TalkSettings, capabilities: Capabilities): string => {
-  if (capabilities.wavPlayer === null && !(engine === 'system' && capabilities.systemVoice === 'spd-say'))
-    return 'no audio player found (pw-play, paplay, aplay, afplay or ffplay)'
-  switch (engine) {
-    case 'elevenlabs':
-      return elevenLabs.unavailabilityOf(settings.elevenlabs, capabilities) ?? ''
-    case 'openai':
-      return 'no OpenAI API key: set it in /config or as OPENAI_API_KEY'
-    case 'piper':
-      return 'Piper or a Piper voice of the language was not found (see the README to install it)'
-    case 'system':
-      return 'no system voice found (say, espeak-ng or spd-say)'
+// The voice in force for the engine, as the band's list names it, from what the machine was found to have: a drawing
+// runs no command.
+export const currentVoiceOf = <Name extends TalkEngineName>(settings: TalkSettings, found: Capabilities | null, engine: Name | null): string | null =>
+  engine === null ? null : PROVIDERS[engine].voiceOf(settings.providers[engine], found === null ? null : machineOf(engine, found))
+
+export const withVoice = <Name extends TalkEngineName>(settings: TalkSettings, engine: Name, voice: string): TalkSettings => {
+  const providers: ProviderOptions = { ...settings.providers }
+  providers[engine] = PROVIDERS[engine].withVoice(settings.providers[engine], voice)
+  return { ...settings, engine, providers }
+}
+
+export function voicesOf($: EngineInterface, engine: TalkEngineName, settings: TalkSettings): Promise<VoiceChoice[]> {
+  const listed = <Name extends TalkEngineName>(name: Name) => PROVIDERS[name].voicesOf(voiceToolkitOf($), settings.providers[name], settings.language)
+  return listed(engine)
+}
+
+// The account's credits, for an engine that counts them.
+export async function creditsOf($: EngineInterface, engine: TalkEngineName, settings: TalkSettings): Promise<Pick<Credits, 'used' | 'limit'> | null> {
+  const counted = async <Name extends TalkEngineName>(name: Name) => {
+    const read = PROVIDERS[name].creditsOf
+    return read === null ? null : read(voiceToolkitOf($), settings.providers[name])
   }
+  return counted(engine)
 }
 
-// The engines not yet made into a provider of ./providers read the whole settings.
-type EngineSynthesisRequest = { speakableWords: readonly string[]; settings: TalkSettings; capabilities: Capabilities; outputPathWithoutExtension: string }
+export const costLabelOf = (engine: TalkEngineName | null, spending: Record<TalkEngineName, Spending>, credits: Partial<Record<TalkEngineName, Credits>>): string | null =>
+  engine === null ? null : PROVIDERS[engine].costLabelOf(spending[engine], credits[engine] ?? null)
 
-async function synthesizeWithOpenAi($: EngineInterface, request: EngineSynthesisRequest): Promise<Synthesis> {
-  const { settings, outputPathWithoutExtension } = request
-  const { text } = speakableTextOf(request.speakableWords)
-  const bodyPath = `${outputPathWithoutExtension}.request.json`
-  const audioPath = `${outputPathWithoutExtension}.wav`
-  await $.fs.write(bodyPath, JSON.stringify({
-    model: settings.openai.model,
-    voice: settings.openai.voice,
-    input: text,
-    // The voice follows these words for its tone and its pace: a relaxed tone made it leave long silences between words.
-    instructions: `Speak ${languageNameOf(settings.language)} as a colleague in a lively conversation: warm and natural, at a brisk, steady pace, the words flowing on without pauses between them; pause briefly at the end of a sentence only. Pronounce English technical words as a developer would.`,
-    response_format: 'wav',
-    speed: settings.speed,
-  }))
-  const { exitCode, stderr } = await $.process.run(curlPost('https://api.openai.com/v1/audio/speech', bodyPath, audioPath), {
-    stdin: `Authorization: Bearer ${settings.openai.apiKey}\n`,
-    timeoutMs: SYNTHESIS_TIMEOUT_MS,
-  })
-  if (exitCode !== 0) {
-    const errorBody = (await $.fs.exists(audioPath)) ? await $.fs.read(audioPath) : ''
-    throw new SynthesisError(`OpenAI failed: ${failureMessageOf(errorBody, stderr)}`)
-  }
-  const durationMs = await wavDurationOfFile(voiceToolkitOf($), audioPath)
-  return { playback: wavPlaybackOf(request.capabilities, audioPath), durationMs, wordStartsMs: estimatedWordStartsMs(request.speakableWords, durationMs) }
-}
+export const chunkingOf = (engine: TalkEngineName): Chunking => PROVIDERS[engine].chunking
 
-// Writes the WAV and prints when each word the voice heard starts: a word starts at the first phoneme after a space.
-const PIPER_TIMED_SYNTHESIS = `
-import json, sys, wave
-from piper import PiperVoice, SynthesisConfig
-voice = PiperVoice.load(sys.argv[1], include_alignments=True)
-speaker_id = int(sys.argv[4]) if sys.argv[4] else None
-starts, samples, rate, is_word_start = [], 0, 1, True
-with wave.open(sys.argv[2], "wb") as out:
-    for index, chunk in enumerate(voice.synthesize(sys.stdin.read(), SynthesisConfig(length_scale=float(sys.argv[3]), speaker_id=speaker_id), include_alignments=True)):
-        if index == 0:
-            out.setframerate(chunk.sample_rate); out.setsampwidth(chunk.sample_width); out.setnchannels(chunk.sample_channels)
-        rate = chunk.sample_rate
-        for alignment in chunk.phoneme_alignments or []:
-            if alignment.phoneme == " ":
-                is_word_start = True
-            elif is_word_start and alignment.phoneme.strip() and alignment.phoneme not in "^$_,.;:!?":
-                starts.append(samples * 1000 / rate)
-                is_word_start = False
-            samples += alignment.num_samples
-        out.writeframes(chunk.audio_int16_bytes)
-print(json.dumps(starts))
-`
-
-async function synthesizeWithPiper($: EngineInterface, request: EngineSynthesisRequest): Promise<Synthesis> {
-  const piper = request.capabilities.piper
-  if (piper === null) throw new SynthesisError('Piper is not installed')
-  const { text } = speakableTextOf(request.speakableWords)
-  const audioPath = `${request.outputPathWithoutExtension}.wav`
-  const lengthScale = String(1 / request.settings.speed)
-  if (piper.python !== null) {
-    const speaker = piper.speakerId === null ? '' : String(piper.speakerId)
-    const stdout = await runOrFail(voiceToolkitOf($), [piper.python, '-c', PIPER_TIMED_SYNTHESIS, piper.voice, audioPath, lengthScale, speaker], text, 'Piper')
-    const voiceWordStartsMs = JSON.parse(stdout.trim().split('\n').pop() ?? '[]') as number[]
-    const durationMs = await wavDurationOfFile(voiceToolkitOf($), audioPath)
-    return {
-      playback: wavPlaybackOf(request.capabilities, audioPath),
-      durationMs,
-      wordStartsMs: wordStartsFromVoiceWords(request.speakableWords, voiceWordStartsMs) ?? estimatedWordStartsMs(request.speakableWords, durationMs),
-    }
-  }
-  const speakerArguments = piper.speakerId === null ? [] : ['-s', String(piper.speakerId)]
-  await runOrFail(voiceToolkitOf($), [piper.command, '-m', piper.voice, '-f', audioPath, '--length-scale', lengthScale, ...speakerArguments], text, 'Piper')
-  const durationMs = await wavDurationOfFile(voiceToolkitOf($), audioPath)
-  return { playback: wavPlaybackOf(request.capabilities, audioPath), durationMs, wordStartsMs: estimatedWordStartsMs(request.speakableWords, durationMs) }
-}
-
-async function synthesizeWithSystemVoice($: EngineInterface, request: EngineSynthesisRequest): Promise<Synthesis> {
-  const { settings, capabilities, speakableWords } = request
-  const { text } = speakableTextOf(speakableWords)
-  const audioPath = `${request.outputPathWithoutExtension}.wav`
-  switch (capabilities.systemVoice) {
-    case 'say':
-      await runOrFail(voiceToolkitOf($), ['say', '-r', String(Math.round(180 * settings.speed)), '-o', audioPath, '--data-format=LEI16@22050', '-f', '-'], text, 'say')
-      break
-    case 'espeak-ng':
-      await runOrFail(voiceToolkitOf($), ['espeak-ng', '-v', settings.language, '-s', String(Math.round(160 * settings.speed)), '-w', audioPath, '--stdin'], text, 'espeak-ng')
-      break
-    case 'spd-say': {
-      const durationMs = (text.length * SYSTEM_VOICE_MS_PER_CHARACTER) / settings.speed
-      const rate = String(Math.max(-100, Math.min(100, Math.round((settings.speed - 1) * 100))))
-      return { playback: ['spd-say', '-w', '-l', settings.language, '-r', rate, text], durationMs, wordStartsMs: estimatedWordStartsMs(speakableWords, durationMs) }
-    }
-    case null:
-      throw new SynthesisError('no system voice is installed')
-  }
-  const durationMs = await wavDurationOfFile(voiceToolkitOf($), audioPath)
-  return { playback: wavPlaybackOf(capabilities, audioPath), durationMs, wordStartsMs: estimatedWordStartsMs(speakableWords, durationMs) }
-}
-
-const CHUNKINGS: Readonly<Record<TalkEngineName, Chunking>> = {
-  elevenlabs: elevenLabs.chunking,
-  openai: { maxCharacters: 2_400, isFirstSentenceAlone: false },
-  piper: { maxCharacters: 260, isFirstSentenceAlone: true },
-  system: { maxCharacters: 260, isFirstSentenceAlone: true },
-}
-
-export const chunkingOf = (engine: TalkEngineName): Chunking => CHUNKINGS[engine]
-
-// What OpenAI charges for a minute of voice from its speech model, roughly: its price is per token of text and of
-// audio, about this much for a minute of speech.
-export const OPENAI_DOLLARS_PER_AUDIO_MINUTE = 0.015
-
-// The speeds each engine reads at: the band offers no more than twice the normal pace.
-const SPEED_RANGES: Readonly<Record<TalkEngineName, SpeedRange>> = {
-  elevenlabs: elevenLabs.speedRange,
-  openai: { min: 0.5, max: 2 },
-  piper: { min: 0.5, max: 2 },
-  system: { min: 0.5, max: 2 },
-}
-
-export const speedRangeOf = (engine: TalkEngineName | null): SpeedRange => (engine === null ? SPEED_RANGES.piper : SPEED_RANGES[engine])
+export const speedRangeOf = (engine: TalkEngineName | null): SpeedRange => (engine === null ? PROVIDERS.piper.speedRange : PROVIDERS[engine].speedRange)
 
 // The speed an engine reads at: the one chosen, brought within what the engine takes.
 export const effectiveSpeedOf = (engine: TalkEngineName | null, speed: number): number => {
@@ -280,49 +121,28 @@ export const effectiveSpeedOf = (engine: TalkEngineName | null, speed: number): 
   return Math.min(max, Math.max(min, speed))
 }
 
-export function synthesize($: EngineInterface, engine: TalkEngineName, chosen: EngineSynthesisRequest): Promise<Synthesis> {
-  const request = { ...chosen, settings: { ...chosen.settings, speed: effectiveSpeedOf(engine, chosen.settings.speed) } }
-  const { speakableWords, settings, capabilities: machine, outputPathWithoutExtension } = request
-  switch (engine) {
-    case 'elevenlabs':
-      return elevenLabs.synthesize(voiceToolkitOf($), { speakableWords, options: settings.elevenlabs, language: settings.language, speed: settings.speed, machine, outputPathWithoutExtension })
-    case 'openai':
-      return synthesizeWithOpenAi($, request)
-    case 'piper':
-      return synthesizeWithPiper($, request)
-    case 'system':
-      return synthesizeWithSystemVoice($, request)
-  }
+type EngineSynthesisRequest = { speakableWords: readonly string[]; settings: TalkSettings; capabilities: Capabilities; outputPathWithoutExtension: string }
+
+export function synthesize($: EngineInterface, engine: TalkEngineName, request: EngineSynthesisRequest): Promise<Synthesis> {
+  const { speakableWords, settings, capabilities, outputPathWithoutExtension } = request
+  const spoken = <Name extends TalkEngineName>(name: Name) =>
+    PROVIDERS[name].synthesize(voiceToolkitOf($), {
+      speakableWords,
+      options: settings.providers[name],
+      language: settings.language,
+      speed: effectiveSpeedOf(name, settings.speed),
+      machine: machineOf(name, capabilities),
+      outputPathWithoutExtension,
+    })
+  return spoken(engine)
 }
 
-// Local voices read every word in their own language, so the English words of a French answer are respelled for them.
-export const isRespellingEnglishFor = (engine: TalkEngineName): boolean => {
-  switch (engine) {
-    case 'elevenlabs':
-      return elevenLabs.isRespellingEnglish
-    case 'openai':
-      return false
-    case 'piper':
-    case 'system':
-      return true
-  }
-}
+export const isRespellingEnglishFor = (engine: TalkEngineName): boolean => PROVIDERS[engine].isRespellingEnglish
 
-export const engineLabels: Readonly<Record<TalkEngineName, string>> = {
-  elevenlabs: elevenLabs.label,
-  openai: 'OpenAI',
-  piper: 'Piper',
-  system: 'System voice',
-}
+export const isVoiceNamedByIdFor = (engine: TalkEngineName): boolean => PROVIDERS[engine].isVoiceNamedById
 
-// A voice named by an id is not shown by it until the list of voices gives its name.
-export const isVoiceNamedByIdFor = (engine: TalkEngineName): boolean => {
-  switch (engine) {
-    case 'elevenlabs':
-      return elevenLabs.isVoiceNamedById
-    case 'openai':
-    case 'piper':
-    case 'system':
-      return false
-  }
-}
+export const isCloudEngine = (engine: TalkEngineName): boolean => PROVIDERS[engine].kind === 'cloud'
+
+export const voiceOptionFieldOf = (engine: TalkEngineName): string | null => PROVIDERS[engine].voiceOptionField
+
+export const engineLabelOf = (engine: TalkEngineName): string => PROVIDERS[engine].label

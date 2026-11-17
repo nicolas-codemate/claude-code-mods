@@ -1,5 +1,4 @@
 import type { TalkLanguage } from '../../types'
-import type { Capabilities } from '../engines'
 import { wavDurationMs } from '../wav'
 import type { VoiceToolkit } from './toolkit'
 
@@ -10,15 +9,20 @@ export class SynthesisError extends Error {}
 
 // What a voice is asked to say: the words as it should pronounce them, with its own options, and where to write its
 // files, the path given without an extension so that each voice adds its own.
-export type SynthesisRequest<Options> = {
+export type SynthesisRequest<Options, Found> = {
   speakableWords: readonly string[]
   options: Options
   language: TalkLanguage
   // Already brought within the speeds the voice takes.
   speed: number
-  machine: Capabilities
+  machine: Machine<Found>
   outputPathWithoutExtension: string
 }
+
+// The machine as one service sees it: what every service shares, and what that service found there.
+export type Machine<Found> = { platform: string; wavPlayer: readonly string[] | null; found: Found }
+
+export const NO_AUDIO_PLAYER = 'no audio player found (pw-play, paplay, aplay, afplay or ffplay)'
 
 // How an answer is cut into the pieces sent to the voice. A local voice gets the first sentence alone, to start soon,
 // then pieces made while the one before plays. A cloud voice gets the answer whole: a short first piece made it start
@@ -64,7 +68,7 @@ export const curlPost = (url: string, bodyPath: string, outputPath: string | nul
   ...(outputPath === null ? [] : ['-o', outputPath]),
 ]
 
-export const wavPlaybackOf = (machine: Capabilities, path: string): string[] => [...(machine.wavPlayer ?? []), path]
+export const wavPlaybackOf = (machine: Machine<unknown>, path: string): string[] => [...(machine.wavPlayer ?? []), path]
 
 export const textOptionOf = (values: Readonly<Record<string, unknown>>, name: string): string =>
   typeof values[name] === 'string' ? (values[name] as string) : ''

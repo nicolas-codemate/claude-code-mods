@@ -2,7 +2,8 @@ import { expect, test } from 'claude-code/testing'
 
 import type { Reading } from '../../types'
 import { tokensOf } from '../spoken-text'
-import { costLabelOf, isVoiceShownBy, speedsOf, thinkingLineOf, visibleTokensOf, voiceListLayoutOf } from './band'
+import { costLabelOf } from '../engines'
+import { isVoiceShownBy, speedsOf, thinkingLineOf, visibleTokensOf, voiceListLayoutOf } from './band'
 
 const readingOf = (text: string, currentWordIndex: number): Reading => ({ tokens: tokensOf(text), currentWordIndex, phase: 'speaking', engine: 'piper', error: null })
 

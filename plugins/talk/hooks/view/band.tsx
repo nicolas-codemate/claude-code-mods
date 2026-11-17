@@ -1,8 +1,8 @@
 import type { EngineInterface, RenderChildren, RenderInput } from 'claude-code'
 
 import type { EngineAvailability, Installation, Reading, ReadingPhase, SettingName, SpokenToken, TalkEngineName, TalkLanguage, VoiceCatalog, VoiceChoice, VoiceDownload, VoiceFilter, Spending, Credits } from '../../types'
-import { AUTO_ENGINE_ORDER, effectiveSpeedOf, engineLabels, isVoiceNamedByIdFor, languageNameOf, OPENAI_DOLLARS_PER_AUDIO_MINUTE, speedRangeOf } from '../engines'
-import { elevenLabs } from '../providers/elevenlabs'
+import { AUTO_ENGINE_ORDER, costLabelOf, effectiveSpeedOf, engineLabelOf, isVoiceNamedByIdFor, speedRangeOf } from '../engines'
+import { languageNameOf } from '../languages'
 import { sentenceStartOf, wordsOf } from '../spoken-text'
 import type { Palette } from './theme'
 
@@ -155,22 +155,14 @@ const progressBarOf = (percent: number): string => {
 
 const megabytesOf = (bytes: number): string => `${Math.round(bytes / BYTES_PER_MEGABYTE)} MB`
 
-// The two buttons that enter and leave the mode, in the language of the conversation.
-const MODE_BUTTON_LABELS: Readonly<Record<TalkLanguage, { start: string; end: string }>> = {
-  fr: { start: 'Démarrer une conversation vocale', end: 'Terminer la conversation vocale' },
-  en: { start: 'Start a voice conversation', end: 'End the voice conversation' },
-  es: { start: 'Iniciar una conversación por voz', end: 'Terminar la conversación por voz' },
-  de: { start: 'Sprachgespräch starten', end: 'Sprachgespräch beenden' },
-  it: { start: 'Avvia una conversazione vocale', end: 'Termina la conversazione vocale' },
-}
 
 // The line above the prompt while talk mode is off: one click enters it.
-export function renderStartLine($: EngineInterface, e: RenderInput<'AbovePrompt'>, language: TalkLanguage, palette: Palette, start: () => void) {
+export function renderStartLine($: EngineInterface, e: RenderInput<'AbovePrompt'>, palette: Palette, start: () => void) {
   const { Box, Text, Button } = $.ui.resolve(e)
   return (
     <Box flexDirection="row" justifyContent="flex-end">
       <Button key="start" plain onPress={start}>
-        <Text color={palette.claude}>▶ {MODE_BUTTON_LABELS[language].start}</Text>
+        <Text color={palette.claude}>▶ Start a voice conversation</Text>
       </Button>
     </Box>
   )
@@ -214,21 +206,6 @@ type Choice = { value: string; label: string; isUnavailable?: boolean }
 const VOICE_FILTER_LABELS: Readonly<Record<VoiceFilter, string>> = { all: 'All', female: 'Female', male: 'Male' }
 
 export const isVoiceShownBy = (filter: VoiceFilter, choice: VoiceChoice): boolean => filter === 'all' || choice.gender === filter
-
-// What the session has cost so far, where the engine costs anything, as the settings line shows it after the engine:
-// OpenAI's dollars as estimated from the minutes of voice made.
-export const costLabelOf = (engine: TalkEngineName | null, spending: Record<TalkEngineName, Spending>, credits: Partial<Record<TalkEngineName, Credits>>): string | null => {
-  switch (engine) {
-    case 'elevenlabs':
-      return elevenLabs.costLabelOf(spending.elevenlabs, credits.elevenlabs ?? null)
-    case 'openai':
-      return `≈ $${((spending.openai.audioSeconds / 60) * OPENAI_DOLLARS_PER_AUDIO_MINUTE).toFixed(2)}`
-    case 'piper':
-    case 'system':
-    case null:
-      return null
-  }
-}
 
 // The name of the voice in force for the settings line: its label in the list once read, else its own name.
 const voiceLabelOf = (input: BandInput): string => {
@@ -329,7 +306,7 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
       case 'failed':
         return <Text color={palette.failed}>{catalog.error}</Text>
       case 'ready':
-        if (catalog.choices.length === 0) return <Text dimColor>{engineLabels[catalog.engine]} has a single voice here.</Text>
+        if (catalog.choices.length === 0) return <Text dimColor>{engineLabelOf(catalog.engine)} has a single voice here.</Text>
         const shownChoices = catalog.choices.filter(choice => isVoiceShownBy(input.voiceFilter, choice))
         if (shownChoices.length === 0) return <Text dimColor>No {VOICE_FILTER_LABELS[input.voiceFilter].toLowerCase()} voice is known here.</Text>
         // One voice per line, the names in a column wide enough for the longest, its state after it. A long list, as
@@ -386,7 +363,7 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
             </Box>
             {isHintShown && (
               <Box marginTop={1}>
-                <Text dimColor>▶ listen · a name to choose it{catalog.engine === 'piper' ? ' · ↓ not on this machine yet: downloaded when first heard or chosen' : ''}</Text>
+                <Text dimColor>▶ listen · a name to choose it{catalog.choices.some(choice => choice.download !== null) ? ' · ↓ not on this machine yet: downloaded when first heard or chosen' : ''}</Text>
               </Box>
             )}
           </Box>
@@ -404,7 +381,7 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
               engineSetting,
               [
                 { value: 'auto', label: 'Auto' },
-                ...AUTO_ENGINE_ORDER.map(choice => ({ value: choice, label: engineLabels[choice], isUnavailable: isEngineUnavailable(choice, engineAvailability) })),
+                ...AUTO_ENGINE_ORDER.map(choice => ({ value: choice, label: engineLabelOf(choice), isUnavailable: isEngineUnavailable(choice, engineAvailability) })),
               ],
               value => {
                 if (isEngineChoice(value)) actions.selectEngine(value)
@@ -472,7 +449,7 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
           )}
         </Box>
         <Button key="end" plain onPress={actions.turnOff}>
-          <Text dimColor>✕ {MODE_BUTTON_LABELS[input.language].end}</Text>
+          <Text dimColor>✕ End the voice conversation</Text>
         </Button>
       </Box>
       {input.installation !== null && (
@@ -495,7 +472,7 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
         <Box flexDirection="column" marginTop={1}>
           <Text dimColor>{'─'.repeat(Math.max(1, e.props.bodyColumns - 4))}</Text>
           <Text color={isAwaiting ? palette.claude : palette.preparing}>
-            <Text bold>{waitingLine.glyph}</Text> {isAwaiting ? (input.thinkingWord ?? waitingLine.word) : `Getting the voice ready${engineInUse === null ? '' : ` (${engineLabels[engineInUse]})`}`}…
+            <Text bold>{waitingLine.glyph}</Text> {isAwaiting ? (input.thinkingWord ?? waitingLine.word) : `Getting the voice ready${engineInUse === null ? '' : ` (${engineLabelOf(engineInUse)})`}`}…
           </Text>
         </Box>
       )}
@@ -553,7 +530,7 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
       )}
       <Box flexDirection="row" justifyContent="flex-end">
         <Box flexDirection="row">
-        {settingItem('engine', engineInUse === null ? 'Auto' : engineLabels[engineInUse])}
+        {settingItem('engine', engineInUse === null ? 'Auto' : engineLabelOf(engineInUse))}
         {cost !== null && <Text color={palette.preparing}> {cost}</Text>}
         <Text dimColor> · </Text>
         {settingItem('voice', voiceLabelOf(input))}
