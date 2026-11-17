@@ -165,7 +165,9 @@ knows no service by name and asks the provider for everything:
   English words of a French answer must be respelled for it;
 - its options, read from the plugin's options and the environment;
 - what it looks for on the machine, and why the machine cannot use it;
-- its voices, the one in force, and the option the band saves a chosen voice in;
+- its voices, the one in force, its name before the list is read, and the option the band saves a chosen voice in;
+- its models, when it has several, and the option the band saves the chosen one in;
+- for voices fetched the first time they are used, their download and the file that tells its progress;
 - the synthesis of a piece of text: the sound to play, its length and when each word starts, which the band highlights;
 - what the session cost, and the account's credits for a service that counts them.
 

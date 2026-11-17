@@ -98,7 +98,6 @@ export const elevenLabs: VoiceProvider<ElevenLabsOptions, null> = {
   speedRange: { min: 0.7, max: 1.2 },
   chunking: { maxCharacters: 2_400, isFirstSentenceAlone: false },
   isRespellingEnglish: false,
-  isVoiceNamedById: true,
   commandsLookedFor: [],
   optionsOf,
   findOnMachine: async () => null,
@@ -109,8 +108,11 @@ export const elevenLabs: VoiceProvider<ElevenLabsOptions, null> = {
   voiceOf: options => options.voiceId,
   withVoice: (options, voice) => ({ ...options, voiceId: voice }),
   modelOf: options => options.model,
+  // An ElevenLabs voice is an id until the list of voices gives its name.
+  voiceLabelOf: () => null,
   voicesOf,
   synthesize,
   costLabelOf,
+  voiceDownloads: null,
   creditsOf,
 }

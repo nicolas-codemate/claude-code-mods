@@ -45,7 +45,6 @@ export const systemVoice: VoiceProvider<SystemVoiceOptions, SystemVoiceCommand |
   speedRange: { min: 0.5, max: 2 },
   chunking: { maxCharacters: 260, isFirstSentenceAlone: true },
   isRespellingEnglish: true,
-  isVoiceNamedById: false,
   commandsLookedFor: COMMANDS,
   optionsOf: async () => ({}),
   findOnMachine: async (_toolkit, _options, _language, installedCommands) => COMMANDS.find(command => installedCommands.has(command)) ?? null,
@@ -57,8 +56,10 @@ export const systemVoice: VoiceProvider<SystemVoiceOptions, SystemVoiceCommand |
   voiceOf: () => null,
   withVoice: options => options,
   modelOf: () => null,
+  voiceLabelOf: () => null,
   voicesOf: async () => [],
   synthesize,
   costLabelOf: () => null,
+  voiceDownloads: null,
   creditsOf: null,
 }

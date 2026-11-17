@@ -140,6 +140,36 @@ async function findOnMachine(toolkit: VoiceToolkit, options: PiperOptions, langu
 }
 
 // The voice in force as the list names it: the one chosen in the band when it is the one found, else the file's name.
+// A voice named `fr_FR-upmc-medium#pierre` reads `Upmc Pierre`, as the list names it.
+const voiceLabelOf = (voice: string): string => {
+  const key = piperVoiceKeyOf(voice)
+  const speaker = piperSpeakerOf(voice)
+  const name = key.split('-')[1] ?? key
+  return speaker === null ? capitalized(name.replace(/_/g, ' ')) : `${capitalized(name)} ${capitalized(speaker)}`
+}
+
+async function voicesDirectoryOf(toolkit: VoiceToolkit): Promise<string> {
+  return `${piperHomeOf((await toolkit.environmentVariable('HOME')) ?? '')}/voices`
+}
+
+// The voices of the language, those already on the machine with nothing left to download.
+async function voicesOf(toolkit: VoiceToolkit, language: TalkLanguage): Promise<VoiceChoice[]> {
+  const directory = await voicesDirectoryOf(toolkit)
+  const onMachine = (await toolkit.exists(directory)) ? new Set(await toolkit.fileNamesOf(directory)) : new Set<string>()
+  return piperChoicesOf(await catalogOf(toolkit), language).map(choice =>
+    choice.download !== null && onMachine.has(`${piperVoiceKeyOfDownload(choice.download)}.onnx`) ? { ...choice, download: null, sizeBytes: null } : choice,
+  )
+}
+
+// The model is written under a temporary name while it comes, by downloadPiperVoice's script.
+async function partialFileOf(toolkit: VoiceToolkit, download: string): Promise<string> {
+  return `${await voicesDirectoryOf(toolkit)}/${piperVoiceKeyOfDownload(download)}.onnx.part`
+}
+
+async function downloadVoice(toolkit: VoiceToolkit, download: string): Promise<void> {
+  await downloadPiperVoice(toolkit, await voicesDirectoryOf(toolkit), download)
+}
+
 const voiceOf = (options: PiperOptions, machine: Machine<PiperFound> | null): string | null => {
   const piper = machine?.found ?? null
   if (piper === null) return null
@@ -201,7 +231,6 @@ export const piper: VoiceProvider<PiperOptions, PiperFound> = {
   speedRange: { min: 0.5, max: 2 },
   chunking: { maxCharacters: 260, isFirstSentenceAlone: true },
   isRespellingEnglish: true,
-  isVoiceNamedById: false,
   commandsLookedFor: ['piper'],
   optionsOf,
   findOnMachine,
@@ -212,8 +241,10 @@ export const piper: VoiceProvider<PiperOptions, PiperFound> = {
   voiceOf,
   withVoice: (options, voice) => ({ ...options, voice: '', voiceName: voice }),
   modelOf: () => null,
-  voicesOf: async (toolkit, _options, language) => piperChoicesOf(await catalogOf(toolkit), language),
+  voiceLabelOf,
+  voicesOf: async (toolkit, _options, language) => voicesOf(toolkit, language),
   synthesize,
   costLabelOf: () => null,
+  voiceDownloads: { partialFileOf, download: downloadVoice },
   creditsOf: null,
 }

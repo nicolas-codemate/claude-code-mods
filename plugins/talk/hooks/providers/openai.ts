@@ -68,7 +68,6 @@ export const openAi: VoiceProvider<OpenAiOptions, null> = {
   speedRange: { min: 0.5, max: 2 },
   chunking: { maxCharacters: 2_400, isFirstSentenceAlone: false },
   isRespellingEnglish: false,
-  isVoiceNamedById: false,
   commandsLookedFor: [],
   optionsOf,
   findOnMachine: async () => null,
@@ -79,8 +78,10 @@ export const openAi: VoiceProvider<OpenAiOptions, null> = {
   voiceOf: options => options.voice,
   withVoice: (options, voice) => ({ ...options, voice }),
   modelOf: options => options.model,
+  voiceLabelOf: voice => capitalized(voice),
   voicesOf: async () => [...CHOICES],
   synthesize,
   costLabelOf,
+  voiceDownloads: null,
   creditsOf: null,
 }

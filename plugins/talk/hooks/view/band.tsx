@@ -1,10 +1,8 @@
 import type { EngineInterface, RenderChildren, RenderInput } from 'claude-code'
 
 import type { EngineAvailability, Installation, Reading, ReadingPhase, SettingName, SpokenToken, TalkEngineName, TalkLanguage, VoiceCatalog, VoiceChoice, VoiceDownload, VoiceFilter, Spending, Credits } from '../../types'
-import { AUTO_ENGINE_ORDER, costLabelOf, effectiveSpeedOf, engineLabelOf, isVoiceNamedByIdFor, modelChoicesOf, speedRangeOf } from '../engines'
-import { capitalized } from '../capitalized'
+import { AUTO_ENGINE_ORDER, costLabelOf, effectiveSpeedOf, engineLabelOf, fallbackVoiceLabelOf, modelChoicesOf, speedRangeOf } from '../engines'
 import { isLanguage, languageNameOf, LANGUAGES } from '../languages'
-import { piperVoiceKeyOfDownload } from '../providers/piper'
 import { sentenceStartOf, textOfTokens, wordsOf } from '../spoken-text'
 import type { Palette } from './theme'
 
@@ -214,10 +212,7 @@ const voiceLabelOf = (input: BandInput): string => {
   if (current === null) return 'Voice'
   const listed = input.voiceCatalog?.status === 'ready' ? input.voiceCatalog.choices.find(choice => choice.value === current) : undefined
   if (listed !== undefined) return listed.label
-  if (input.engineInUse !== null && isVoiceNamedByIdFor(input.engineInUse)) return 'Voice'
-  const [key = current, speaker] = current.split('#')
-  const name = key.split('-')[1] ?? key
-  return speaker === undefined ? capitalized(name.replace(/_/g, ' ')) : `${capitalized(name)} ${capitalized(speaker)}`
+  return (input.engineInUse === null ? null : fallbackVoiceLabelOf(input.engineInUse, current)) ?? 'Voice'
 }
 
 // The band above the prompt while talk mode is on: the answer the voice is reading, and the settings.
@@ -328,8 +323,7 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
           const isChosen = choice.value === input.currentVoice
           const isSelected = !isChosen && choice.value === input.pendingChoice
           const isPreviewing = choice.value === input.previewingVoice
-          const key = choice.download === null ? null : piperVoiceKeyOfDownload(choice.download)
-          const isOnMachine = key === null || catalog.downloaded.includes(key)
+          const isOnMachine = choice.download === null
           const download = input.voiceDownload !== null && input.voiceDownload.download === choice.download ? input.voiceDownload : null
           const percent = download === null ? null : percentOf(download)
           return (

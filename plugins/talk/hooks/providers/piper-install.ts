@@ -1,6 +1,8 @@
 import type { EngineInterface } from 'claude-code'
 
 import type { TalkLanguage } from '../../types'
+import { AUTO_ENGINE_ORDER, engineOf, isCloudEngine } from '../engines'
+import type { Capabilities, TalkSettings } from '../engines'
 import { languageNameOf } from '../languages'
 import { downloadPiperVoice, piperHomeOf } from './piper'
 import { voiceToolkitOf } from './toolkit'
@@ -96,6 +98,17 @@ async function hasVoiceOf($: EngineInterface, voicesDirectory: string, language:
 async function hasWordTimingIn($: EngineInterface, python: string): Promise<boolean> {
   const { exitCode } = await $.process.run([python, '-c', 'import piper, onnx'])
   return exitCode === 0
+}
+
+// With no cloud voice to use, a natural voice is one install away: the local voice is set up unless the person
+// chose another engine, named their own Piper, or turned the automatic install off.
+export const isLocalVoiceToInstall = (settings: TalkSettings, found: Capabilities, isAutoInstallOn: boolean): boolean => {
+  const piperOptions = settings.providers.piper
+  if (!isAutoInstallOn || piperOptions.command !== '' || piperOptions.voice !== '') return false
+  const isLocalVoiceComplete = found.providers.piper !== null && found.providers.piper.python !== null
+  if (settings.engine !== 'auto') return settings.engine === 'piper' && !isLocalVoiceComplete
+  const hasCloudVoice = AUTO_ENGINE_ORDER.some(engine => isCloudEngine(engine) && engineOf({ ...settings, engine }, found) === engine)
+  return !hasCloudVoice && !isLocalVoiceComplete
 }
 
 // What the local voice still lacks on this machine, none of it when Piper, its word timing and a voice of the

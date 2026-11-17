@@ -21,8 +21,8 @@ export type SettingName = 'engine' | 'model' | 'voice' | 'speed' | 'language'
 
 export type VoiceGender = 'female' | 'male'
 
-// One voice the band offers: `download` is the path of a Piper voice in the Piper catalog and `sizeBytes` the size of
-// its model, both null for a cloud voice; `gender` null where it is not known.
+// One voice the band offers: `download` is the path, in its service's catalog, of a voice still to fetch before it is
+// used, and `sizeBytes` the size of its model, both null for a voice ready to speak; `gender` null where it is not known.
 export type VoiceChoice = { value: string; label: string; download: string | null; sizeBytes: number | null; gender: VoiceGender | null }
 
 // The voices the list shows: all of them, or those of one gender.
@@ -34,13 +34,13 @@ export type Spending = { characters: number; audioSeconds: number }
 // The credits of a voice service's account as its API told them, and how many were used when the session first read them.
 export type Credits = { used: number; limit: number; usedAtStart: number }
 
-// A Piper voice being downloaded: what has come so far, out of its size when the catalog gives it.
+// A voice being downloaded: what has come so far, out of its size when the catalog gives it.
 export type VoiceDownload = { download: string; label: string; receivedBytes: number; totalBytes: number | null }
 
-// The voices of the engine in use, as the band lists them; `downloaded` holds the Piper voices already on the machine.
+// The voices of the engine in use, as the band lists them.
 export type VoiceCatalog =
   | { engine: TalkEngineName; status: 'loading' }
-  | { engine: TalkEngineName; status: 'ready'; choices: VoiceChoice[]; downloaded: string[] }
+  | { engine: TalkEngineName; status: 'ready'; choices: VoiceChoice[] }
   | { engine: TalkEngineName; status: 'failed'; error: string }
 
 // The local voice being installed: the step under way, or why it failed.

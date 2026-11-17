@@ -4,7 +4,7 @@ import type { Credits, Spending, TalkEngineName, TalkLanguage, VoiceChoice } fro
 import { isLanguage } from './languages'
 import { ENGINE_NAMES, PROVIDERS } from './providers'
 import type { ProviderFindings, ProviderOptions } from './providers'
-import type { ModelChoice } from './providers/provider'
+import type { ModelChoice, VoiceProvider } from './providers/provider'
 import type { Chunking, Machine, SpeedRange, Synthesis } from './providers/synthesis'
 import { textOptionOf } from './providers/synthesis'
 import { voiceToolkitOf } from './providers/toolkit'
@@ -126,7 +126,10 @@ export const usedAtStartOf = (known: Credits | undefined, used: number): number 
 
 export const chunkingOf = (engine: TalkEngineName): Chunking => PROVIDERS[engine].chunking
 
-export const speedRangeOf = (engine: TalkEngineName | null): SpeedRange => (engine === null ? PROVIDERS.piper.speedRange : PROVIDERS[engine].speedRange)
+// The speeds offered before any engine is known: no more than twice the normal pace.
+const DEFAULT_SPEED_RANGE: SpeedRange = { min: 0.5, max: 2 }
+
+export const speedRangeOf = (engine: TalkEngineName | null): SpeedRange => (engine === null ? DEFAULT_SPEED_RANGE : PROVIDERS[engine].speedRange)
 
 // The speed an engine reads at: the one chosen, brought within what the engine takes.
 export const effectiveSpeedOf = (engine: TalkEngineName | null, speed: number): number => {
@@ -152,7 +155,9 @@ export function synthesize($: EngineInterface, engine: TalkEngineName, request: 
 
 export const isRespellingEnglishFor = (engine: TalkEngineName): boolean => PROVIDERS[engine].isRespellingEnglish
 
-export const isVoiceNamedByIdFor = (engine: TalkEngineName): boolean => PROVIDERS[engine].isVoiceNamedById
+export const fallbackVoiceLabelOf = (engine: TalkEngineName, voice: string): string | null => PROVIDERS[engine].voiceLabelOf(voice)
+
+export const voiceDownloadsOf = (engine: TalkEngineName): VoiceProvider<unknown, unknown>['voiceDownloads'] => PROVIDERS[engine].voiceDownloads
 
 export const isCloudEngine = (engine: TalkEngineName): boolean => PROVIDERS[engine].kind === 'cloud'
 

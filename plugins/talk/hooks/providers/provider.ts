@@ -21,8 +21,6 @@ export interface VoiceProvider<Options, Found> {
   readonly chunking: Chunking
   // A voice that reads every word in its own language gets the English words of an answer respelled.
   readonly isRespellingEnglish: boolean
-  // A voice named by an id nobody can read is not shown by it until the list of voices gives its name.
-  readonly isVoiceNamedById: boolean
   // The commands it looks for on the PATH: the machine is searched once for those of every service.
   readonly commandsLookedFor: readonly string[]
   optionsOf(toolkit: VoiceToolkit, values: Readonly<Record<string, unknown>>): Promise<Options>
@@ -33,10 +31,19 @@ export interface VoiceProvider<Options, Found> {
   voiceOf(options: Options, machine: Machine<Found> | null): string | null
   withVoice(options: Options, voice: string): Options
   modelOf(options: Options): string | null
+  // The name of a voice told by its value alone, while its list is not read; null for a voice named by an id nobody
+  // can read.
+  voiceLabelOf(voice: string): string | null
   voicesOf(toolkit: VoiceToolkit, options: Options, language: TalkLanguage): Promise<VoiceChoice[]>
   synthesize(toolkit: VoiceToolkit, request: SynthesisRequest<Options, Found>): Promise<Synthesis>
   // What the session has cost, as the band shows it beside the engine; null for a service that costs nothing.
   costLabelOf(spending: Spending, credits: Credits | null): string | null
   // The credits of the account, for a service that counts them; null for one that does not.
+  // For a service whose voices are fetched the first time they are used: the file a voice grows in while it comes, which
+  // tells the download's progress, and the download itself; null for a service whose voices need nothing on the machine.
+  readonly voiceDownloads: {
+    partialFileOf(toolkit: VoiceToolkit, download: string): Promise<string>
+    download(toolkit: VoiceToolkit, download: string): Promise<void>
+  } | null
   readonly creditsOf: ((toolkit: VoiceToolkit, options: Options) => Promise<Pick<Credits, 'used' | 'limit'> | null>) | null
 }

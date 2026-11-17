@@ -11,10 +11,9 @@ import {
   usedAtStartOf,
   engineLabelOf,
   engineOf,
+  fallbackVoiceLabelOf,
   effectiveSpeedOf,
   engineShownOf,
-  isCloudEngine,
-  isVoiceNamedByIdFor,
   isRespellingEnglishFor,
   modelOptionFieldOf,
   probeCapabilities,
@@ -22,13 +21,13 @@ import {
   synthesize,
   unavailabilityOf,
   voiceOptionFieldOf,
+  voiceDownloadsOf,
   voicesOf,
   withVoice,
 } from './engines'
 import type { Capabilities, TalkSettings } from './engines'
 import { languageNameOf } from './languages'
-import { downloadPiperVoice, piperHomeOf, piperVoiceKeyOfDownload } from './providers/piper'
-import { InstallError, installPiper } from './providers/piper-install'
+import { InstallError, installPiper, isLocalVoiceToInstall } from './providers/piper-install'
 import { SynthesisError } from './providers/synthesis'
 import type { Synthesis } from './providers/synthesis'
 import { voiceToolkitOf } from './providers/toolkit'
@@ -258,9 +257,10 @@ async function refreshEngineAvailability($: EngineInterface): Promise<void> {
   // A voice named by an id is shown by its name once its list is read: a list read for another engine, before the
   // engine changed, or one that failed, is read again.
   const engine = engineOf(settings, found)
+  const voice = currentVoiceOf(settings, found, engine)
   const catalog = await read($, voiceCatalogAtom)
   const isCatalogUsable = catalog !== null && catalog.engine === engine && catalog.status !== 'failed'
-  if (engine !== null && isVoiceNamedByIdFor(engine) && !isCatalogUsable) void loadVoiceCatalog($)
+  if (engine !== null && voice !== null && fallbackVoiceLabelOf(engine, voice) === null && !isCatalogUsable) void loadVoiceCatalog($)
 }
 
 // The band changes the mode's options as /config does: the setting is saved and the mod reloads with it.
@@ -295,18 +295,6 @@ async function readClaudeCodeTheme($: EngineInterface): Promise<void> {
   await update($, claudeCodeThemeAtom, () => (typeof theme === 'string' ? theme : null))
 }
 
-// With no cloud voice to use, a natural voice is one install away: the local voice is set up unless the person
-// chose another engine, named their own Piper, or turned the automatic install off.
-async function shouldInstallPiper($: EngineInterface, settings: TalkSettings): Promise<boolean> {
-  const piperOptions = settings.providers.piper
-  if (pluginOptions.autoInstall === false || piperOptions.command !== '' || piperOptions.voice !== '') return false
-  const found = await capabilitiesOf($, settings)
-  const isLocalVoiceComplete = found.providers.piper !== null && found.providers.piper.python !== null
-  if (settings.engine !== 'auto') return settings.engine === 'piper' && !isLocalVoiceComplete
-  const hasCloudVoice = AUTO_ENGINE_ORDER.some(engine => isCloudEngine(engine) && engineOf({ ...settings, engine }, found) === engine)
-  return !hasCloudVoice && !isLocalVoiceComplete
-}
-
 function setInstallation($: EngineInterface, installation: Installation | null) {
   return update($, installationAtom, () => installation)
 }
@@ -321,7 +309,7 @@ function setUpLocalVoice($: EngineInterface, isAsked: boolean): Promise<void> {
 
 async function installLocalVoice($: EngineInterface, isAsked: boolean): Promise<void> {
   const settings = await settingsOf($, pluginOptions)
-  if (!isAsked && !(await shouldInstallPiper($, settings))) return
+  if (!isAsked && !isLocalVoiceToInstall(settings, await capabilitiesOf($, settings), pluginOptions.autoInstall !== false)) return
   const home = (await $.env.get('HOME')) ?? ''
   try {
     await installPiper($, home, settings.language, async message => {
@@ -339,10 +327,6 @@ async function engineInUseOf($: EngineInterface, settings: TalkSettings): Promis
   return engineOf(settings, await capabilitiesOf($, settings))
 }
 
-async function piperVoicesDirectoryOf($: EngineInterface): Promise<string> {
-  return `${piperHomeOf((await $.env.get('HOME')) ?? '')}/voices`
-}
-
 async function loadVoiceCatalog($: EngineInterface): Promise<void> {
   const settings = await settingsOf($, pluginOptions)
   const engine = await engineInUseOf($, settings)
@@ -353,40 +337,41 @@ async function loadVoiceCatalog($: EngineInterface): Promise<void> {
   await update($, voiceCatalogAtom, (): VoiceCatalog => ({ engine, status: 'loading' }))
   try {
     const choices = await voicesOf($, engine, settings)
-    const directory = await piperVoicesDirectoryOf($)
-    const downloaded = (await $.fs.exists(directory)) ? (await $.fs.list(directory)).map(entry => entry.name.replace(/\.onnx$/, '')) : []
-    await update($, voiceCatalogAtom, (): VoiceCatalog => ({ engine, status: 'ready', choices, downloaded }))
+    await update($, voiceCatalogAtom, (): VoiceCatalog => ({ engine, status: 'ready', choices }))
   } catch (error) {
     await update($, voiceCatalogAtom, (): VoiceCatalog => ({ engine, status: 'failed', error: error instanceof Error ? error.message : String(error) }))
   }
 }
 
-// A Piper voice is downloaded the first time it is heard or chosen.
-async function ensurePiperVoice($: EngineInterface, choice: VoiceChoice): Promise<void> {
-  if (choice.download === null) return
-  const directory = await piperVoicesDirectoryOf($)
-  const key = piperVoiceKeyOfDownload(choice.download)
-  if (await $.fs.exists(`${directory}/${key}.onnx`)) return
+// A voice still to fetch is downloaded the first time it is heard or chosen, its progress shown as it comes.
+async function ensureVoiceOnMachine($: EngineInterface, engine: TalkEngineName, choice: VoiceChoice): Promise<void> {
+  const downloads = voiceDownloadsOf(engine)
+  if (choice.download === null || downloads === null) return
   const download = choice.download
+  const toolkit = voiceToolkitOf($)
   await update($, voiceDownloadAtom, () => ({ download, label: choice.label, receivedBytes: 0, totalBytes: choice.sizeBytes }))
-  // The model is written under a temporary name while it comes: its size so far is the progress.
-  const partialModel = `${directory}/${key}.onnx.part`
+  const partialFile = await downloads.partialFileOf(toolkit, download)
   const progress = $.clock.every(DOWNLOAD_PROGRESS_TICK_MS, () => {
     void (async () => {
-      if (!(await $.fs.exists(partialModel))) return
-      const { size } = await $.fs.stat(partialModel)
+      if (!(await $.fs.exists(partialFile))) return
+      const { size } = await $.fs.stat(partialFile)
       await update($, voiceDownloadAtom, current => (current === null ? null : { ...current, receivedBytes: size }))
     })().catch(() => {
       // Renamed to its final name between the two calls: the download has just ended.
     })
   })
   try {
-    await downloadPiperVoice(voiceToolkitOf($), directory, download)
+    await downloads.download(toolkit, download)
   } finally {
     progress.cancel()
     await update($, voiceDownloadAtom, () => null)
   }
-  await update($, voiceCatalogAtom, catalog => (catalog?.status === 'ready' ? { ...catalog, downloaded: [...catalog.downloaded, key] } : catalog))
+  // Every speaker of the voice came with it.
+  await update($, voiceCatalogAtom, catalog =>
+    catalog?.status === 'ready'
+      ? { ...catalog, choices: catalog.choices.map(listed => (listed.download === download ? { ...listed, download: null, sizeBytes: null } : listed)) }
+      : catalog,
+  )
 }
 
 // The answer the samples stand in for while they are heard, kept from the first of a row of samples; and which sample
@@ -406,7 +391,7 @@ async function previewVoice($: EngineInterface, choice: VoiceChoice): Promise<vo
   await update($, previewingVoiceAtom, () => choice.value)
   const sampleTokens = tokensOf(SAMPLE_SENTENCES[(await settingsOf($, pluginOptions)).language])
   try {
-    await ensurePiperVoice($, choice)
+    await ensureVoiceOnMachine($, catalog.engine, choice)
     const settings = withVoice(await settingsOf($, pluginOptions), catalog.engine, choice.value)
     const capabilitiesWithVoice = await probeCapabilities($, settings)
     await readTokens($, sampleTokens, 0, { settings, capabilities: capabilitiesWithVoice, engine: catalog.engine })
@@ -431,7 +416,7 @@ async function selectVoice($: EngineInterface, choice: VoiceChoice, beforeSaving
   if (choice.download !== null) {
     await update($, previewingVoiceAtom, () => choice.value)
     try {
-      await ensurePiperVoice($, choice)
+      await ensureVoiceOnMachine($, catalog.engine, choice)
     } catch (error) {
       $.ui.toast(`talk: ${error instanceof Error ? error.message : String(error)}`)
       return
