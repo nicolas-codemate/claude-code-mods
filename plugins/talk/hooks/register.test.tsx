@@ -419,7 +419,7 @@ test('between the answer and its voice, the band says the voice is being made re
   expect((await band.find({ type: 'Text', text: /réponse/ }))?.text).toBe('Voilà la réponse.')
   expect((await band.find({ type: 'Text', text: /…$/ }))?.text).toMatch(/^[·✢✳✶✻✽] Getting the voice ready \(Piper\)…$/)
   // The frame is the working color while the voice is made ready, Claude's while it reads.
-  const frameColor = async () => (await band.find({ type: 'Box' }))?.props.borderColor
+  const frameColor = async () => (await band.findAll({ type: 'Box' })).find(box => box.props.borderStyle !== undefined)?.props.borderColor
   expect(await frameColor()).toBe('#5fb4e8')
 
   await clock.advance(2_000)
