@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import type { Reading } from '../../types'
 import { tokensOf } from '../spoken-text'
-import { speedsOf, thinkingLineOf, visibleTokensOf, voiceListLayoutOf } from './band'
+import { costLabelOf, isVoiceShownBy, speedsOf, thinkingLineOf, visibleTokensOf, voiceListLayoutOf } from './band'
 
 const readingOf = (text: string, currentWordIndex: number): Reading => ({ tokens: tokensOf(text), currentWordIndex, phase: 'speaking', engine: 'piper', error: null })
 
@@ -40,4 +40,23 @@ test('an answer the band cannot hold whole is cut to its rows, even within a lon
 test('the speeds offered are those the engine reads at, its fastest included', async () => {
   expect(speedsOf('elevenlabs')).toEqual([0.75, 1, 1.2])
   expect(speedsOf('piper')).toEqual([0.75, 1, 1.25, 1.5, 2])
+})
+
+test('the gender filter keeps the voices of that gender, a voice of no known gender under All alone', async () => {
+  const voice = (gender: 'female' | 'male' | null) => ({ value: 'v', label: 'V', download: null, sizeBytes: null, gender })
+
+  expect(isVoiceShownBy('female', voice('female'))).toBe(true)
+  expect(isVoiceShownBy('female', voice('male'))).toBe(false)
+  expect(isVoiceShownBy('male', voice(null))).toBe(false)
+  expect(isVoiceShownBy('all', voice(null))).toBe(true)
+})
+
+test('beside the engine, what the session cost: ElevenLabs credits, OpenAI dollars, nothing for a local voice', async () => {
+  const nothing = { characters: 0, audioSeconds: 0 }
+  const spending = { elevenlabs: { characters: 640, audioSeconds: 40 }, openai: { characters: 900, audioSeconds: 240 }, piper: nothing, system: nothing }
+
+  expect(costLabelOf('elevenlabs', spending, { used: 1_640, limit: 10_000, usedAtStart: 1_000 })).toBe('640 credits · 8,360 left')
+  expect(costLabelOf('elevenlabs', spending, null)).toBe('640 characters')
+  expect(costLabelOf('openai', spending, null)).toBe('≈ $0.06')
+  expect(costLabelOf('piper', spending, null)).toBe(null)
 })

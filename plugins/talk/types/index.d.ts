@@ -19,9 +19,20 @@ export type Reading = {
 // The settings the band opens one at a time, from its settings line.
 export type SettingName = 'engine' | 'voice' | 'speed' | 'language'
 
+export type VoiceGender = 'female' | 'male'
+
 // One voice the band offers: `download` is the path of a Piper voice in the Piper catalog and `sizeBytes` the size of
-// its model, both null for a cloud voice.
-export type VoiceChoice = { value: string; label: string; download: string | null; sizeBytes: number | null }
+// its model, both null for a cloud voice; `gender` null where it is not known.
+export type VoiceChoice = { value: string; label: string; download: string | null; sizeBytes: number | null; gender: VoiceGender | null }
+
+// The voices the list shows: all of them, or those of one gender.
+export type VoiceFilter = 'all' | VoiceGender
+
+// What this conversation has spent on a cloud voice: the characters it read and the seconds of voice it made.
+export type Spending = { characters: number; audioSeconds: number }
+
+// The credits of the ElevenLabs account as its API told them, and how many were used when the conversation began.
+export type ElevenLabsCredits = { used: number; limit: number; usedAtStart: number }
 
 // A Piper voice being downloaded: what has come so far, out of its size when the catalog gives it.
 export type VoiceDownload = { download: string; label: string; receivedBytes: number; totalBytes: number | null }
@@ -52,6 +63,9 @@ declare module 'claude-code' {
       // The voice whose sample is being prepared or heard.
       previewingVoice: string | null
       voiceDownload: VoiceDownload | null
+      voiceFilter: VoiceFilter
+      spending: Record<TalkEngineName, Spending>
+      elevenLabsCredits: ElevenLabsCredits | null
       // From the person's message until Claude's answer comes.
       isAwaitingAnswer: boolean
       // The step of the animation of a wait: for the answer, then for the voice.

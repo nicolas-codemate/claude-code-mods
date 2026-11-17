@@ -55,9 +55,10 @@ export const tokensOf = (text: string): SpokenToken[] => {
 export const wordsOf = (tokens: readonly SpokenToken[]): string[] =>
   tokens.filter(token => token.wordIndex !== null).map(token => token.text)
 
-// Groups the words into the pieces sent one by one to the voice: the first sentence alone so the voice starts soon, then
-// whole sentences of at least half maxCharacters each, synthesized while the previous piece plays.
-export const chunksOf = (words: readonly string[], maxCharacters: number): string[][] => {
+// Groups the words into the pieces sent one by one to the voice: the first sentence alone so the voice starts soon (unless
+// isFirstSentenceAlone is false), then whole sentences of at least half maxCharacters each, synthesized while the
+// previous piece plays.
+export const chunksOf = (words: readonly string[], maxCharacters: number, isFirstSentenceAlone = true): string[][] => {
   const chunks: string[][] = []
   let current: string[] = []
   let currentLength = 0
@@ -65,7 +66,7 @@ export const chunksOf = (words: readonly string[], maxCharacters: number): strin
     current.push(word)
     currentLength += word.length + 1
     const isSentenceEnd = SENTENCE_END.test(word)
-    const limit = chunks.length === 0 ? 0 : maxCharacters / 2
+    const limit = chunks.length === 0 && isFirstSentenceAlone ? 0 : maxCharacters / 2
     if ((isSentenceEnd && currentLength >= limit) || currentLength >= maxCharacters * 1.5) {
       chunks.push(current)
       current = []

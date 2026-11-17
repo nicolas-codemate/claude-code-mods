@@ -1,7 +1,7 @@
 import type { EngineInterface, RenderChildren, RenderInput } from 'claude-code'
 
-import type { EngineAvailability, Installation, Reading, ReadingPhase, SettingName, SpokenToken, TalkEngineName, TalkLanguage, VoiceCatalog, VoiceChoice, VoiceDownload } from '../../types'
-import { AUTO_ENGINE_ORDER, effectiveSpeedOf, engineLabels, languageNameOf, speedRangeOf } from '../engines'
+import type { EngineAvailability, Installation, Reading, ReadingPhase, SettingName, SpokenToken, TalkEngineName, TalkLanguage, VoiceCatalog, VoiceChoice, VoiceDownload, VoiceFilter, Spending, ElevenLabsCredits } from '../../types'
+import { AUTO_ENGINE_ORDER, effectiveSpeedOf, engineLabels, languageNameOf, OPENAI_DOLLARS_PER_AUDIO_MINUTE, speedRangeOf } from '../engines'
 import { sentenceStartOf, wordsOf } from '../spoken-text'
 import type { Palette } from './theme'
 
@@ -18,6 +18,7 @@ export type BandActions = {
   previewVoice: (choice: VoiceChoice) => void
   selectVoice: (choice: VoiceChoice) => void
   applySetting: () => void
+  filterVoices: (filter: VoiceFilter) => void
   cancelSetting: () => void
 }
 
@@ -29,6 +30,9 @@ export type BandInput = {
   voiceCatalog: VoiceCatalog | null
   previewingVoice: string | null
   voiceDownload: VoiceDownload | null
+  voiceFilter: VoiceFilter
+  spending: Record<TalkEngineName, Spending>
+  elevenLabsCredits: ElevenLabsCredits | null
   isAwaitingAnswer: boolean
   animationFrame: number
   // The word of Claude Code's spinner for the turn under way, once drawn.
@@ -206,6 +210,26 @@ const isLanguage = (value: string): value is TalkLanguage => LANGUAGES.some(lang
 
 type Choice = { value: string; label: string; isUnavailable?: boolean }
 
+const VOICE_FILTER_LABELS: Readonly<Record<VoiceFilter, string>> = { all: 'All', female: 'Female', male: 'Male' }
+
+export const isVoiceShownBy = (filter: VoiceFilter, choice: VoiceChoice): boolean => filter === 'all' || choice.gender === filter
+
+// What the session has cost so far, where the engine costs anything, as the settings line shows it after the engine:
+// ElevenLabs' credits as its account tells them, OpenAI's dollars as estimated from the minutes of voice made.
+export const costLabelOf = (engine: TalkEngineName | null, spending: Record<TalkEngineName, Spending>, credits: ElevenLabsCredits | null): string | null => {
+  switch (engine) {
+    case 'elevenlabs':
+      if (credits === null) return spending.elevenlabs.characters === 0 ? null : `${spending.elevenlabs.characters.toLocaleString('en-US')} characters`
+      return `${(credits.used - credits.usedAtStart).toLocaleString('en-US')} credits · ${(credits.limit - credits.used).toLocaleString('en-US')} left`
+    case 'openai':
+      return `≈ $${((spending.openai.audioSeconds / 60) * OPENAI_DOLLARS_PER_AUDIO_MINUTE).toFixed(2)}`
+    case 'piper':
+    case 'system':
+    case null:
+      return null
+  }
+}
+
 // The name of the voice in force for the settings line: its label in the list once read, else its own name.
 const voiceLabelOf = (input: BandInput): string => {
   const current = input.currentVoice
@@ -243,6 +267,8 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
   const phaseColor = phaseColorOf(reading.phase, palette)
   const chosenEngineReason = engineSetting === 'auto' || engineAvailability === null ? null : engineAvailability[engineSetting]
   const { engineInUse } = input
+  // What the session has spent on the engine in use, beside its name.
+  const cost = costLabelOf(engineInUse, input.spending, input.elevenLabsCredits)
   // The speed the engine reads at, which the line shows: the one chosen may be past what the engine takes.
   const speedInUse = effectiveSpeedOf(engineInUse, input.speed)
 
@@ -305,11 +331,13 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
         return <Text color={palette.failed}>{catalog.error}</Text>
       case 'ready':
         if (catalog.choices.length === 0) return <Text dimColor>{engineLabels[catalog.engine]} has a single voice here.</Text>
+        const shownChoices = catalog.choices.filter(choice => isVoiceShownBy(input.voiceFilter, choice))
+        if (shownChoices.length === 0) return <Text dimColor>No {VOICE_FILTER_LABELS[input.voiceFilter].toLowerCase()} voice is known here.</Text>
         // One voice per line, the names in a column wide enough for the longest, its state after it. A long list, as
         // English has, is laid out in columns read from top to bottom, so that the band stays short.
-        const nameColumns = Math.max(...catalog.choices.map(choice => shortNameOf(choice.label).length)) + 1
+        const nameColumns = Math.max(...shownChoices.map(choice => shortNameOf(choice.label).length)) + 1
         const cellColumns = HEAR_COLUMNS + nameColumns + STATE_COLUMNS
-        const { listColumns, rowsPerColumn } = voiceListLayoutOf(catalog.choices.length, e.props.bodyColumns - 6, cellColumns + COLUMN_SEPARATOR.length, voiceListRows)
+        const { listColumns, rowsPerColumn } = voiceListLayoutOf(shownChoices.length, e.props.bodyColumns - 6, cellColumns + COLUMN_SEPARATOR.length, voiceListRows)
         const isHintShown = rowsPerColumn + VOICE_HINT_ROWS <= voiceListRows
         const voiceRowOf = (choice: VoiceChoice) => {
           const isChosen = choice.value === input.currentVoice
@@ -353,7 +381,7 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
                       ))}
                     </Box>
                   )}
-                  <Box flexDirection="column">{catalog.choices.slice(column * rowsPerColumn, (column + 1) * rowsPerColumn).map(voiceRowOf)}</Box>
+                  <Box flexDirection="column">{shownChoices.slice(column * rowsPerColumn, (column + 1) * rowsPerColumn).map(voiceRowOf)}</Box>
                 </Box>
               ))}
             </Box>
@@ -501,6 +529,18 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
                 <Text dimColor>by {SPEED_STEP_LABEL}</Text>
                 {input.pendingChoice !== null && <Text color={palette.claude}>{Number(input.pendingChoice).toFixed(2)}x</Text>}
               </Box>
+            ) : input.openSetting === 'voice' ? (
+              // The voices of one gender at a click, where the engine tells it.
+              <Box flexDirection="row" columnGap={1}>
+                <Text dimColor>{SETTING_LABELS.voice}</Text>
+                {(['all', 'female', 'male'] as const).map(filter => (
+                  <Button key={`voice-filter-${filter}`} plain onPress={() => actions.filterVoices(filter)}>
+                    <Text bold={input.voiceFilter === filter} underline={input.voiceFilter === filter} color={input.voiceFilter === filter ? palette.claude : undefined} dimColor={input.voiceFilter !== filter}>
+                      {VOICE_FILTER_LABELS[filter]}
+                    </Text>
+                  </Button>
+                ))}
+              </Box>
             ) : (
               <Text dimColor>{SETTING_LABELS[input.openSetting]}</Text>
             )}
@@ -513,13 +553,16 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
         </Box>
       )}
       <Box flexDirection="row" justifyContent="flex-end">
+        <Box flexDirection="row">
         {settingItem('engine', engineInUse === null ? 'Auto' : engineLabels[engineInUse])}
+        {cost !== null && <Text color={palette.preparing}> {cost}</Text>}
         <Text dimColor> · </Text>
         {settingItem('voice', voiceLabelOf(input))}
         <Text dimColor> · </Text>
         {settingItem('speed', `${speedInUse.toFixed(2)}x`)}
         <Text dimColor> · </Text>
         {settingItem('language', languageNameOf(input.language))}
+        </Box>
       </Box>
     </Box>
   )

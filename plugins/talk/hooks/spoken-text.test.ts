@@ -68,3 +68,9 @@ test('sources and links listed after an answer are shown, not read', async () =>
   expect(spokenTextOf(answer)).toBe('OpenAI costs about a cent and a half a minute.')
   expect(spokenTextOf('- Measure first.\n- Then [decide](https://example.com) together.')).toBe('Measure first.')
 })
+
+test('a voice that reads the answer whole gets it in one piece, its first sentence not apart', async () => {
+  const words = 'One. Two words here. Three words there. Four.'.split(' ')
+
+  expect(chunksOf(words, 2_400, false)).toEqual([words])
+})

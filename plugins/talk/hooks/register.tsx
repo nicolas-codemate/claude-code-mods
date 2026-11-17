@@ -1,9 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { EngineAvailability, Installation, Reading, SettingName, SpokenToken, TalkEngineName, TalkLanguage, VoiceCatalog, VoiceChoice } from '../types'
+import type { ElevenLabsCredits, EngineAvailability, Spending, Installation, Reading, SettingName, SpokenToken, TalkEngineName, TalkLanguage, VoiceCatalog, VoiceChoice, VoiceFilter } from '../types'
 import {
   AUTO_ENGINE_ORDER,
+  chunkingOf,
   engineLabels,
   engineOf,
   effectiveSpeedOf,
@@ -20,13 +21,12 @@ import { InstallError, installPiper, piperHomeOf } from './piper-install'
 import { speakableWordOf } from './pronunciation'
 import { chunksOf, sentenceStartOf, spokenTextOf, tokensOf, wordsOf } from './spoken-text'
 import { wordAtElapsedMs } from './timing'
-import { downloadPiperVoice, elevenLabsChoicesOf, openAiChoices, piperCatalogOf, piperChoicesOf, SAMPLE_SENTENCES } from './voices'
+import { downloadPiperVoice, elevenLabsChoicesOf, elevenLabsCreditsOf, openAiChoices, piperCatalogOf, piperChoicesOf, SAMPLE_SENTENCES } from './voices'
 import { renderBand, renderStartLine } from './view/band'
 import { paletteOf } from './view/theme'
 
 const COMMAND = 'talk'
 const PROMPT_SECTION_ID = 'talk:voice-conversation'
-const CHUNK_MAX_CHARACTERS = 260
 const KARAOKE_TICK_MS = 60
 const DOWNLOAD_PROGRESS_TICK_MS = 300
 const ANIMATION_TICK_MS = 150
@@ -44,6 +44,15 @@ const installationAtom = atom({ plugin: 'talk', key: 'installation' } as const, 
 const voiceCatalogAtom = atom({ plugin: 'talk', key: 'voiceCatalog' } as const, null)
 const previewingVoiceAtom = atom({ plugin: 'talk', key: 'previewingVoice' } as const, null)
 const voiceDownloadAtom = atom({ plugin: 'talk', key: 'voiceDownload' } as const, null)
+const voiceFilterAtom = atom({ plugin: 'talk', key: 'voiceFilter' } as const, 'all')
+const NOTHING_SPENT: Record<TalkEngineName, Spending> = {
+  elevenlabs: { characters: 0, audioSeconds: 0 },
+  openai: { characters: 0, audioSeconds: 0 },
+  piper: { characters: 0, audioSeconds: 0 },
+  system: { characters: 0, audioSeconds: 0 },
+}
+const spendingAtom = atom({ plugin: 'talk', key: 'spending' } as const, NOTHING_SPENT)
+const elevenLabsCreditsAtom = atom({ plugin: 'talk', key: 'elevenLabsCredits' } as const, null)
 const isAwaitingAnswerAtom = atom({ plugin: 'talk', key: 'isAwaitingAnswer' } as const, false)
 const animationFrameAtom = atom({ plugin: 'talk', key: 'animationFrame' } as const, 0)
 
@@ -191,7 +200,8 @@ async function readTokens($: EngineInterface, tokens: SpokenToken[], fromWordInd
   await setReading($, reading => ({ ...reading, engine }))
   const directory = await audioDirectoryOf($)
   const isRespellingEnglish = isRespellingEnglishFor(engine)
-  const chunks = chunksOf(words.slice(fromWordIndex), CHUNK_MAX_CHARACTERS)
+  const { maxCharacters, isFirstSentenceAlone } = chunkingOf(engine)
+  const chunks = chunksOf(words.slice(fromWordIndex), maxCharacters, isFirstSentenceAlone)
   const firstWordIndexes = chunks.map((_, index) => fromWordIndex + chunks.slice(0, index).reduce((count, chunk) => count + chunk.length, 0))
   const synthesisOf = (index: number): Promise<Synthesis> =>
     synthesize($, engine, {
@@ -205,6 +215,7 @@ async function readTokens($: EngineInterface, tokens: SpokenToken[], fromWordInd
     let pending = synthesisOf(0)
     for (const [index, firstWordIndex] of firstWordIndexes.entries()) {
       const synthesis = await pending
+      await recordSpending($, engine, (chunks[index] ?? []).join(' ').length, synthesis.durationMs / 1000)
       if (generation !== readingGeneration) return
       if (index + 1 < chunks.length) {
         pending = synthesisOf(index + 1)
@@ -215,11 +226,30 @@ async function readTokens($: EngineInterface, tokens: SpokenToken[], fromWordInd
       if (generation !== readingGeneration) return
     }
     await setReading($, reading => ({ ...reading, phase: 'done', currentWordIndex: words.length }))
+    if (engine === 'elevenlabs') void refreshElevenLabsCredits($)
   } catch (error) {
     if (generation !== readingGeneration) return
     const message = error instanceof SynthesisError ? error.message : `The voice failed: ${String(error)}`
     await setReading($, reading => ({ ...reading, phase: 'failed', error: message }))
   }
+}
+
+// What the conversation spends on its voices, a piece of voice at a time.
+async function recordSpending($: EngineInterface, engine: TalkEngineName, characters: number, audioSeconds: number): Promise<void> {
+  await update($, spendingAtom, (spending): Record<TalkEngineName, Spending> => {
+    const all = spending ?? NOTHING_SPENT
+    return { ...all, [engine]: { characters: all[engine].characters + characters, audioSeconds: all[engine].audioSeconds + audioSeconds } }
+  })
+}
+
+// The ElevenLabs account's credits as its API tells them; those used when the session first read them are kept, to
+// count what it spent since.
+async function refreshElevenLabsCredits($: EngineInterface): Promise<void> {
+  const settings = await settingsOf($, pluginOptions)
+  if (settings.elevenlabs.apiKey === '') return
+  const credits = await elevenLabsCreditsOf($, settings.elevenlabs.apiKey).catch(() => null)
+  if (credits === null) return
+  await update($, elevenLabsCreditsAtom, (known): ElevenLabsCredits => ({ ...credits, usedAtStart: known?.usedAtStart ?? credits.used }))
 }
 
 async function replay($: EngineInterface) {
@@ -538,6 +568,8 @@ async function stop($: EngineInterface) {
 async function turnOn($: EngineInterface): Promise<string> {
   await update($, isActiveAtom, () => true)
   await update($, readingAtom, () => EMPTY_READING)
+  // The spending adds up over the whole session, the mode turned off and on again included.
+  void refreshElevenLabsCredits($)
   void setUpLocalVoice($, false)
   const settings = await settingsOf($, pluginOptions)
   await refreshEngineAvailability($)
@@ -720,6 +752,9 @@ export const register: Register = (on, options) => {
       voiceCatalog: await read($, voiceCatalogAtom),
       previewingVoice: await read($, previewingVoiceAtom),
       voiceDownload: await read($, voiceDownloadAtom),
+      voiceFilter: await read($, voiceFilterAtom),
+      spending: await read($, spendingAtom),
+      elevenLabsCredits: await read($, elevenLabsCreditsAtom),
       isAwaitingAnswer: await read($, isAwaitingAnswerAtom),
       animationFrame: await read($, animationFrameAtom),
       thinkingWord: spinnerWord,
@@ -743,6 +778,7 @@ export const register: Register = (on, options) => {
       previewVoice: choice => void previewVoice($, choice),
       selectVoice: choice => void choose($, choice.value),
       applySetting: () => void applySetting($),
+      filterVoices: (filter: VoiceFilter) => void update($, voiceFilterAtom, () => filter),
       cancelSetting: () => void closeSetting($),
     })
   })

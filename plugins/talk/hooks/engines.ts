@@ -231,7 +231,8 @@ async function synthesizeWithOpenAi($: EngineInterface, request: SynthesisReques
     model: settings.openai.model,
     voice: settings.openai.voice,
     input: text,
-    instructions: `Speak ${languageNameOf(settings.language)}, as a colleague thinking a problem through out loud: natural, relaxed, warm. Pronounce English technical words as a developer would.`,
+    // The voice follows these words for its tone and its pace: a relaxed tone made it leave long silences between words.
+    instructions: `Speak ${languageNameOf(settings.language)} as a colleague in a lively conversation: warm and natural, at a brisk, steady pace, the words flowing on without pauses between them; pause briefly at the end of a sentence only. Pronounce English technical words as a developer would.`,
     response_format: 'wav',
     speed: settings.speed,
   }))
@@ -315,6 +316,24 @@ async function synthesizeWithSystemVoice($: EngineInterface, request: SynthesisR
   const durationMs = await wavDurationOfFile($, audioPath)
   return { playback: wavPlaybackOf(capabilities, audioPath), durationMs, wordStartsMs: estimatedWordStartsMs(speakableWords, durationMs) }
 }
+
+// How an answer is cut into the pieces sent to the voice. A local voice gets the first sentence alone, to start soon,
+// then pieces made while the one before plays. A cloud voice gets the answer whole: a short first piece made it start
+// slowly, its pace found on the pieces after.
+export type Chunking = { maxCharacters: number; isFirstSentenceAlone: boolean }
+
+const CHUNKINGS: Readonly<Record<TalkEngineName, Chunking>> = {
+  elevenlabs: { maxCharacters: 2_400, isFirstSentenceAlone: false },
+  openai: { maxCharacters: 2_400, isFirstSentenceAlone: false },
+  piper: { maxCharacters: 260, isFirstSentenceAlone: true },
+  system: { maxCharacters: 260, isFirstSentenceAlone: true },
+}
+
+export const chunkingOf = (engine: TalkEngineName): Chunking => CHUNKINGS[engine]
+
+// What OpenAI charges for a minute of voice from its speech model, roughly: its price is per token of text and of
+// audio, about this much for a minute of speech.
+export const OPENAI_DOLLARS_PER_AUDIO_MINUTE = 0.015
 
 export type SpeedRange = { min: number; max: number }
 

@@ -11,7 +11,7 @@ const entry = (code: string, name: string, quality: string, speakers: Record<str
   speaker_id_map: speakers,
 })
 
-test('the Piper voices of the language are listed, one per speaker, medium quality alone, crowds left out', async () => {
+test('the Piper voices of the language are listed, one per speaker with its gender, medium quality alone, crowds left out', async () => {
   const catalog = {
     'fr_FR-gilles-low': entry('fr_FR', 'gilles', 'low'),
     'fr_FR-tom-high': entry('fr_FR', 'tom', 'high'),
@@ -22,11 +22,11 @@ test('the Piper voices of the language are listed, one per speaker, medium quali
   }
 
   expect(piperChoicesOf(catalog, 'fr')).toEqual([
-    { value: 'fr_FR-siwis-medium', label: 'Siwis', download: 'fr/fr_FR/siwis/medium/fr_FR-siwis-medium', sizeBytes: 63_000_000 },
-    { value: 'fr_FR-upmc-medium#jessica', label: 'Upmc Jessica', download: 'fr/fr_FR/upmc/medium/fr_FR-upmc-medium', sizeBytes: 63_000_000 },
-    { value: 'fr_FR-upmc-medium#pierre', label: 'Upmc Pierre', download: 'fr/fr_FR/upmc/medium/fr_FR-upmc-medium', sizeBytes: 63_000_000 },
+    { value: 'fr_FR-siwis-medium', label: 'Siwis', download: 'fr/fr_FR/siwis/medium/fr_FR-siwis-medium', sizeBytes: 63_000_000, gender: 'female' },
+    { value: 'fr_FR-upmc-medium#jessica', label: 'Upmc Jessica', download: 'fr/fr_FR/upmc/medium/fr_FR-upmc-medium', sizeBytes: 63_000_000, gender: 'female' },
+    { value: 'fr_FR-upmc-medium#pierre', label: 'Upmc Pierre', download: 'fr/fr_FR/upmc/medium/fr_FR-upmc-medium', sizeBytes: 63_000_000, gender: 'male' },
   ])
-  expect(piperChoicesOf(catalog, 'en')).toEqual([{ value: 'en_US-lessac-medium', label: 'Lessac US', download: 'en/en_US/lessac/medium/en_US-lessac-medium', sizeBytes: 63_000_000 }])
+  expect(piperChoicesOf(catalog, 'en')).toEqual([{ value: 'en_US-lessac-medium', label: 'Lessac US', download: 'en/en_US/lessac/medium/en_US-lessac-medium', sizeBytes: 63_000_000, gender: 'female' }])
 })
 
 test('a voice of several speakers names the speaker after its key', async () => {

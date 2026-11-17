@@ -57,7 +57,11 @@ While one is open, the others wait. The voices are those of the engine in use: e
 medium quality (each speaker of a voice of a few), the OpenAI voices, the voices of your ElevenLabs account. `▶` beside
 one reads the same sentence with it, to compare; a Piper voice marked `↓` is downloaded the first time it is heard or
 applied, its progress on the band's top line. An engine the machine cannot use is dimmed. The language chosen is the
-one Claude answers in, whatever Claude Code's own language setting says.
+one Claude answers in, whatever Claude Code's own language setting says. **All · Female · Male** on the voice list's
+title line keeps the voices of one gender, where it is known: ElevenLabs tells it, OpenAI's voices and the usual Piper
+ones are labelled by the mod. Beside the engine, in color, what the Claude Code session has cost so far: the
+ElevenLabs credits it used and those left on the account, or for OpenAI an estimate in dollars from the minutes of
+voice made.
 
 ![The speeds open above the settings line, 1.25x selected until Apply](docs/media/speed-settings.png)
 
