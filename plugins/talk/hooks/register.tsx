@@ -14,27 +14,28 @@ import {
   effectiveSpeedOf,
   engineShownOf,
   isCloudEngine,
+  isVoiceNamedByIdFor,
   isRespellingEnglishFor,
   modelOptionFieldOf,
   probeCapabilities,
   settingsOf,
   synthesize,
+  unavailabilityOf,
   voiceOptionFieldOf,
   voicesOf,
-  whyUnavailable,
   withVoice,
 } from './engines'
 import type { Capabilities, TalkSettings } from './engines'
 import { languageNameOf } from './languages'
-import { downloadPiperVoice, piperHomeOf } from './providers/piper'
+import { downloadPiperVoice, piperHomeOf, piperVoiceKeyOfDownload } from './providers/piper'
 import { InstallError, installPiper } from './providers/piper-install'
 import { SynthesisError } from './providers/synthesis'
 import type { Synthesis } from './providers/synthesis'
 import { voiceToolkitOf } from './providers/toolkit'
 import { speakableWordOf } from './pronunciation'
-import { chunksOf, sentenceStartOf, spokenTextOf, tokensOf, wordsOf } from './spoken-text'
+import { chunksOf, sentenceStartOf, spokenTextOf, textOfTokens, tokensOf, wordsOf } from './spoken-text'
 import { wordAtElapsedMs } from './timing'
-import { SAMPLE_SENTENCES } from './voices'
+import { SAMPLE_SENTENCES, TEST_SENTENCES } from './voices'
 import { renderBand, renderStartLine } from './view/band'
 import { paletteOf } from './view/theme'
 
@@ -66,14 +67,6 @@ const animationFrameAtom = atom({ plugin: 'talk', key: 'animationFrame' } as con
 
 const SUBCOMMANDS = ['on', 'off', 'stop', 'replay', 'status', 'test', 'setup'] as const
 type Subcommand = (typeof SUBCOMMANDS)[number]
-
-const TEST_SENTENCES: Readonly<Record<TalkLanguage, string>> = {
-  fr: "Bonjour ! On teste la voix du mode conversation. Le repository est sur GitHub, et la méthode findByUserId lit la table user_subscriptions.",
-  en: "Hello! This is a test of the talk mode voice. The repository is on GitHub, and the findByUserId method reads the user_subscriptions table.",
-  es: "¡Hola! Esto es una prueba de la voz del modo conversación. El repositorio está en GitHub.",
-  de: "Hallo! Das ist ein Test der Stimme des Gesprächsmodus. Das Repository liegt auf GitHub.",
-  it: "Ciao! Questa è una prova della voce della modalità conversazione. Il repository è su GitHub.",
-}
 
 const voiceConversationInstructions = (language: TalkLanguage): string => `# Talk mode
 
@@ -142,6 +135,8 @@ const silence = () => {
 
 async function play($: EngineInterface, synthesis: Synthesis, firstWordIndex: number, generation: number) {
   const startedAt = await $.clock.now()
+  // A stop or another reading may have come during the waits above: the sound it silenced is not started.
+  if (generation !== readingGeneration) return
   let shownWordIndex = -1
   const ticker = $.clock.every(KARAOKE_TICK_MS, () => {
     void (async () => {
@@ -152,13 +147,15 @@ async function play($: EngineInterface, synthesis: Synthesis, firstWordIndex: nu
     })()
   })
   const player = $.process.spawn({ argv: synthesis.playback })
-  stopPlayback = () => void player.return(undefined as never)
+  const stopThisPlayer = () => void player.return(undefined as never)
+  stopPlayback = stopThisPlayer
   try {
     for await (const _chunk of player) {
       // The player writes nothing worth reading; the loop lasts as long as the sound.
     }
   } finally {
     ticker.cancel()
+    if (stopPlayback === stopThisPlayer) stopPlayback = null
   }
 }
 
@@ -166,43 +163,43 @@ async function speak($: EngineInterface, answer: string) {
   await readTokens($, tokensOf(spokenTextOf(answer)), 0)
 }
 
-// Reads the words from fromWordIndex on, the ones before it shown as already spoken.
 // A voice other than the one in force, as a sample of it is read with.
 type ForcedVoice = { settings: TalkSettings; capabilities: Capabilities; engine: TalkEngineName }
 
+// Reads the words from fromWordIndex on, the ones before it shown as already spoken.
 async function readTokens($: EngineInterface, tokens: SpokenToken[], fromWordIndex: number, forced: ForcedVoice | null = null) {
   silence()
   const generation = readingGeneration
   const words = wordsOf(tokens)
   if (words.length <= fromWordIndex) return
   await setReading($, () => ({ tokens, currentWordIndex: fromWordIndex - 1, phase: 'synthesizing', engine: null, error: null }))
-  if (piperInstallation !== null) await piperInstallation
-  if (generation !== readingGeneration) return
-  const settings = forced?.settings ?? (await settingsOf($, pluginOptions))
-  const found = forced?.capabilities ?? (await capabilitiesOf($, settings))
-  const engine = forced?.engine ?? engineOf(settings, found)
-  if (generation !== readingGeneration) return
-  if (engine === null) {
-    const wanted = settings.engine === 'auto' ? AUTO_ENGINE_ORDER : [settings.engine]
-    const error = `No voice available: ${wanted.map(name => `${engineLabelOf(name)}: ${whyUnavailable(name, settings, found)}`).join('; ')}`
-    await setReading($, reading => ({ ...reading, phase: 'failed', error }))
-    return
-  }
-  await setReading($, reading => ({ ...reading, engine }))
-  const directory = await audioDirectoryOf($)
-  const isRespellingEnglish = isRespellingEnglishFor(engine)
-  const { maxCharacters, isFirstSentenceAlone } = chunkingOf(engine)
-  const chunks = chunksOf(words.slice(fromWordIndex), maxCharacters, isFirstSentenceAlone)
-  const firstWordIndexes = chunks.map((_, index) => fromWordIndex + chunks.slice(0, index).reduce((count, chunk) => count + chunk.length, 0))
-  const synthesisOf = (index: number): Promise<Synthesis> =>
-    synthesize($, engine, {
-      speakableWords: (chunks[index] ?? []).map(word => speakableWordOf(word, settings.language, isRespellingEnglish)),
-      settings,
-      capabilities: found,
-      outputPathWithoutExtension: `${directory}/answer-${generation}-${index}`,
-    })
-
   try {
+    if (piperInstallation !== null) await piperInstallation
+    if (generation !== readingGeneration) return
+    const settings = forced?.settings ?? (await settingsOf($, pluginOptions))
+    const found = forced?.capabilities ?? (await capabilitiesOf($, settings))
+    const engine = forced?.engine ?? engineOf(settings, found)
+    if (generation !== readingGeneration) return
+    if (engine === null) {
+      const wanted = settings.engine === 'auto' ? AUTO_ENGINE_ORDER : [settings.engine]
+      const error = `No voice available: ${wanted.map(name => `${engineLabelOf(name)}: ${unavailabilityOf(name, settings, found) ?? ''}`).join('; ')}`
+      await setReading($, reading => ({ ...reading, phase: 'failed', error }))
+      return
+    }
+    await setReading($, reading => ({ ...reading, engine }))
+    const directory = await audioDirectoryOf($)
+    const isRespellingEnglish = isRespellingEnglishFor(engine)
+    const { maxCharacters, isFirstSentenceAlone } = chunkingOf(engine)
+    const chunks = chunksOf(words.slice(fromWordIndex), maxCharacters, isFirstSentenceAlone)
+    const firstWordIndexes = chunks.map((_, index) => fromWordIndex + chunks.slice(0, index).reduce((count, chunk) => count + chunk.length, 0))
+    const synthesisOf = (index: number): Promise<Synthesis> =>
+      synthesize($, engine, {
+        speakableWords: (chunks[index] ?? []).map(word => speakableWordOf(word, settings.language, isRespellingEnglish)),
+        settings,
+        capabilities: found,
+        outputPathWithoutExtension: `${directory}/answer-${generation}-${index}`,
+      })
+
     let pending = synthesisOf(0)
     for (const [index, firstWordIndex] of firstWordIndexes.entries()) {
       const synthesis = await pending
@@ -253,20 +250,23 @@ async function replay($: EngineInterface) {
 
 async function refreshEngineAvailability($: EngineInterface): Promise<void> {
   const settings = await settingsOf($, pluginOptions)
-  capabilities = null
-  const found = await capabilitiesOf($, settings)
-  const reasonOf = (engine: TalkEngineName): string | null => (engineOf({ ...settings, engine }, found) === null ? whyUnavailable(engine, settings, found) : null)
-  const availability = Object.fromEntries(AUTO_ENGINE_ORDER.map(engine => [engine, reasonOf(engine)])) as EngineAvailability
+  // Probed again, the previous findings kept until then: a drawing meanwhile still names the engine.
+  const found = await probeCapabilities($, settings)
+  capabilities = found
+  const availability = Object.fromEntries(AUTO_ENGINE_ORDER.map(engine => [engine, unavailabilityOf(engine, settings, found)])) as EngineAvailability
   await update($, engineAvailabilityAtom, () => availability)
-  // A cloud voice is named by an id: its list is read now, so that the settings line can show its name.
+  // A voice named by an id is shown by its name once its list is read: a list read for another engine, before the
+  // engine changed, or one that failed, is read again.
   const engine = engineOf(settings, found)
-  if (engine !== null && isCloudEngine(engine) && (await read($, voiceCatalogAtom)) === null) void loadVoiceCatalog($)
+  const catalog = await read($, voiceCatalogAtom)
+  const isCatalogUsable = catalog !== null && catalog.engine === engine && catalog.status !== 'failed'
+  if (engine !== null && isVoiceNamedByIdFor(engine) && !isCatalogUsable) void loadVoiceCatalog($)
 }
 
 // The band changes the mode's options as /config does: the setting is saved and the mod reloads with it.
 async function setOption($: EngineInterface, field: string, value: string | number): Promise<void> {
   const rows = await $.config.list()
-  const row = rows.find(candidate => candidate.key === `talk.${field}` || (candidate.key.startsWith('talk') && candidate.key.endsWith(`.${field}`)))
+  const row = rows.find(candidate => candidate.key === `talk.${field}` || (candidate.key.startsWith('talk@') && candidate.key.endsWith(`.${field}`)))
   if (row === undefined) {
     $.ui.toast(`talk: the ${field} option is not in /config`)
     return
@@ -311,26 +311,28 @@ function setInstallation($: EngineInterface, installation: Installation | null) 
   return update($, installationAtom, () => installation)
 }
 
-async function setUpLocalVoice($: EngineInterface, isAsked: boolean): Promise<void> {
-  if (piperInstallation !== null) return piperInstallation
+// The installation is claimed before anything is awaited, so that two calls never install side by side.
+function setUpLocalVoice($: EngineInterface, isAsked: boolean): Promise<void> {
+  piperInstallation ??= installLocalVoice($, isAsked).finally(() => {
+    piperInstallation = null
+  })
+  return piperInstallation
+}
+
+async function installLocalVoice($: EngineInterface, isAsked: boolean): Promise<void> {
   const settings = await settingsOf($, pluginOptions)
   if (!isAsked && !(await shouldInstallPiper($, settings))) return
   const home = (await $.env.get('HOME')) ?? ''
-  piperInstallation = (async () => {
-    try {
-      await installPiper($, home, settings.language, async message => {
-        await setInstallation($, { status: 'running', message })
-      })
-      await setInstallation($, null)
-    } catch (error) {
-      await setInstallation($, { status: 'failed', message: error instanceof InstallError ? error.message : String(error) })
-    } finally {
-      capabilities = null
-      await refreshEngineAvailability($)
-      piperInstallation = null
-    }
-  })()
-  return piperInstallation
+  try {
+    await installPiper($, home, settings.language, async message => {
+      await setInstallation($, { status: 'running', message })
+    })
+    await setInstallation($, null)
+  } catch (error) {
+    await setInstallation($, { status: 'failed', message: error instanceof InstallError ? error.message : String(error) })
+  } finally {
+    await refreshEngineAvailability($)
+  }
 }
 
 async function engineInUseOf($: EngineInterface, settings: TalkSettings): Promise<TalkEngineName | null> {
@@ -363,7 +365,7 @@ async function loadVoiceCatalog($: EngineInterface): Promise<void> {
 async function ensurePiperVoice($: EngineInterface, choice: VoiceChoice): Promise<void> {
   if (choice.download === null) return
   const directory = await piperVoicesDirectoryOf($)
-  const key = choice.download.slice(choice.download.lastIndexOf('/') + 1)
+  const key = piperVoiceKeyOfDownload(choice.download)
   if (await $.fs.exists(`${directory}/${key}.onnx`)) return
   const download = choice.download
   await update($, voiceDownloadAtom, () => ({ download, label: choice.label, receivedBytes: 0, totalBytes: choice.sizeBytes }))
@@ -374,7 +376,9 @@ async function ensurePiperVoice($: EngineInterface, choice: VoiceChoice): Promis
       if (!(await $.fs.exists(partialModel))) return
       const { size } = await $.fs.stat(partialModel)
       await update($, voiceDownloadAtom, current => (current === null ? null : { ...current, receivedBytes: size }))
-    })()
+    })().catch(() => {
+      // Renamed to its final name between the two calls: the download has just ended.
+    })
   })
   try {
     await downloadPiperVoice(voiceToolkitOf($), directory, download)
@@ -385,33 +389,40 @@ async function ensurePiperVoice($: EngineInterface, choice: VoiceChoice): Promis
   await update($, voiceCatalogAtom, catalog => (catalog?.status === 'ready' ? { ...catalog, downloaded: [...catalog.downloaded, key] } : catalog))
 }
 
-// Reads the same sample sentence with one voice of the list, so that voices can be compared.
-const textOfTokens = (tokens: readonly SpokenToken[]): string => tokens.map(token => token.text).join('')
+// The answer the samples stand in for while they are heard, kept from the first of a row of samples; and which sample
+// is the latest, the one that puts the answer back.
+let answerBeforeSamples: Reading | null = null
+let latestSample = 0
 
+// Reads the same sample sentence with one voice of the list, so that voices can be compared. The sample takes the band
+// while it is heard; the answer comes back after, for replay and as the previous answer, and a sample that failed says
+// why in a toast.
 async function previewVoice($: EngineInterface, choice: VoiceChoice): Promise<void> {
   const catalog = await read($, voiceCatalogAtom)
   if (catalog === null) return
   silence()
-  // The sample takes the band while it is heard; the answer it stood in for comes back after, for replay and as the
-  // previous answer.
-  const answerBefore = await read($, readingAtom)
+  const sample = ++latestSample
+  answerBeforeSamples ??= await read($, readingAtom)
   await update($, previewingVoiceAtom, () => choice.value)
+  const sampleTokens = tokensOf(SAMPLE_SENTENCES[(await settingsOf($, pluginOptions)).language])
   try {
     await ensurePiperVoice($, choice)
     const settings = withVoice(await settingsOf($, pluginOptions), catalog.engine, choice.value)
     const capabilitiesWithVoice = await probeCapabilities($, settings)
-    const sampleTokens = tokensOf(SAMPLE_SENTENCES[settings.language])
     await readTokens($, sampleTokens, 0, { settings, capabilities: capabilitiesWithVoice, engine: catalog.engine })
-    const reading = await read($, readingAtom)
-    if (reading.tokens === sampleTokens || textOfTokens(reading.tokens) === textOfTokens(sampleTokens)) {
-      const isAnswer = answerBefore.tokens.length > 0
-      await setReading($, () => ({ ...answerBefore, phase: isAnswer ? 'done' : 'idle', currentWordIndex: isAnswer ? wordsOf(answerBefore.tokens).length : -1, error: null }))
-    }
   } catch (error) {
     await setReading($, reading => ({ ...reading, phase: 'failed', error: error instanceof Error ? error.message : String(error) }))
-  } finally {
-    await update($, previewingVoiceAtom, () => null)
   }
+  if (sample !== latestSample) return
+  await update($, previewingVoiceAtom, () => null)
+  const reading = await read($, readingAtom)
+  const answerBefore = answerBeforeSamples
+  answerBeforeSamples = null
+  // A new answer may have taken the band meanwhile: it stays.
+  if (answerBefore === null || textOfTokens(reading.tokens) !== textOfTokens(sampleTokens)) return
+  if (reading.phase === 'failed' && reading.error !== null) $.ui.toast(`talk: ${reading.error}`)
+  const isAnswer = answerBefore.tokens.length > 0
+  await setReading($, () => ({ ...answerBefore, phase: isAnswer ? 'done' : 'idle', currentWordIndex: isAnswer ? wordsOf(answerBefore.tokens).length : -1, error: null }))
 }
 
 async function selectVoice($: EngineInterface, choice: VoiceChoice, beforeSaving: () => Promise<void>): Promise<void> {
@@ -421,6 +432,9 @@ async function selectVoice($: EngineInterface, choice: VoiceChoice, beforeSaving
     await update($, previewingVoiceAtom, () => choice.value)
     try {
       await ensurePiperVoice($, choice)
+    } catch (error) {
+      $.ui.toast(`talk: ${error instanceof Error ? error.message : String(error)}`)
+      return
     } finally {
       await update($, previewingVoiceAtom, () => null)
     }
@@ -528,15 +542,12 @@ async function turnOff($: EngineInterface): Promise<string> {
 
 async function statusOf($: EngineInterface): Promise<string> {
   const settings = await settingsOf($, pluginOptions)
-  capabilities = null
-  const found = await capabilitiesOf($, settings)
+  const found = await probeCapabilities($, settings)
+  capabilities = found
   const engine = engineOf(settings, found)
   const lines = [
     `Platform: ${found.platform}; audio player: ${found.wavPlayer?.[0] ?? 'none'}`,
-    ...AUTO_ENGINE_ORDER.map(name => {
-      const isAvailable = engineOf({ ...settings, engine: name }, found) !== null
-      return `${engineLabelOf(name)}: ${isAvailable ? 'available' : whyUnavailable(name, settings, found)}`
-    }),
+    ...AUTO_ENGINE_ORDER.map(name => `${engineLabelOf(name)}: ${unavailabilityOf(name, settings, found) ?? 'available'}`),
     `Engine setting: ${settings.engine}; speaking now: ${engine === null ? 'none' : engineLabelOf(engine)}; language: ${settings.language}`,
   ]
   return lines.join('\n')
@@ -652,7 +663,9 @@ export const register: Register = (on, options) => {
 
   // The person starting to type or dictate takes the floor, as in a conversation.
   on('prompt.change', async ($, e, next) => {
-    if (e.origin.kind !== 'plugin' && e.text.trim() !== '' && stopPlayback !== null) await stop($)
+    const { phase } = await read($, readingAtom)
+    const isSounding = phase === 'synthesizing' || phase === 'speaking'
+    if (e.origin.kind !== 'plugin' && e.text.trim() !== '' && isSounding) await stop($)
     return next(e)
   })
 

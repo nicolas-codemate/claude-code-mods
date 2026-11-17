@@ -456,3 +456,55 @@ test('an engine of several models offers them in the settings line, the one chos
   expect(written).toEqual([{ key: 'talk.elevenlabsModel', value: 'eleven_flash_v2_5' }])
   await band.unmount()
 })
+
+// A machine with Piper and two French voices its catalog lists, where every synthesis fails.
+const machineWhosePiperFails = (on: On, clock: { sleep: (ms: number) => Promise<void> }) => {
+  on('fs.exists', () => ({ value: true }))
+  on('fs.list', () => ({ value: [{ name: 'fr_FR-siwis-medium.onnx', kind: 'file', size: 1, mtimeMs: 0, isLink: false }] }))
+  on('fs.read', () => ({ value: { base64: oneSecondWavBase64() } }))
+  on('process.spawn', async function* () {
+    await clock.sleep(10_000)
+    return { value: { code: 0, signal: null } }
+  })
+  on('process.run', (_, e) => {
+    if (e.argv[0] === 'piper') return { value: { ...NO_OUTPUT, exitCode: 1, stderr: 'the model is broken' } }
+    const stdout = e.argv[0] === 'uname' ? 'Linux\n' : e.argv[0] === 'sh' ? 'pw-play\npiper\n' : e.argv[0] === 'mktemp' ? '/tmp/talk-test\n' : ''
+    return { value: { ...NO_OUTPUT, stdout } }
+  })
+  on('http.fetch', () => ({
+    value: {
+      status: 200,
+      ok: true,
+      headers: {},
+      text: JSON.stringify({
+        'fr_FR-siwis-medium': { name: 'siwis', quality: 'medium', num_speakers: 1, language: { code: 'fr_FR', family: 'fr' } },
+        'fr_FR-tom-medium': { name: 'tom', quality: 'medium', num_speakers: 1, language: { code: 'fr_FR', family: 'fr' } },
+      }),
+    },
+  }))
+}
+
+test('a sample that fails says why, and gives the answer back', async ($, on) => {
+  const clock = mock.clock(on)
+  const toasts: string[] = []
+  standInForTheEngine(on, { HOME: '/home/someone' })
+  machineWhosePiperFails(on, clock)
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'talk', args: '', ...TYPED_AT_PROMPT })
+  await $.turn.complete({ answer: 'On garde le cache.', durationMs: 10, isAborted: false, turnId: 'turn-1', reason: 'answer' })
+  await clock.advance(11_000)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'setting-voice' })
+  await band.press({ key: 'hear-fr_FR-tom-medium' })
+  await clock.advance(1_000)
+  await band.press({ key: 'cancel-setting' })
+
+  expect(toasts).toEqual(['talk: Piper failed: the model is broken'])
+  expect((await band.find({ type: 'Text', text: /cache/ }))?.text).toBe('On garde le cache.')
+  await band.unmount()
+})

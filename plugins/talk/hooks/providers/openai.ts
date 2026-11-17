@@ -1,4 +1,5 @@
 import type { Spending, VoiceChoice, VoiceGender } from '../../types'
+import { capitalized } from '../capitalized'
 import { languageNameOf } from '../languages'
 import { estimatedWordStartsMs, speakableTextOf } from '../timing'
 import type { VoiceProvider } from './provider'
@@ -19,8 +20,6 @@ const VOICE_GENDERS: Readonly<Record<string, VoiceGender>> = {
   ash: 'male', ballad: 'male', coral: 'female', echo: 'male', onyx: 'male', nova: 'female', sage: 'female',
   shimmer: 'female', verse: 'male', marin: 'female', cedar: 'male',
 }
-
-const capitalized = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1)
 
 const CHOICES: readonly VoiceChoice[] = VOICES.map(voice => ({ value: voice, label: capitalized(voice), download: null, sizeBytes: null, gender: VOICE_GENDERS[voice] ?? null }))
 

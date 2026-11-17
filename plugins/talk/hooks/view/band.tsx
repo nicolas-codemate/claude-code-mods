@@ -2,8 +2,10 @@ import type { EngineInterface, RenderChildren, RenderInput } from 'claude-code'
 
 import type { EngineAvailability, Installation, Reading, ReadingPhase, SettingName, SpokenToken, TalkEngineName, TalkLanguage, VoiceCatalog, VoiceChoice, VoiceDownload, VoiceFilter, Spending, Credits } from '../../types'
 import { AUTO_ENGINE_ORDER, costLabelOf, effectiveSpeedOf, engineLabelOf, isVoiceNamedByIdFor, modelChoicesOf, speedRangeOf } from '../engines'
-import { languageNameOf } from '../languages'
-import { sentenceStartOf, wordsOf } from '../spoken-text'
+import { capitalized } from '../capitalized'
+import { isLanguage, languageNameOf, LANGUAGES } from '../languages'
+import { piperVoiceKeyOfDownload } from '../providers/piper'
+import { sentenceStartOf, textOfTokens, wordsOf } from '../spoken-text'
 import type { Palette } from './theme'
 
 export type BandActions = {
@@ -58,7 +60,6 @@ const PHASE_LABELS: Readonly<Record<ReadingPhase, string>> = {
   failed: 'The voice failed',
 }
 
-export const LANGUAGES: readonly TalkLanguage[] = ['fr', 'en', 'es', 'de', 'it']
 
 const SPEED_PRESETS: readonly number[] = [0.75, 1, 1.25, 1.5, 2]
 
@@ -108,7 +109,6 @@ const textRowsOf = (text: string, columns: number): number => {
   }, 0)
 }
 
-const textOfTokens = (tokens: readonly SpokenToken[]): string => tokens.map(token => token.text).join('')
 
 // The whole answer when it fits the rows the band is given; otherwise from the sentence being read on, as much of it as
 // the rows hold, so that the band never grows past what Claude Code gives it.
@@ -201,7 +201,6 @@ const isEngineUnavailable = (engine: TalkEngineName, availability: EngineAvailab
 
 const isEngineChoice = (value: string): value is TalkEngineName | 'auto' => value === 'auto' || AUTO_ENGINE_ORDER.some(engine => engine === value)
 
-const isLanguage = (value: string): value is TalkLanguage => LANGUAGES.some(language => language === value)
 
 type Choice = { value: string; label: string; isUnavailable?: boolean; detail?: string }
 
@@ -218,7 +217,6 @@ const voiceLabelOf = (input: BandInput): string => {
   if (input.engineInUse !== null && isVoiceNamedByIdFor(input.engineInUse)) return 'Voice'
   const [key = current, speaker] = current.split('#')
   const name = key.split('-')[1] ?? key
-  const capitalized = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
   return speaker === undefined ? capitalized(name.replace(/_/g, ' ')) : `${capitalized(name)} ${capitalized(speaker)}`
 }
 
@@ -330,7 +328,7 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
           const isChosen = choice.value === input.currentVoice
           const isSelected = !isChosen && choice.value === input.pendingChoice
           const isPreviewing = choice.value === input.previewingVoice
-          const key = choice.download?.slice(choice.download.lastIndexOf('/') + 1) ?? null
+          const key = choice.download === null ? null : piperVoiceKeyOfDownload(choice.download)
           const isOnMachine = key === null || catalog.downloaded.includes(key)
           const download = input.voiceDownload !== null && input.voiceDownload.download === choice.download ? input.voiceDownload : null
           const percent = download === null ? null : percentOf(download)

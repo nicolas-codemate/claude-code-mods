@@ -1,10 +1,12 @@
 import type { EngineInterface } from 'claude-code'
 
 import type { Credits, Spending, TalkEngineName, TalkLanguage, VoiceChoice } from '../types'
+import { isLanguage } from './languages'
 import { ENGINE_NAMES, PROVIDERS } from './providers'
 import type { ProviderFindings, ProviderOptions } from './providers'
 import type { ModelChoice } from './providers/provider'
 import type { Chunking, Machine, SpeedRange, Synthesis } from './providers/synthesis'
+import { textOptionOf } from './providers/synthesis'
 import { voiceToolkitOf } from './providers/toolkit'
 
 export type TalkSettings = {
@@ -24,6 +26,8 @@ export type Capabilities = {
 
 export const AUTO_ENGINE_ORDER: readonly TalkEngineName[] = ENGINE_NAMES
 
+const isEngineName = (value: string): value is TalkEngineName => ENGINE_NAMES.some(engine => engine === value)
+
 const WAV_PLAYERS: readonly (readonly string[])[] = [
   ['afplay'],
   ['pw-play'],
@@ -38,13 +42,15 @@ async function installedCommandsOf($: EngineInterface, commands: readonly string
 }
 
 export async function settingsOf($: EngineInterface, values: Readonly<Record<string, unknown>>): Promise<TalkSettings> {
-  const text = (name: string): string => (typeof values[name] === 'string' ? (values[name] as string) : '')
+  const engine = textOptionOf(values, 'engine')
+  const language = textOptionOf(values, 'language')
   const toolkit = voiceToolkitOf($)
   const optionsOf = async <Name extends TalkEngineName>(engine: Name): Promise<ProviderOptions[Name]> => PROVIDERS[engine].optionsOf(toolkit, values)
   const providers = Object.fromEntries(await Promise.all(ENGINE_NAMES.map(async engine => [engine, await optionsOf(engine)]))) as ProviderOptions
   return {
-    engine: (text('engine') || 'auto') as TalkEngineName | 'auto',
-    language: (text('language') || 'fr') as TalkLanguage,
+    // A value outside the lists, from a hand-edited settings file, falls back on the defaults.
+    engine: isEngineName(engine) ? engine : 'auto',
+    language: isLanguage(language) ? language : 'fr',
     speed: typeof values.speed === 'number' && values.speed > 0 ? values.speed : 1,
     providers,
   }
@@ -70,9 +76,6 @@ const machineOf = <Name extends TalkEngineName>(engine: Name, capabilities: Capa
 // Why this machine cannot use the engine; null when it can.
 export const unavailabilityOf = <Name extends TalkEngineName>(engine: Name, settings: TalkSettings, capabilities: Capabilities): string | null =>
   PROVIDERS[engine].unavailabilityOf(settings.providers[engine], machineOf(engine, capabilities))
-
-export const whyUnavailable = (engine: TalkEngineName, settings: TalkSettings, capabilities: Capabilities): string =>
-  unavailabilityOf(engine, settings, capabilities) ?? ''
 
 export const engineOf = (settings: TalkSettings, capabilities: Capabilities): TalkEngineName | null => {
   if (settings.engine !== 'auto') return unavailabilityOf(settings.engine, settings, capabilities) === null ? settings.engine : null

@@ -1,4 +1,5 @@
 import type { TalkLanguage, VoiceChoice, VoiceGender } from '../../types'
+import { capitalized } from '../capitalized'
 import { estimatedWordStartsMs, speakableTextOf, wordStartsFromVoiceWords } from '../timing'
 import type { VoiceProvider } from './provider'
 import type { Machine, Synthesis, SynthesisRequest } from './synthesis'
@@ -29,8 +30,6 @@ type PiperCatalogEntry = {
   files?: Record<string, { size_bytes: number }>
 }
 
-const capitalized = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1)
-
 // The Piper catalog says nothing of its voices' gender either: the medium ones of the mod's languages, by name or by
 // speaker. A voice not named here shows under All alone.
 const PIPER_VOICE_GENDERS: Readonly<Record<string, VoiceGender>> = {
@@ -46,6 +45,9 @@ const PIPER_VOICE_GENDERS: Readonly<Record<string, VoiceGender>> = {
 export const piperVoiceKeyOf = (value: string): string => value.split('#')[0] ?? value
 
 export const piperSpeakerOf = (value: string): string | null => value.split('#')[1] ?? null
+
+// The key of a voice from its path in the catalog (fr/fr_FR/siwis/medium/fr_FR-siwis-medium): its files' name.
+export const piperVoiceKeyOfDownload = (download: string): string => download.slice(download.lastIndexOf('/') + 1)
 
 // The voices the Piper project publishes for the language, as the band offers them: one per voice, one per speaker of
 // a voice of a few speakers, medium quality alone. A low quality voice sounds worse; a high quality one takes, on a
@@ -86,7 +88,7 @@ async function catalogOf(toolkit: VoiceToolkit): Promise<Readonly<Record<string,
 // Downloads one Piper voice, its model and its description, under a temporary name first: a voice cut short is never
 // taken for a whole one.
 export async function downloadPiperVoice(toolkit: VoiceToolkit, voicesDirectory: string, download: string): Promise<void> {
-  const voiceName = download.slice(download.lastIndexOf('/') + 1)
+  const voiceName = piperVoiceKeyOfDownload(download)
   const script = 'set -e; mkdir -p "$1"; for suffix in .onnx.json .onnx; do curl -fsSL -o "$1/$2$suffix.part" "$3$suffix"; mv "$1/$2$suffix.part" "$1/$2$suffix"; done'
   const { exitCode, stderr } = await toolkit.run(['sh', '-c', script, 'sh', voicesDirectory, voiceName, `${VOICES_ADDRESS}/${download}`], {
     timeoutMs: DOWNLOAD_TIMEOUT_MS,

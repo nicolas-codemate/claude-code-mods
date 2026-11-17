@@ -52,6 +52,8 @@ export const tokensOf = (text: string): SpokenToken[] => {
   return tokens
 }
 
+export const textOfTokens = (tokens: readonly SpokenToken[]): string => tokens.map(token => token.text).join('')
+
 export const wordsOf = (tokens: readonly SpokenToken[]): string[] =>
   tokens.filter(token => token.wordIndex !== null).map(token => token.text)
 
