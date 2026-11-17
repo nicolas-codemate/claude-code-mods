@@ -17,7 +17,7 @@ export type Reading = {
 }
 
 // The settings the band opens one at a time, from its settings line.
-export type SettingName = 'engine' | 'voice' | 'speed' | 'language'
+export type SettingName = 'engine' | 'model' | 'voice' | 'speed' | 'language'
 
 export type VoiceGender = 'female' | 'male'
 

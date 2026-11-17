@@ -6,13 +6,16 @@ import {
   AUTO_ENGINE_ORDER,
   chunkingOf,
   creditsOf,
+  currentModelOf,
   currentVoiceOf,
+  usedAtStartOf,
   engineLabelOf,
   engineOf,
   effectiveSpeedOf,
   engineShownOf,
   isCloudEngine,
   isRespellingEnglishFor,
+  modelOptionFieldOf,
   probeCapabilities,
   settingsOf,
   synthesize,
@@ -239,7 +242,7 @@ async function refreshCredits($: EngineInterface, engine: TalkEngineName | null)
   if (credits === null) return
   await update($, creditsAtom, (known): Partial<Record<TalkEngineName, Credits>> => ({
     ...known,
-    [engine]: { ...credits, usedAtStart: known?.[engine]?.usedAtStart ?? credits.used },
+    [engine]: { ...credits, usedAtStart: usedAtStartOf(known?.[engine], credits.used) },
   }))
 }
 
@@ -461,6 +464,13 @@ async function applySetting($: EngineInterface): Promise<void> {
       await closeSetting($)
       await setOption($, 'language', pending)
       return
+    case 'model': {
+      await closeSetting($)
+      const engine = engineShownOf(await settingsOf($, pluginOptions), capabilities)
+      const field = engine === null ? null : modelOptionFieldOf(engine)
+      if (field !== null) await setOption($, field, pending)
+      return
+    }
     case 'speed':
       await closeSetting($)
       await setOption($, 'speed', Number(pending))
@@ -679,6 +689,7 @@ export const register: Register = (on, options) => {
       thinkingWord: spinnerWord,
       engineInUse,
       currentVoice: currentVoiceOf(settings, capabilities, engineInUse),
+      currentModel: currentModelOf(settings, engineInUse),
       engineAvailability: await read($, engineAvailabilityAtom),
       engineSetting: settings.engine,
       language: settings.language,
@@ -690,6 +701,7 @@ export const register: Register = (on, options) => {
       turnOff: () => void turnOff($),
       selectEngine: engine => void choose($, engine),
       selectLanguage: language => void choose($, language),
+      selectModel: model => void choose($, model),
       selectSpeed: speed => void choose($, speed.toFixed(2)),
       slower: () => void changeSpeed($, -1),
       faster: () => void changeSpeed($, 1),

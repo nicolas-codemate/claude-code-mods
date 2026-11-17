@@ -3,6 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import type { Credits, Spending, TalkEngineName, TalkLanguage, VoiceChoice } from '../types'
 import { ENGINE_NAMES, PROVIDERS } from './providers'
 import type { ProviderFindings, ProviderOptions } from './providers'
+import type { ModelChoice } from './providers/provider'
 import type { Chunking, Machine, SpeedRange, Synthesis } from './providers/synthesis'
 import { voiceToolkitOf } from './providers/toolkit'
 
@@ -111,6 +112,15 @@ export async function creditsOf($: EngineInterface, engine: TalkEngineName, sett
 export const costLabelOf = (engine: TalkEngineName | null, spending: Record<TalkEngineName, Spending>, credits: Partial<Record<TalkEngineName, Credits>>): string | null =>
   engine === null ? null : PROVIDERS[engine].costLabelOf(spending[engine], credits[engine] ?? null)
 
+// The credits the account had used when the session first read them. The account's count starts again at a new month or
+// a new plan: what the session had spent before is then kept, counted from the new count.
+// Counted from 0, the new count's start, less what the session had spent before: it may be below 0.
+export const usedAtStartOf = (known: Credits | undefined, used: number): number => {
+  if (known === undefined) return used
+  if (used >= known.usedAtStart) return known.usedAtStart
+  return 0 - Math.max(0, known.used - known.usedAtStart)
+}
+
 export const chunkingOf = (engine: TalkEngineName): Chunking => PROVIDERS[engine].chunking
 
 export const speedRangeOf = (engine: TalkEngineName | null): SpeedRange => (engine === null ? PROVIDERS.piper.speedRange : PROVIDERS[engine].speedRange)
@@ -146,3 +156,10 @@ export const isCloudEngine = (engine: TalkEngineName): boolean => PROVIDERS[engi
 export const voiceOptionFieldOf = (engine: TalkEngineName): string | null => PROVIDERS[engine].voiceOptionField
 
 export const engineLabelOf = (engine: TalkEngineName): string => PROVIDERS[engine].label
+
+export const modelChoicesOf = (engine: TalkEngineName | null): readonly ModelChoice[] => (engine === null ? [] : (PROVIDERS[engine].models?.choices ?? []))
+
+export const modelOptionFieldOf = (engine: TalkEngineName): string | null => PROVIDERS[engine].models?.optionField ?? null
+
+export const currentModelOf = <Name extends TalkEngineName>(settings: TalkSettings, engine: Name | null): string | null =>
+  engine === null ? null : PROVIDERS[engine].modelOf(settings.providers[engine])

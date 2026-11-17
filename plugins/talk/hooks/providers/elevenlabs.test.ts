@@ -6,7 +6,7 @@ import type { VoiceToolkit } from './toolkit'
 
 const machine: Machine<null> = { platform: 'Linux', wavPlayer: ['pw-play'], found: null }
 
-const options = { apiKey: 'secret-key', model: 'eleven_multilingual_v2', voiceId: 'EXAVITQu4vr4xnSDxMaL' }
+const options = { apiKey: 'secret-key', model: 'eleven_multilingual_v2', voiceId: 'EXAVITQu4vr4xnSDxMaL', pronunciationDictionaries: [] }
 
 // A second of sound at 1000 bytes a second, as ElevenLabs sends it.
 const oneSecondWavBase64 = (): string => {
@@ -74,4 +74,21 @@ test('ElevenLabs needs its key, and tells the session\'s cost in credits once th
   expect(elevenLabs.costLabelOf({ characters: 640, audioSeconds: 40 }, { used: 1_640, limit: 10_000, usedAtStart: 1_000 })).toBe('640 credits · 8,360 left')
   expect(elevenLabs.costLabelOf({ characters: 640, audioSeconds: 40 }, null)).toBe('640 characters')
   expect(elevenLabs.costLabelOf({ characters: 0, audioSeconds: 0 }, null)).toBe(null)
+})
+
+test('the pronunciation dictionaries of the options go with every request, three at most, in their latest version', async () => {
+  const toolkit = toolkitAnswering({ audio_base64: 'UklGRg==' }, [], new Map())
+  const read = await elevenLabs.optionsOf(toolkit, { elevenlabsPronunciationDictionaries: 'dict-a, dict-b dict-c,dict-d' })
+  expect(read.pronunciationDictionaries).toEqual(['dict-a', 'dict-b', 'dict-c'])
+
+  const written = new Map<string, string>()
+  await elevenLabs.synthesize(toolkitAnswering({ audio_base64: 'UklGRg==' }, [], written), {
+    speakableWords: ['La', 'CI.'],
+    options: { ...options, pronunciationDictionaries: ['dict-a'] },
+    language: 'fr',
+    speed: 1,
+    machine,
+    outputPathWithoutExtension: '/tmp/answer-2-0',
+  })
+  expect(JSON.parse(written.get('/tmp/answer-2-0.request.json') ?? '{}').pronunciation_dictionary_locators).toEqual([{ pronunciation_dictionary_id: 'dict-a' }])
 })

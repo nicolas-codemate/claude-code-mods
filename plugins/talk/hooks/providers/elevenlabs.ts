@@ -5,7 +5,11 @@ import type { Synthesis, SynthesisRequest } from './synthesis'
 import { curlPost, NO_AUDIO_PLAYER, runOrFail, SynthesisError, textOptionOf, wavDurationOfFile, wavPlaybackOf } from './synthesis'
 import type { VoiceToolkit } from './toolkit'
 
-export type ElevenLabsOptions = { apiKey: string; model: string; voiceId: string }
+// pronunciationDictionaries: the ids of dictionaries of the account, applied to every request in their latest version.
+export type ElevenLabsOptions = { apiKey: string; model: string; voiceId: string; pronunciationDictionaries: readonly string[] }
+
+// ElevenLabs takes no more dictionaries in one request.
+const MAX_PRONUNCIATION_DICTIONARIES = 3
 
 const API_ADDRESS = 'https://api.elevenlabs.io/v1'
 
@@ -14,6 +18,10 @@ async function optionsOf(toolkit: VoiceToolkit, values: Readonly<Record<string, 
     apiKey: textOptionOf(values, 'elevenlabsApiKey') || ((await toolkit.environmentVariable('ELEVENLABS_API_KEY')) ?? ''),
     model: textOptionOf(values, 'elevenlabsModel'),
     voiceId: textOptionOf(values, 'elevenlabsVoiceId'),
+    pronunciationDictionaries: textOptionOf(values, 'elevenlabsPronunciationDictionaries')
+      .split(/[\s,]+/)
+      .filter(id => id !== '')
+      .slice(0, MAX_PRONUNCIATION_DICTIONARIES),
   }
 }
 
@@ -50,6 +58,9 @@ async function synthesize(toolkit: VoiceToolkit, request: SynthesisRequest<Eleve
     model_id: options.model,
     language_code: request.language,
     voice_settings: { speed: request.speed },
+    ...(options.pronunciationDictionaries.length === 0
+      ? {}
+      : { pronunciation_dictionary_locators: options.pronunciationDictionaries.map(id => ({ pronunciation_dictionary_id: id })) }),
   }))
   const url = `${API_ADDRESS}/text-to-speech/${encodeURIComponent(options.voiceId)}/with-timestamps?output_format=wav_24000`
   const stdout = await runOrFail(toolkit, curlPost(url, bodyPath, null), `xi-api-key: ${options.apiKey}\n`, 'ElevenLabs')
@@ -75,6 +86,14 @@ export const elevenLabs: VoiceProvider<ElevenLabsOptions, null> = {
   label: 'ElevenLabs',
   kind: 'cloud',
   voiceOptionField: 'elevenlabsVoiceId',
+  // Every voice speaks with either model.
+  models: {
+    optionField: 'elevenlabsModel',
+    choices: [
+      { value: 'eleven_multilingual_v2', label: 'Multilingual v2', detail: 'the most natural, 1 credit a character' },
+      { value: 'eleven_flash_v2_5', label: 'Flash v2.5', detail: 'starts sooner, half a credit a character' },
+    ],
+  },
   // ElevenLabs refuses any other speed.
   speedRange: { min: 0.7, max: 1.2 },
   chunking: { maxCharacters: 2_400, isFirstSentenceAlone: false },
@@ -89,6 +108,7 @@ export const elevenLabs: VoiceProvider<ElevenLabsOptions, null> = {
   },
   voiceOf: options => options.voiceId,
   withVoice: (options, voice) => ({ ...options, voiceId: voice }),
+  modelOf: options => options.model,
   voicesOf,
   synthesize,
   costLabelOf,

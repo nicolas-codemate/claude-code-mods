@@ -1,7 +1,7 @@
 import type { EngineInterface, RenderChildren, RenderInput } from 'claude-code'
 
 import type { EngineAvailability, Installation, Reading, ReadingPhase, SettingName, SpokenToken, TalkEngineName, TalkLanguage, VoiceCatalog, VoiceChoice, VoiceDownload, VoiceFilter, Spending, Credits } from '../../types'
-import { AUTO_ENGINE_ORDER, costLabelOf, effectiveSpeedOf, engineLabelOf, isVoiceNamedByIdFor, speedRangeOf } from '../engines'
+import { AUTO_ENGINE_ORDER, costLabelOf, effectiveSpeedOf, engineLabelOf, isVoiceNamedByIdFor, modelChoicesOf, speedRangeOf } from '../engines'
 import { languageNameOf } from '../languages'
 import { sentenceStartOf, wordsOf } from '../spoken-text'
 import type { Palette } from './theme'
@@ -12,6 +12,7 @@ export type BandActions = {
   turnOff: () => void
   selectEngine: (engine: TalkEngineName | 'auto') => void
   selectLanguage: (language: TalkLanguage) => void
+  selectModel: (model: string) => void
   selectSpeed: (speed: number) => void
   slower: () => void
   faster: () => void
@@ -40,6 +41,7 @@ export type BandInput = {
   thinkingWord: string | null
   engineInUse: TalkEngineName | null
   currentVoice: string | null
+  currentModel: string | null
   engineAvailability: EngineAvailability | null
   engineSetting: TalkEngineName | 'auto'
   language: TalkLanguage
@@ -168,7 +170,7 @@ export function renderStartLine($: EngineInterface, e: RenderInput<'AbovePrompt'
   )
 }
 
-const SETTING_LABELS: Readonly<Record<SettingName, string>> = { engine: 'Engine', voice: 'Voice', speed: 'Speed', language: 'Language' }
+const SETTING_LABELS: Readonly<Record<SettingName, string>> = { engine: 'Engine', model: 'Model', voice: 'Voice', speed: 'Speed', language: 'Language' }
 
 const phaseColorOf = (phase: ReadingPhase, palette: Palette): string | null => {
   switch (phase) {
@@ -201,7 +203,7 @@ const isEngineChoice = (value: string): value is TalkEngineName | 'auto' => valu
 
 const isLanguage = (value: string): value is TalkLanguage => LANGUAGES.some(language => language === value)
 
-type Choice = { value: string; label: string; isUnavailable?: boolean }
+type Choice = { value: string; label: string; isUnavailable?: boolean; detail?: string }
 
 const VOICE_FILTER_LABELS: Readonly<Record<VoiceFilter, string>> = { all: 'All', female: 'Female', male: 'Male' }
 
@@ -245,6 +247,8 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
   const { engineInUse } = input
   // What the session has spent on the engine in use, beside its name.
   const cost = costLabelOf(engineInUse, input.spending, input.credits)
+  // Shown for an engine of several models alone.
+  const modelLabel = modelChoicesOf(engineInUse).find(choice => choice.value === input.currentModel)?.label ?? (modelChoicesOf(engineInUse).length > 0 ? 'Model' : null)
   // The speed the engine reads at, which the line shows: the one chosen may be past what the engine takes.
   const speedInUse = effectiveSpeedOf(engineInUse, input.speed)
 
@@ -256,6 +260,8 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
   // One choice per line, as the voices are: its name, a click away, and after it whether it is in use or unavailable.
   const picker = (key: string, value: string, choices: readonly Choice[], onSelect: (value: string) => void) => {
     const nameColumns = Math.max(...choices.map(choice => choice.label.length)) + 3
+    // What tells the choices apart gets a column of its own, before whether one is in use.
+    const detailColumns = Math.max(0, ...choices.map(choice => choice.detail?.length ?? 0)) + 3
     // A terminal too short for one choice per line gets them side by side.
     if (choices.length > choiceRows) {
       return (
@@ -289,6 +295,11 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
                   </Text>
                 </Button>
               </Box>
+              {choice.detail !== undefined && (
+                <Box width={detailColumns}>
+                  <Text dimColor>{choice.detail}</Text>
+                </Box>
+              )}
               {stateOf(isChosen, isSelected, choice.isUnavailable === true ? <Text dimColor>unavailable</Text> : null)}
             </Box>
           )
@@ -390,6 +401,8 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
             {engineSetting !== 'auto' && chosenEngineReason !== null && <Text color={palette.warning}>{chosenEngineReason}</Text>}
           </Box>
         )
+      case 'model':
+        return picker('model', input.currentModel ?? '', modelChoicesOf(input.engineInUse), value => actions.selectModel(value))
       case 'voice':
         return voiceChoicesOf(input.voiceCatalog)
       case 'speed':
@@ -533,6 +546,8 @@ export function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, in
         {settingItem('engine', engineInUse === null ? 'Auto' : engineLabelOf(engineInUse))}
         {cost !== null && <Text color={palette.preparing}> {cost}</Text>}
         <Text dimColor> · </Text>
+        {modelLabel !== null && settingItem('model', modelLabel)}
+        {modelLabel !== null && <Text dimColor> · </Text>}
         {settingItem('voice', voiceLabelOf(input))}
         <Text dimColor> · </Text>
         {settingItem('speed', `${speedInUse.toFixed(2)}x`)}

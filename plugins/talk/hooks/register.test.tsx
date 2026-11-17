@@ -430,3 +430,29 @@ test('between the answer and its voice, the band says the voice is being made re
   await answering
   await band.unmount()
 })
+
+test('an engine of several models offers them in the settings line, the one chosen saved as /config does', { options: { engine: 'elevenlabs', elevenlabsModel: 'eleven_multilingual_v2' } }, async ($, on) => {
+  const written: { key: string; value: unknown }[] = []
+  standInForTheEngine(on, { ELEVENLABS_API_KEY: 'a-key' })
+  on('fs.exists', () => ({ value: false }))
+  on('process.run', (_, e) => ({ value: { ...NO_OUTPUT, stdout: e.argv[0] === 'uname' ? 'Linux\n' : e.argv[0] === 'sh' ? 'pw-play\n' : '' } }))
+  on('http.fetch', () => ({ value: { ok: false, status: 500, text: '' } as never }))
+  on('config.list', () => ({ value: [{ key: 'talk.elevenlabsModel', label: 'ElevenLabs model', kind: 'text', value: '', provider: { kind: 'engine' }, isLocked: false }] as never }))
+  on('config.set', (_, e) => {
+    written.push({ key: e.key, value: e.value })
+    return { value: e.value }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'talk', args: '', ...TYPED_AT_PROMPT })
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ type: 'Button', text: /^Multilingual v2$/ }))?.key).toBe('setting-model')
+
+  await band.press({ key: 'setting-model' })
+  expect((await band.find({ type: 'Text', text: /half a credit/ }))?.text).toBe('starts sooner, half a credit a character')
+  await band.press({ key: 'model-eleven_flash_v2_5' })
+  await band.press({ key: 'apply-setting' })
+
+  expect(written).toEqual([{ key: 'talk.elevenlabsModel', value: 'eleven_flash_v2_5' }])
+  await band.unmount()
+})

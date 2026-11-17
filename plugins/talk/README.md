@@ -50,7 +50,8 @@ ends the conversation, in the conversation's language.
 
 ![The previous answer greyed while Claude thinks, its spinner's word pulsing below](docs/media/previous-answer.png)
 
-**Settings.** The line at the bottom right of the band names the engine, the voice, the speed and the language. Each
+**Settings.** The line at the bottom right of the band names the engine, its model when it has several (ElevenLabs),
+the voice, the speed and the language. Each
 one opens its choices above it; a choice is only selected until **Apply** saves it as `/config` does (the mod then
 reloads, and an answer being read goes on from its current sentence), and **Cancel** leaves the setting as it was.
 While one is open, the others wait. The voices are those of the engine in use: every Piper voice of the language in
@@ -108,8 +109,8 @@ conversation back). With a key set, `Auto` picks that engine.
 
 ElevenLabs counts characters read, not minutes. Answers in talk mode are short: an hour of conversation reads about
 10,000 characters. The free plan gives 10,000 a month; the paid plans start around $6 for 30,000 and $22 for 100,000
-(check their pricing page). The `ElevenLabs model` option set to `eleven_flash_v2_5` counts half a credit per
-character instead of one, and answers sooner.
+(check their pricing page). Its model is chosen in the band: Multilingual v2, the most natural, or Flash v2.5, which
+counts half a credit per character instead of one and answers sooner; any voice speaks with either.
 
 **Its voices.** The free plan reads, through its API, only the voices every account has, Sarah (the default) among
 them: they are English voices, which speak French with their English accent. A native voice of another language comes
@@ -117,6 +118,13 @@ from the **Voice Library** (under **Voices**, filtered by language: the conversa
 needs a paid plan: **Add to my voices** on its page, and it shows in the band's list of voices, to choose and apply.
 ElevenLabs reads between 0.7 and 1.2 times the normal speed: the band offers no other speed while it is the engine, and
 a faster speed set for another engine is read at 1.2.
+
+**Its pronunciation.** A word it says wrong, `CI` read the French way for one, is fixed by a pronunciation dictionary:
+under **Pronunciation dictionaries** on elevenlabs.io, create one and add an **Alias** rule, the word and how to write
+it to be said right (`CI` → `si aïe`). Phoneme rules (IPA, CMU) are left aside: ElevenLabs applies them with a few
+English models only. Then set the `ElevenLabs pronunciation dictionaries` option to the dictionary's id (up to three,
+separated by commas): every answer is read with it, in its latest version, so a rule added later applies at once. The
+highlight still follows the words as written.
 
 **OpenAI.** A key from platform.openai.com, set the same way; it is paid as used, with no plan, about a cent and a
 half per minute of voice. Its thirteen voices are listed in the band.

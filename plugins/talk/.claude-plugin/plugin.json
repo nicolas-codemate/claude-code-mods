@@ -95,6 +95,12 @@
       "description": "The ElevenLabs model id.",
       "default": "eleven_multilingual_v2"
     },
+    "elevenlabsPronunciationDictionaries": {
+      "type": "string",
+      "title": "ElevenLabs pronunciation dictionaries",
+      "description": "The ids of up to three pronunciation dictionaries of your ElevenLabs account, separated by commas, applied to every answer read, each in its latest version. Alias rules work with every model.",
+      "default": ""
+    },
     "elevenlabsVoiceId": {
       "type": "string",
       "title": "ElevenLabs voice id",
