@@ -109,9 +109,47 @@ const respellWord = (word: string, respell: (part: string) => string): string =>
   return identifierPartsOf(word).map(respell).join(' ')
 }
 
-// What the voice is given for one word of the pane: the same word, unless it is an identifier or, for a local French
-// voice, an English word it would otherwise read as French.
+// A path is shown, not read: one from the root (`/tmp/x/cards.json`), from home or the current folder (`~/.claude`,
+// `./build.sh`) or from a Windows drive, a relative one to a file (`src/view/band.tsx`, `.github/ci.yml`) or to a
+// folder written with its final slash (`plugins/talk/`), and a file named with its line (`band.tsx:42`); the voice says
+// "this file" or "this folder" in its place. Words joined by slashes (`et/ou/non`, `feature/x`), a one-part path
+// (`/talk`, a command) and a path of digits alone (a date, `12/05/2026`) are read.
+const CHARACTER = '[\\p{L}\\p{N}_@+-]'
+const SEGMENT = `\\.?${CHARACTER}(?:[\\p{L}\\p{N}_.@+-]*${CHARACTER})?`
+const EXTENSION = '\\.[A-Za-z]\\w{0,5}'
+const FILE_NAME = `${CHARACTER}[\\p{L}\\p{N}_.@+-]*${EXTENSION}`
+const LINE_NUMBER = ':\\d+(?:[-:]\\d+)?'
+const PATH_PATTERN = [
+  `(?:~|\\.{1,2})(?:\\/${SEGMENT})+\\/?`,
+  `(?:\\/${SEGMENT}){2,}\\/?`,
+  `(?:${SEGMENT}\\/)+${FILE_NAME}`,
+  `(?:${SEGMENT}\\/){2,}`,
+  `[A-Za-z]:[\\\\/](?:${SEGMENT}[\\\\/])*(?:${FILE_NAME}|${SEGMENT})?`,
+].join('|')
+const PATH_WORD = new RegExp(
+  `^([^\\p{L}\\p{N}_~./]*)((?:${PATH_PATTERN})(?:${LINE_NUMBER})?|${FILE_NAME}${LINE_NUMBER})([^\\p{L}\\p{N}_/\\\\]*)$`,
+  'u',
+)
+// An extension follows a name: `.claude` alone is a hidden folder.
+const NAMES_A_FILE = new RegExp(`[^\\\\/.][^\\\\/]*${EXTENSION}$|${LINE_NUMBER}$`)
+
+const PATH_WORDS: Readonly<Record<TalkLanguage, { file: string; folder: string }>> = {
+  fr: { file: 'ce fichier', folder: 'ce dossier' },
+  en: { file: 'this file', folder: 'this folder' },
+  es: { file: 'este archivo', folder: 'esta carpeta' },
+  de: { file: 'diese Datei', folder: 'dieser Ordner' },
+  it: { file: 'questo file', folder: 'questa cartella' },
+}
+
+// What the voice is given for one word of the pane: the same word, unless it is a path, an identifier or, for a local
+// French voice, an English word it would otherwise read as French.
 export const speakableWordOf = (word: string, language: TalkLanguage, isRespellingEnglish: boolean): string => {
+  // Only a word with a slash, a backslash or a colon can be a path: the others skip the pattern, slow on a long word.
+  const path = /[/\\:]/.test(word) ? PATH_WORD.exec(word) : null
+  if (path !== null && /\p{L}/u.test(path[2] ?? '')) {
+    const [, pathLeading = '', pathCore = '', pathTrailing = ''] = path
+    return `${pathLeading}${NAMES_A_FILE.test(pathCore) ? PATH_WORDS[language].file : PATH_WORDS[language].folder}${pathTrailing}`
+  }
   const [, leading = '', core = '', trailing = ''] = WORD_CORE.exec(word) ?? []
   if (core === '' || /^\p{N}/u.test(core)) return word
   const respell = isRespellingEnglish ? RESPELLING_BY_LANGUAGE[language] : null

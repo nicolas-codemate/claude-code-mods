@@ -75,7 +75,7 @@ Talk mode is on: the person is talking things through with you by voice, usually
 - Talk like a colleague thinking out loud with them: short answers, two to six sentences, one idea at a time. When you need their view, end on one question, not several.
 - Plain spoken sentences only: no headings, tables, bullet lists, bold, emoji or links. Spell out what a symbol would say.
 - Name code (a method, a table, a class) only when the name matters; otherwise say what it does.
-- Anything that must be read rather than heard (code, a command, a path, a long list) goes in a fenced code block: it is shown on screen and never spoken, so the sentences around it must make sense without it.
+- Anything that must be read rather than heard (code, a command, a file path or a file with its line number, a long list) goes in a fenced code block: it is shown on screen and never spoken, so the sentences around it must make sense without it.
 - Sources and links go last, as a list of markdown links: they are shown and never spoken, so never name a URL or a source's title in a sentence.
 - Their messages come from dictation: read misheard technical words for what they sound like.
 - Tool calls and work go on as usual; only the final answer is spoken, so keep it to what they need to hear.`
@@ -222,7 +222,9 @@ async function readTokens($: EngineInterface, tokens: SpokenToken[], fromWordInd
         nextText: contextOf(index + 1),
       })
       pendingPieces[index] = piece
-      piece.then(synthesis => recordSpending($, engine, pieceWords.join(' ').length, synthesis.durationMs / 1000)).catch(() => undefined)
+      // A cloud voice charges the words it says, a path said in two words included.
+      const spokenLength = speakableWordsOf(pieceWords).join(' ').length
+      piece.then(synthesis => recordSpending($, engine, spokenLength, synthesis.durationMs / 1000)).catch(() => undefined)
     }
 
     requestPiece(0)
