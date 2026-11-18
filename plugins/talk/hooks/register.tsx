@@ -14,6 +14,7 @@ import {
   fallbackVoiceLabelOf,
   effectiveSpeedOf,
   engineShownOf,
+  isCloudEngine,
   isRespellingEnglishFor,
   modelOptionFieldOf,
   probeCapabilities,
@@ -198,23 +199,42 @@ async function readTokens($: EngineInterface, tokens: SpokenToken[], fromWordInd
     const { maxCharacters, isFirstSentenceAlone } = chunkingOf(engine)
     const chunks = chunksOf(words.slice(fromWordIndex), maxCharacters, isFirstSentenceAlone)
     const firstWordIndexes = chunks.map((_, index) => fromWordIndex + chunks.slice(0, index).reduce((count, chunk) => count + chunk.length, 0))
-    const synthesisOf = (index: number): Promise<Synthesis> =>
-      synthesize($, engine, {
-        speakableWords: (chunks[index] ?? []).map(word => speakableWordOf(word, settings.language, isRespellingEnglish)),
+    const speakableWordsOf = (pieceWords: readonly string[]): string[] =>
+      pieceWords.map(word => speakableWordOf(word, settings.language, isRespellingEnglish))
+    // A reading taken up again keeps the sentence before it as the context of its first piece.
+    const wordsBefore = words.slice(sentenceStartOf(words, fromWordIndex - 1), fromWordIndex)
+    const contextOf = (index: number): string | null => {
+      const pieceWords = index < 0 ? wordsBefore : chunks[index]
+      return pieceWords === undefined || pieceWords.length === 0 ? null : speakableWordsOf(pieceWords).join(' ')
+    }
+    // Each piece is asked for once, and what it costs is counted as soon as it is made, a piece a stop cut short
+    // included: it was charged all the same.
+    const pendingPieces: Promise<Synthesis>[] = []
+    const requestPiece = (index: number) => {
+      const pieceWords = chunks[index]
+      if (pieceWords === undefined || pendingPieces[index] !== undefined) return
+      const piece = synthesize($, engine, {
+        speakableWords: speakableWordsOf(pieceWords),
         settings,
         capabilities: found,
         outputPathWithoutExtension: `${directory}/answer-${generation}-${index}`,
+        previousText: contextOf(index - 1),
+        nextText: contextOf(index + 1),
       })
+      pendingPieces[index] = piece
+      piece.then(synthesis => recordSpending($, engine, pieceWords.join(' ').length, synthesis.durationMs / 1000)).catch(() => undefined)
+    }
 
-    let pending = synthesisOf(0)
+    requestPiece(0)
+    // A cloud voice makes the second piece while the first, often one short sentence, plays: asked for only once the
+    // first is back, it would leave a silence after it.
+    if (isCloudEngine(engine)) requestPiece(1)
     for (const [index, firstWordIndex] of firstWordIndexes.entries()) {
-      const synthesis = await pending
-      await recordSpending($, engine, (chunks[index] ?? []).join(' ').length, synthesis.durationMs / 1000)
+      const pendingPiece = pendingPieces[index]
+      if (pendingPiece === undefined) return
+      const synthesis = await pendingPiece
       if (generation !== readingGeneration) return
-      if (index + 1 < chunks.length) {
-        pending = synthesisOf(index + 1)
-        pending.catch(() => undefined)
-      }
+      requestPiece(index + 1)
       await setReading($, reading => ({ ...reading, phase: 'speaking' }))
       await play($, synthesis, firstWordIndex, generation)
       if (generation !== readingGeneration) return

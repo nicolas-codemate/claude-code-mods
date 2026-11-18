@@ -54,6 +54,8 @@ test('OpenAI is asked for a WAV of the words in the voice, language and speed ch
     speed: 1.25,
     machine,
     outputPathWithoutExtension: '/tmp/answer-1-0',
+    previousText: null,
+    nextText: null,
   })
 
   const curl = calls.find(call => call.argv[0] === 'curl')
@@ -84,6 +86,8 @@ test('when curl fails, the error is the message OpenAI wrote in place of the aud
       speed: 1,
       machine,
       outputPathWithoutExtension: '/tmp/answer-2-0',
+      previousText: null,
+      nextText: null,
     })
     .then(() => null, (error: unknown) => error)
 

@@ -137,10 +137,17 @@ export const effectiveSpeedOf = (engine: TalkEngineName | null, speed: number): 
   return Math.min(max, Math.max(min, speed))
 }
 
-type EngineSynthesisRequest = { speakableWords: readonly string[]; settings: TalkSettings; capabilities: Capabilities; outputPathWithoutExtension: string }
+type EngineSynthesisRequest = {
+  speakableWords: readonly string[]
+  settings: TalkSettings
+  capabilities: Capabilities
+  outputPathWithoutExtension: string
+  previousText: string | null
+  nextText: string | null
+}
 
 export function synthesize($: EngineInterface, engine: TalkEngineName, request: EngineSynthesisRequest): Promise<Synthesis> {
-  const { speakableWords, settings, capabilities, outputPathWithoutExtension } = request
+  const { speakableWords, settings, capabilities, outputPathWithoutExtension, previousText, nextText } = request
   const spoken = <Name extends TalkEngineName>(name: Name) =>
     PROVIDERS[name].synthesize(voiceToolkitOf($), {
       speakableWords,
@@ -149,6 +156,8 @@ export function synthesize($: EngineInterface, engine: TalkEngineName, request: 
       speed: effectiveSpeedOf(name, settings.speed),
       machine: machineOf(name, capabilities),
       outputPathWithoutExtension,
+      previousText,
+      nextText,
     })
   return spoken(engine)
 }

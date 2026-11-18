@@ -48,6 +48,8 @@ test('spd-say plays the words itself, writing no file, its length estimated from
     speed: 1.5,
     machine: machineWith('spd-say', null),
     outputPathWithoutExtension: '/tmp/answer-1-0',
+    previousText: null,
+    nextText: null,
   })
 
   expect(calls).toEqual([])
@@ -64,6 +66,8 @@ test('espeak-ng writes a WAV of the words in the language, at a rate scaled by t
     speed: 1.5,
     machine: machineWith('espeak-ng'),
     outputPathWithoutExtension: '/tmp/answer-2-0',
+    previousText: null,
+    nextText: null,
   })
 
   expect(calls).toEqual([{ argv: ['espeak-ng', '-v', 'fr', '-s', '240', '-w', '/tmp/answer-2-0.wav', '--stdin'], stdin: 'On teste.' }])

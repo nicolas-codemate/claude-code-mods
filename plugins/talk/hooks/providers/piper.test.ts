@@ -138,6 +138,8 @@ test('with its Python, Piper times each word as the script\'s last line of outpu
     speed: 2,
     machine: machineWith({ command: '/venv/bin/piper', voice: '/voices/fr_FR-upmc-medium.onnx', speakerId: 1, python: '/venv/bin/python' }),
     outputPathWithoutExtension: '/tmp/answer-1-0',
+    previousText: null,
+    nextText: null,
   })
 
   expect(calls.length).toBe(1)
@@ -157,6 +159,8 @@ test('without its Python, the piper command writes the WAV at a length scale of 
     speed: 0.5,
     machine: machineWith({ command: 'piper', voice: '/voices/fr_FR-upmc-medium.onnx', speakerId: 1, python: null }),
     outputPathWithoutExtension: '/tmp/answer-2-0',
+    previousText: null,
+    nextText: null,
   })
 
   expect(calls).toEqual([{ argv: ['piper', '-m', '/voices/fr_FR-upmc-medium.onnx', '-f', '/tmp/answer-2-0.wav', '--length-scale', '2', '-s', '1'], stdin: 'On teste.' }])
