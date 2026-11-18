@@ -112,3 +112,19 @@ test('a piece goes to ElevenLabs with the words of the pieces around it, which k
   const body = JSON.parse(written.get('/tmp/answer-3-1.request.json') ?? '{}')
   expect([body.text, body.previous_text, body.next_text]).toEqual(['Ensuite, on fusionne.', 'La CI est verte.', 'Puis on publie.'])
 })
+
+test('a piece with nothing before or after it goes without the context fields', async () => {
+  const written = new Map<string, string>()
+  await elevenLabs.synthesize(toolkitAnswering({ audio_base64: 'UklGRg==' }, [], written), {
+    speakableWords: ['Oui.'],
+    options,
+    language: 'fr',
+    speed: 1,
+    machine,
+    outputPathWithoutExtension: '/tmp/answer-4-0',
+    previousText: null,
+    nextText: null,
+  })
+  expect(Object.keys(JSON.parse(written.get('/tmp/answer-4-0.request.json') ?? '{}'))).not.toContain('previous_text')
+  expect(Object.keys(JSON.parse(written.get('/tmp/answer-4-0.request.json') ?? '{}'))).not.toContain('next_text')
+})
