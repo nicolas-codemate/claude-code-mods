@@ -16,6 +16,8 @@ export type OverviewInput = {
   questionState: QuestionState
   threadNavigation: ThreadNavigation
   hotkeyOf: (action: ShortcutAction) => string | undefined
+  // With the talk mod loaded, the overview is read aloud, whole or a paragraph at a time.
+  isReadAloudAvailable: boolean
   actions: ExplorerActions
 }
 
@@ -24,6 +26,8 @@ export function renderOverview(ui: ViewElements, input: OverviewInput) {
   const { pullRequest } = input
   const shownBlocks = input.blocks.slice(input.blockOffset, input.blockOffset + input.visibleBlocks)
   const threadsOffDescription = input.blockOffset === 0 ? overviewThreadsOffTheDescription(input.threads, pullRequest.number, input.blocks) : []
+  const wholeOverview = [pullRequest.overviewHeadline, ...input.blocks].join('\n\n')
+  const gutterColumns = input.isReadAloudAvailable ? 7 : 4
 
   return (
     <Box flexDirection="column">
@@ -34,6 +38,11 @@ export function renderOverview(ui: ViewElements, input: OverviewInput) {
           </Text>
         </Box>
         {renderThreadNavigation(ui, input.threadNavigation, input.hotkeyOf, input.actions)}
+        {input.isReadAloudAvailable && (
+          <Box flexShrink={0} marginRight={3}>
+            <Button key="read-overview" plain label="▶ read aloud" onPress={() => input.actions.readAloud(wholeOverview)} />
+          </Box>
+        )}
         {input.blocks.length > 1 && (
           <Box flexShrink={0}>
             <Text color={ui.theme.muted}>
@@ -69,14 +78,15 @@ export function renderOverview(ui: ViewElements, input: OverviewInput) {
         return (
           <Box key={`block-${blockIndex}`} flexDirection="column" flexShrink={0} marginBottom={isFollowedBySameList ? 0 : 1}>
             <Box flexDirection="row">
-              <Box width={4} flexShrink={0}>
-                <Box display="none" hover={{ display: 'flex' }}>
+              <Box width={gutterColumns} flexShrink={0}>
+                <Box display="none" hover={{ display: 'flex' }} flexDirection="row" columnGap={1}>
                   <Button
                     key={`${ASK_BUTTON_KEY_PREFIX}overview-${blockIndex}`}
                     plain
                     label="[+]"
                     onPress={() => input.actions.openQuestion(anchorKey)}
                   />
+                  {input.isReadAloudAvailable && <Button key={`read-overview-${blockIndex}`} plain label="▶" onPress={() => input.actions.readAloud(text)} />}
                 </Box>
               </Box>
               <Box flexGrow={1} flexShrink={1} flexDirection="column" paddingLeft={indentation}>

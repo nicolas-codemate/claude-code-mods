@@ -72,6 +72,7 @@ export type ExplorerSnapshot = {
   files: ChangedFile[]
   selectedFilePath: string | null
   isOverviewShown: boolean
+  isTalkAvailable: boolean
   diffRows: DiffRow[]
   pullRequest: PullRequestSummary | null
   viewedStateByPath: Record<string, ViewedState>
@@ -377,6 +378,7 @@ export function buildPaneModel(snapshot: ExplorerSnapshot, surface: PaneSurface,
             questionState,
             threadNavigation,
             hotkeyOf,
+            isReadAloudAvailable: snapshot.isTalkAvailable,
             actions,
           }
         : null,

@@ -125,6 +125,8 @@ declare module 'claude-code' {
       // Lines of the first shown row scrolled above the top, kept for the file and the row they were scrolled on.
       diffSkippedLines: { path: string; rowIndex: number; lines: number } | null
       isOverviewShown: boolean
+      // Whether the talk mod is loaded, to read the PR overview aloud.
+      isTalkAvailable: boolean
       isLoading: boolean
       repositoryRoot: string | null
       repositoryWebUrl: string | null

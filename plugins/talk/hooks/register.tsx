@@ -544,6 +544,17 @@ const subcommandOf = (args: string): Subcommand | null => {
 }
 
 export const register: Register = (on, options) => {
+  // The noun other mods call; the talk.read hook below answers it, the engine interface in hand.
+  on('engine.create', async (_, e, next) => {
+    const built = await next(e)
+    return { ...built, talk: { read: async () => ({ isReading: false }) } }
+  })
+
+  on('talk.read', async ($, e) => {
+    void speak($, e.text)
+    return { value: { isReading: true } }
+  })
+
   pluginOptions = options
 
   on('session.start', async ($, e, next) => {
