@@ -4,6 +4,8 @@ const FENCED_BLOCK = /^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm
 const UNCLOSED_FENCED_BLOCK = /^(```|~~~)[\s\S]*$/m
 const TABLE_LINE = /^[ \t]*\|.*$/gm
 const HTML_TAG = /<\/?[a-zA-Z][^>]*>/g
+// Pull request templates leave their guidance in comments.
+const HTML_COMMENT = /<!--[\s\S]*?-->/g
 const HEADING_MARK = /^[ \t]{0,3}#{1,6}[ \t]+/gm
 const BLOCKQUOTE_MARK = /^[ \t]*>[ \t]?/gm
 const LIST_MARK = /^[ \t]*(?:[-*+]|\d+[.)])[ \t]+/gm
@@ -27,6 +29,7 @@ export const spokenTextOf = (markdown: string): string =>
     .replace(TABLE_LINE, '')
     .replace(SOURCES_HEADING, '')
     .replace(LINKED_LIST_ITEM, '')
+    .replace(HTML_COMMENT, '')
     .replace(HTML_TAG, '')
     .replace(HORIZONTAL_RULE, '')
     .replace(HEADING_MARK, '')

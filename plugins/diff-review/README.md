@@ -65,7 +65,8 @@ dictated in the prompt. When the commit is made the pane moves to the commits vi
 ![The uncommitted changes, a new file](docs/media/uncommitted.png)
 
 **Pull request**: the whole branch against the base the pull request targets, opening on its description. With the
-[talk](../talk) mod loaded, `▶ read aloud` reads the description, and `▶` beside a heading reads its section.
+[talk](../talk) mod loaded, `▶ read aloud` reads the title and description, and `▶` beside a heading or a comment reads that part;
+talk is looked for when the pane opens.
 
 ![The pull request description](docs/media/overview.png)
 

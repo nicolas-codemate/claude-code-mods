@@ -113,13 +113,22 @@ export function splitMarkdownBlocks(markdown: string): string[] {
   return blocks
 }
 
-// A heading, or a line all in bold that stands for one (`**À trancher**`), starts a section.
+// The lines the PR overview is built with around the description: `**@author** · open · …` above it, `## Description`,
+// then `## Conversation (N)` and a `**@author** · date` line above each comment.
+const OVERVIEW_DESCRIPTION_HEADING = '## Description'
+const OVERVIEW_CONVERSATION_HEADING = /^## Conversation \(\d+\)$/
+const OVERVIEW_AUTHOR_LINE = /^\*\*@[^*\n]+\*\* · /
+
+// A heading, a first line all in bold that stands for one (`**À trancher** :`), or a comment's author line starts a
+// section.
 function isSectionStart(block: string): boolean {
-  return /^#{1,6} /.test(block) || /^\*\*[^*\n]+\*\*:?$/.test(block.trim())
+  const firstLine = block.split('\n')[0]?.trim() ?? ''
+  return /^#{1,6} /.test(firstLine) || /^\*\*[^*\n]+\*\*\s*:?$/.test(firstLine) || OVERVIEW_AUTHOR_LINE.test(firstLine)
 }
 
-// The parts of a description read aloud one at a time: from a heading to the next, the text before the first heading
-// being one too, so that a list is heard with the paragraph that leads to it rather than item by item.
+// The parts of a PR overview read aloud one at a time: from a heading to the next, so that a list is heard with the
+// paragraph that leads to it rather than item by item, and each comment of the conversation alone. The line of the PR's
+// state and the conversation's own heading say nothing worth hearing.
 export function readingSectionsOf(blocks: readonly string[]): { startBlockIndex: number; text: string }[] {
   const sections: { startBlockIndex: number; text: string }[] = []
   blocks.forEach((block, blockIndex) => {
@@ -131,5 +140,14 @@ export function readingSectionsOf(blocks: readonly string[]): { startBlockIndex:
     }
   })
 
-  return sections
+  return sections.filter(section => section.startBlockIndex > 0 && !OVERVIEW_CONVERSATION_HEADING.test(section.text.split('\n')[0] ?? ''))
+}
+
+// The PR's description alone, without the line of its state or the conversation: what `▶ read aloud` reads after the
+// title.
+export function descriptionBlocksOf(blocks: readonly string[]): readonly string[] {
+  const start = blocks.indexOf(OVERVIEW_DESCRIPTION_HEADING)
+  if (start === -1) return []
+  const end = blocks.findIndex((block, blockIndex) => blockIndex > start && OVERVIEW_CONVERSATION_HEADING.test(block))
+  return blocks.slice(start + 1, end === -1 ? blocks.length : end)
 }

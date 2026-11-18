@@ -1688,7 +1688,8 @@ async function readExplorerSnapshot($: EngineInterface): Promise<ExplorerSnapsho
 // The talk mod, when it is loaded, reads text aloud: it is looked for by its command, as diff-review does not depend on it.
 async function isTalkLoaded($: EngineInterface): Promise<boolean> {
   const commands = await $.command.list().catch(() => [])
-  return commands.some(command => command.name === 'talk' && command.plugin === 'talk')
+  // The engine names the plugin behind a command when it knows it.
+  return commands.some(command => command.name === 'talk' && (command.plugin ?? 'talk') === 'talk')
 }
 
 async function readAloud($: EngineInterface, text: string): Promise<void> {

@@ -74,3 +74,7 @@ test('a voice that reads the answer whole gets it in one piece, its first senten
 
   expect(chunksOf(words, 2_400, false)).toEqual([words])
 })
+
+test('the guidance a pull request template leaves in HTML comments is not read', async () => {
+  expect(spokenTextOf('<!-- Describe the change -->\nAdds the tax.\n<!--\nChecklist\n-->')).toBe('Adds the tax.')
+})

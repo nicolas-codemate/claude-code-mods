@@ -158,6 +158,13 @@ async function play($: EngineInterface, synthesis: Synthesis, firstWordIndex: nu
   }
 }
 
+// Read for another mod, the band may be off: a reading that fails says why in a toast, the band not being there to.
+async function readForAnotherMod($: EngineInterface, text: string): Promise<void> {
+  await speak($, text)
+  const reading = await read($, readingAtom)
+  if (reading.phase === 'failed' && reading.error !== null && !(await read($, isActiveAtom))) $.ui.toast(`talk: ${reading.error}`)
+}
+
 async function speak($: EngineInterface, answer: string) {
   await readTokens($, tokensOf(spokenTextOf(answer)), 0)
 }
@@ -547,12 +554,12 @@ export const register: Register = (on, options) => {
   // The noun other mods call; the talk.read hook below answers it, the engine interface in hand.
   on('engine.create', async (_, e, next) => {
     const built = await next(e)
-    return { ...built, talk: { read: async () => ({ isReading: false }) } }
+    return { ...built, talk: { read: async () => undefined } }
   })
 
   on('talk.read', async ($, e) => {
-    void speak($, e.text)
-    return { value: { isReading: true } }
+    void readForAnotherMod($, e.text)
+    return { value: undefined }
   })
 
   pluginOptions = options
