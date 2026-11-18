@@ -37,12 +37,12 @@ commands stay on screen, never read. The band's bottom line opens the engine, vo
 
 The mod picks the best voice available, in this order, unless you choose one:
 
-| Voice | Quality | English words in French | Cost | Where the text goes |
-| --- | --- | --- | --- | --- |
-| **ElevenLabs** | The most natural | Read as a developer says them | A free plan, then a subscription | ElevenLabs |
-| **OpenAI** | Natural | Read as a developer says them | A few cents per hour of talk | OpenAI |
-| **Piper** | A little robotic | Respelled (`GitHub` becomes « guite heube ») | Free | Stays on the machine |
-| **System voice** | Robotic (`say` on macOS is better) | Respelled | Free | Stays on the machine |
+| Voice | Quality | Cost | Where the text goes |
+| --- | --- | --- | --- |
+| **ElevenLabs** | The most natural | A free plan, then a subscription | ElevenLabs |
+| **OpenAI** | Natural | A few cents per hour of talk | OpenAI |
+| **Piper** | A little robotic | Free | Stays on the machine |
+| **System voice** | Robotic (`say` on macOS is better) | Free | Stays on the machine |
 
 The highlight follows the voice exactly with ElevenLabs and Piper; with the others it is estimated from word lengths.
 
