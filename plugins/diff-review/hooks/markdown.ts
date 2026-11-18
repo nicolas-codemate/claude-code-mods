@@ -112,3 +112,24 @@ export function splitMarkdownBlocks(markdown: string): string[] {
 
   return blocks
 }
+
+// A heading, or a line all in bold that stands for one (`**À trancher**`), starts a section.
+function isSectionStart(block: string): boolean {
+  return /^#{1,6} /.test(block) || /^\*\*[^*\n]+\*\*:?$/.test(block.trim())
+}
+
+// The parts of a description read aloud one at a time: from a heading to the next, the text before the first heading
+// being one too, so that a list is heard with the paragraph that leads to it rather than item by item.
+export function readingSectionsOf(blocks: readonly string[]): { startBlockIndex: number; text: string }[] {
+  const sections: { startBlockIndex: number; text: string }[] = []
+  blocks.forEach((block, blockIndex) => {
+    const current = sections[sections.length - 1]
+    if (current === undefined || isSectionStart(block)) {
+      sections.push({ startBlockIndex: blockIndex, text: block })
+    } else {
+      current.text = `${current.text}\n\n${block}`
+    }
+  })
+
+  return sections
+}

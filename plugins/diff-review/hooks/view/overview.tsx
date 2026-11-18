@@ -1,7 +1,7 @@
 import type { PullRequestSummary, ReviewThread } from '../../types'
 import { ASK_BUTTON_KEY_PREFIX } from '../constants'
 import type { ShortcutAction } from '../keymap'
-import { isListItemBlock, splitListItemIndentation } from '../markdown'
+import { isListItemBlock, readingSectionsOf, splitListItemIndentation } from '../markdown'
 import { overviewAnchorKeyOf, overviewThreadsOffTheDescription } from '../questions'
 import { renderLineCounts, renderMarkdownWithImages, renderThreadNavigation } from './labels'
 import { renderThread, renderThreadsAndQuestion, THREAD_INDENT } from './threads'
@@ -28,6 +28,7 @@ export function renderOverview(ui: ViewElements, input: OverviewInput) {
   const threadsOffDescription = input.blockOffset === 0 ? overviewThreadsOffTheDescription(input.threads, pullRequest.number, input.blocks) : []
   const wholeOverview = [pullRequest.overviewHeadline, ...input.blocks].join('\n\n')
   const gutterColumns = input.isReadAloudAvailable ? 7 : 4
+  const sectionTextByStartBlock = new Map(readingSectionsOf(input.blocks).map(section => [section.startBlockIndex, section.text]))
 
   return (
     <Box flexDirection="column">
@@ -75,6 +76,7 @@ export function renderOverview(ui: ViewElements, input: OverviewInput) {
         const nextBlock = input.blocks[blockIndex + 1]
         const isFollowedBySameList = isListItemBlock(block) && nextBlock !== undefined && isListItemBlock(nextBlock)
         const { indentation, text } = splitListItemIndentation(block)
+        const sectionText = input.isReadAloudAvailable ? sectionTextByStartBlock.get(blockIndex) : undefined
         return (
           <Box key={`block-${blockIndex}`} flexDirection="column" flexShrink={0} marginBottom={isFollowedBySameList ? 0 : 1}>
             <Box flexDirection="row">
@@ -86,7 +88,7 @@ export function renderOverview(ui: ViewElements, input: OverviewInput) {
                     label="[+]"
                     onPress={() => input.actions.openQuestion(anchorKey)}
                   />
-                  {input.isReadAloudAvailable && <Button key={`read-overview-${blockIndex}`} plain label="▶" onPress={() => input.actions.readAloud(text)} />}
+                  {sectionText !== undefined && <Button key={`read-overview-${blockIndex}`} plain label="▶" onPress={() => input.actions.readAloud(sectionText)} />}
                 </Box>
               </Box>
               <Box flexGrow={1} flexShrink={1} flexDirection="column" paddingLeft={indentation}>
