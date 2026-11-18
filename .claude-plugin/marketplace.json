@@ -13,6 +13,11 @@
       "name": "diff-review",
       "source": "./plugins/diff-review",
       "description": "Review pane for uncommitted changes, the pull request or one commit at a time: ask Claude about any line, read and settle GitHub review threads, all from the keyboard"
+    },
+    {
+      "name": "talk",
+      "source": "./plugins/talk",
+      "description": "Voice conversation mode: Claude answers as if talking, its answers are read aloud and highlighted word by word above the prompt"
     }
   ]
 }
