@@ -150,6 +150,7 @@ const selectedCommitMessageAtom = atom({ plugin: 'diff-review', key: 'selectedCo
 const filesAtom = atom({ plugin: 'diff-review', key: 'files' } as const, [])
 const selectedFilePathAtom = atom({ plugin: 'diff-review', key: 'selectedFilePath' } as const, null)
 const isOverviewShownAtom = atom({ plugin: 'diff-review', key: 'isOverviewShown' } as const, true)
+const isTalkAvailableAtom = atom({ plugin: 'diff-review', key: 'isTalkAvailable' } as const, false)
 const diffRowsAtom = atom({ plugin: 'diff-review', key: 'diffRows' } as const, [])
 const loadErrorAtom = atom({ plugin: 'diff-review', key: 'loadError' } as const, null)
 const isLoadingAtom = atom({ plugin: 'diff-review', key: 'isLoading' } as const, false)
@@ -1646,6 +1647,7 @@ async function readExplorerSnapshot($: EngineInterface): Promise<ExplorerSnapsho
     files: await read($, filesAtom),
     selectedFilePath: await read($, selectedFilePathAtom),
     isOverviewShown: await read($, isOverviewShownAtom),
+    isTalkAvailable: await read($, isTalkAvailableAtom),
     diffRows: await read($, diffRowsAtom),
     pullRequest: await read($, pullRequestAtom),
     viewedStateByPath: await read($, viewedStateByPathAtom),
@@ -1680,6 +1682,22 @@ async function readExplorerSnapshot($: EngineInterface): Promise<ExplorerSnapsho
     armedAnchorKey: (await read($, armedQuestionAtom))?.anchorKey ?? null,
     currentThreadId: await read($, currentThreadIdAtom),
     answerPulseFrame: await read($, answerPulseFrameAtom),
+  }
+}
+
+// The talk mod, when it is loaded, reads text aloud: it is looked for by its command, as diff-review does not depend on it.
+async function isTalkLoaded($: EngineInterface): Promise<boolean> {
+  const commands = await $.command.list().catch(() => [])
+  // The engine names the plugin behind a command when it knows it.
+  return commands.some(command => command.name === 'talk' && (command.plugin ?? 'talk') === 'talk')
+}
+
+async function readAloud($: EngineInterface, text: string): Promise<void> {
+  try {
+    await $.talk.read({ text })
+  } catch {
+    await update($, isTalkAvailableAtom, () => false)
+    $.ui.toast('diff-review: the talk mod is no longer loaded')
   }
 }
 
@@ -1744,6 +1762,7 @@ function explorerActions($: EngineInterface): ExplorerActions {
       }
     },
     openQuestion: anchorKey => openQuestion($, anchorKey),
+    readAloud: text => readAloud($, text),
     closeQuestion: () => closeQuestion($),
     updateQuestionDraft: async text => {
       await update($, questionDraftAtom, () => text)
@@ -1883,6 +1902,8 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'diff-review' }, async ($, e) => {
     // /theme changes the theme without going through config.set: it is read again at each opening.
     await readThemes($)
+    const isTalkAvailable = await isTalkLoaded($)
+    await update($, isTalkAvailableAtom, () => isTalkAvailable)
     await closeQuestion($)
     await update($, selectedFilePathAtom, () => null)
     await update($, isOverviewShownAtom, () => true)

@@ -49,7 +49,17 @@ export type Installation = { status: 'running' | 'failed'; message: string }
 // Per engine, why this machine cannot use it; null for an engine it can use.
 export type EngineAvailability = Record<TalkEngineName, string | null>
 
+// What talk offers other mods on `$`: a text read aloud in its band, as an answer is, code and links left to the screen.
+// Another mod looks for the talk command in `$.command.list()` before calling it, talk being optional to it.
+export type Talk = {
+  read: (args: { text: string }) => Promise<void>
+}
+
 declare module 'claude-code' {
+  interface EngineInterface {
+    talk: Talk
+  }
+
   interface PluginState {
     talk: {
       isActive: boolean

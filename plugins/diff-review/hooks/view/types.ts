@@ -42,6 +42,7 @@ export type ExplorerActions = {
   explainSplitViewWidth: () => Promise<void>
   explainIdleShortcut: (description: string) => Promise<void>
   openQuestion: (anchorKey: string) => Promise<void>
+  readAloud: (text: string) => Promise<void>
   closeQuestion: () => Promise<void>
   updateQuestionDraft: (text: string) => Promise<void>
   askAboutRow: (anchorKey: string, rowIndex: number, question: string) => Promise<void>

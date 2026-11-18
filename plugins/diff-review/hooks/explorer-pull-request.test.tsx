@@ -629,3 +629,33 @@ test('a thread on a part of the description rewritten since shows on top of the 
   expect(await pane.find({ type: 'Text', text: /› Why every invoice\?/ })).toBeDefined()
   await pane.unmount()
 })
+
+// The test kit loads no talk mod: its noun cannot answer here, so the call fails as with a talk unloaded meanwhile.
+test('with the talk mod listed, the PR overview offers to read it aloud whole or a block at a time, until talk is gone', async ($, on) => {
+  stubWorld(on, {
+    gh: ghCommand => (ghCommand.startsWith('pr view') ? { exitCode: 0, stdout: JSON.stringify(PULL_REQUEST) } : undefined),
+  })
+  on('command.list', async () => ({ value: [{ name: 'talk', description: 'Voice conversation', source: 'plugin', plugin: 'talk' }] }) as never)
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-pr' })
+
+  expect(await pane.find({ type: 'Button', text: '▶ read aloud' })).toBeDefined()
+  expect(await keyStartingWith(pane, 'Button', 'read-overview-')).not.toBe('')
+
+  await pane.press({ key: 'read-overview' })
+  expect(await keyStartingWith(pane, 'Button', 'read-overview')).toBe('')
+  await pane.unmount()
+})
+
+test('without the talk mod, the PR overview has no button to read it aloud', async ($, on) => {
+  stubWorld(on, {
+    gh: ghCommand => (ghCommand.startsWith('pr view') ? { exitCode: 0, stdout: JSON.stringify(PULL_REQUEST) } : undefined),
+  })
+  await openExplorer($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'view-pr' })
+
+  expect(await keyStartingWith(pane, 'Button', 'read-overview')).toBe('')
+  await pane.unmount()
+})
