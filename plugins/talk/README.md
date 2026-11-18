@@ -29,7 +29,9 @@ Built for my own use and mostly tested on Linux: [issues and pull requests](../.
 Speak with Claude Code's dictation, `/voice` (hold the space bar); typing or dictating cuts the voice short. Code and
 commands stay on screen, never read. The band's bottom line opens the engine, voice, speed and language.
 
-![The speeds open above the settings line, 1.25x selected until Apply](docs/media/speed-settings.png)
+![The engines open above the settings line, ElevenLabs selected until Apply](docs/media/engine-settings.png)
+
+![The voices of the engine in use, one of them downloading with its progress on the band's top line](docs/media/voice-download.png)
 
 ## Voices
 
