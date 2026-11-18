@@ -17,6 +17,10 @@ export type SynthesisRequest<Options, Found> = {
   speed: number
   machine: Machine<Found>
   outputPathWithoutExtension: string
+  // The words of the pieces just before and just after, null at either end: a voice that takes them keeps one tone
+  // from piece to piece.
+  previousText: string | null
+  nextText: string | null
 }
 
 // The machine as one service sees it: what every service shares, and what that service found there.
@@ -24,9 +28,9 @@ export type Machine<Found> = { platform: string; wavPlayer: readonly string[] | 
 
 export const NO_AUDIO_PLAYER = 'no audio player found (pw-play, paplay, aplay, afplay or ffplay)'
 
-// How an answer is cut into the pieces sent to the voice. A local voice gets the first sentence alone, to start soon,
-// then pieces made while the one before plays. A cloud voice gets the answer whole: a short first piece made it start
-// slowly, its pace found on the pieces after.
+// How an answer is cut into the pieces sent to the voice: the first sentence alone, to start soon, then pieces made
+// while the one before plays, so that a stop leaves at most one piece made for nothing. A cloud voice that cannot be
+// told the text around a piece gets the answer whole: short pieces made its pace change from one to the next.
 export type Chunking = { maxCharacters: number; isFirstSentenceAlone: boolean }
 
 export type SpeedRange = { min: number; max: number }

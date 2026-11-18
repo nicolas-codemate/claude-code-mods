@@ -191,12 +191,16 @@ async function readTokens($: EngineInterface, tokens: SpokenToken[], fromWordInd
     const { maxCharacters, isFirstSentenceAlone } = chunkingOf(engine)
     const chunks = chunksOf(words.slice(fromWordIndex), maxCharacters, isFirstSentenceAlone)
     const firstWordIndexes = chunks.map((_, index) => fromWordIndex + chunks.slice(0, index).reduce((count, chunk) => count + chunk.length, 0))
+    const speakableWordsOf = (index: number): string[] | null =>
+      chunks[index]?.map(word => speakableWordOf(word, settings.language, isRespellingEnglish)) ?? null
     const synthesisOf = (index: number): Promise<Synthesis> =>
       synthesize($, engine, {
-        speakableWords: (chunks[index] ?? []).map(word => speakableWordOf(word, settings.language, isRespellingEnglish)),
+        speakableWords: speakableWordsOf(index) ?? [],
         settings,
         capabilities: found,
         outputPathWithoutExtension: `${directory}/answer-${generation}-${index}`,
+        previousText: speakableWordsOf(index - 1)?.join(' ') ?? null,
+        nextText: speakableWordsOf(index + 1)?.join(' ') ?? null,
       })
 
     let pending = synthesisOf(0)

@@ -54,6 +54,8 @@ test('ElevenLabs reads the words with the key on curl\'s standard input, each wo
     speed: 1.1,
     machine,
     outputPathWithoutExtension: '/tmp/answer-1-0',
+    previousText: null,
+    nextText: null,
   })
 
   const curl = calls.find(call => call.argv[0] === 'curl')
@@ -89,6 +91,24 @@ test('the pronunciation dictionaries of the options go with every request, three
     speed: 1,
     machine,
     outputPathWithoutExtension: '/tmp/answer-2-0',
+    previousText: null,
+    nextText: null,
   })
   expect(JSON.parse(written.get('/tmp/answer-2-0.request.json') ?? '{}').pronunciation_dictionary_locators).toEqual([{ pronunciation_dictionary_id: 'dict-a' }])
+})
+
+test('a piece goes to ElevenLabs with the words of the pieces around it, which keep its tone and are not charged', async () => {
+  const written = new Map<string, string>()
+  await elevenLabs.synthesize(toolkitAnswering({ audio_base64: 'UklGRg==' }, [], written), {
+    speakableWords: ['Ensuite,', 'on', 'fusionne.'],
+    options,
+    language: 'fr',
+    speed: 1,
+    machine,
+    outputPathWithoutExtension: '/tmp/answer-3-1',
+    previousText: 'La CI est verte.',
+    nextText: 'Puis on publie.',
+  })
+  const body = JSON.parse(written.get('/tmp/answer-3-1.request.json') ?? '{}')
+  expect([body.text, body.previous_text, body.next_text]).toEqual(['Ensuite, on fusionne.', 'La CI est verte.', 'Puis on publie.'])
 })

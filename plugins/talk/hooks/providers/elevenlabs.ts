@@ -58,6 +58,9 @@ async function synthesize(toolkit: VoiceToolkit, request: SynthesisRequest<Eleve
     model_id: options.model,
     language_code: request.language,
     voice_settings: { speed: request.speed },
+    // Not counted in the characters charged.
+    ...(request.previousText === null ? {} : { previous_text: request.previousText }),
+    ...(request.nextText === null ? {} : { next_text: request.nextText }),
     ...(options.pronunciationDictionaries.length === 0
       ? {}
       : { pronunciation_dictionary_locators: options.pronunciationDictionaries.map(id => ({ pronunciation_dictionary_id: id })) }),
@@ -96,7 +99,8 @@ export const elevenLabs: VoiceProvider<ElevenLabsOptions, null> = {
   },
   // ElevenLabs refuses any other speed.
   speedRange: { min: 0.7, max: 1.2 },
-  chunking: { maxCharacters: 2_400, isFirstSentenceAlone: false },
+  // Told the text around each piece, it keeps one tone over short pieces.
+  chunking: { maxCharacters: 320, isFirstSentenceAlone: true },
   isRespellingEnglish: false,
   commandsLookedFor: [],
   optionsOf,
