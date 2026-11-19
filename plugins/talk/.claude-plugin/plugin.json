@@ -51,6 +51,12 @@
       "description": "Speaking rate, 1 for normal.",
       "default": 1
     },
+    "spokenVersion": {
+      "type": "boolean",
+      "title": "Spoken version",
+      "description": "Before an answer is read, a fast model (Haiku) turns it into what a voice would say: the substance without the detail, code, JSON and paths named rather than read. The whole answer stays on screen. Off, the answer is read as written, cleaned of code blocks.",
+      "default": true
+    },
     "autoInstall": {
       "type": "boolean",
       "title": "Install the local voice",

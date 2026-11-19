@@ -7,12 +7,16 @@ import { isVoiceShownBy, speedsOf, thinkingLineOf, visibleTokensOf, voiceListLay
 
 const readingOf = (text: string, currentWordIndex: number): Reading => ({ tokens: tokensOf(text), currentWordIndex, phase: 'speaking', engine: 'piper', error: null })
 
-test('an answer too long for the band is shown from the sentence being read on', async () => {
-  const reading = readingOf('First sentence here. Second one now. Third.', 4)
-  const textOf = (columns: number, rows: number) => visibleTokensOf(reading, columns, rows).map(token => token.text).join('')
+test('an answer too long for the band is shown a page of rows at a time, standing still until the reading leaves it', async () => {
+  const textOf = (currentWordIndex: number, columns: number, rows: number) =>
+    visibleTokensOf(readingOf('First sentence here. Second one now. Third.', currentWordIndex), columns, rows)
+      .map(token => token.text)
+      .join('')
 
-  expect(textOf(80, 3)).toBe('First sentence here. Second one now. Third.')
-  expect(textOf(20, 2)).toBe('Second one now. Third.')
+  expect(textOf(4, 80, 3)).toBe('First sentence here. Second one now. Third.')
+  expect(textOf(0, 20, 2)).toBe('First sentence here. Second one now. ')
+  expect(textOf(4, 20, 2)).toBe('First sentence here. Second one now. ')
+  expect(textOf(6, 20, 2)).toBe('Third.')
 })
 
 test('the wait for the next answer pulses as Claude Code thinks, its word changing every few steps', async () => {

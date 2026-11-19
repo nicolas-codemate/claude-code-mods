@@ -1,4 +1,5 @@
 import type { SpokenToken } from '../types'
+import type { Chunking } from './providers/synthesis'
 
 const FENCED_BLOCK = /^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm
 const UNCLOSED_FENCED_BLOCK = /^(```|~~~)[\s\S]*$/m
@@ -17,6 +18,9 @@ const IMAGE = /!\[([^\]]*)\]\([^)]*\)/g
 const LINK = /\[([^\]]+)\]\([^)]*\)/g
 const BARE_URL = /\bhttps?:\/\/\S+/g
 const INLINE_CODE = /`([^`]+)`/g
+// JSON shown outside a code block, a line of it at a time: a brace or bracket alone, or a quoted key and its value.
+const JSON_LINE = /^[ \t]*(?:[{}[\]][ \t,{}[\]]*|"[^"\n]*"[ \t]*:.*|[{[].*[}\]],?)[ \t]*$/gm
+const looksLikeJson = (code: string): boolean => /^[\s]*[{[]/.test(code) && /[:,"]/.test(code)
 const STRONG_EMPHASIS = /(\*\*|__)(.+?)\1/g
 const EMPHASIS = /(^|[\s(])[*_](\S(?:.*?\S)?)[*_](?=[\s).,;:!?]|$)/gm
 const SENTENCE_END = /[.!?…:]["»)\]]*$/
@@ -27,6 +31,7 @@ export const spokenTextOf = (markdown: string): string =>
     .replace(FENCED_BLOCK, '')
     .replace(UNCLOSED_FENCED_BLOCK, '')
     .replace(TABLE_LINE, '')
+    .replace(JSON_LINE, '')
     .replace(SOURCES_HEADING, '')
     .replace(LINKED_LIST_ITEM, '')
     .replace(HTML_COMMENT, '')
@@ -38,7 +43,7 @@ export const spokenTextOf = (markdown: string): string =>
     .replace(IMAGE, '$1')
     .replace(LINK, '$1')
     .replace(BARE_URL, '')
-    .replace(INLINE_CODE, '$1')
+    .replace(INLINE_CODE, (_code, content: string) => (looksLikeJson(content) ? '' : content))
     .replace(STRONG_EMPHASIS, '$2')
     .replace(EMPHASIS, '$1$2')
     .replace(/[ \t]+$/gm, '')
@@ -60,19 +65,39 @@ export const textOfTokens = (tokens: readonly SpokenToken[]): string => tokens.m
 export const wordsOf = (tokens: readonly SpokenToken[]): string[] =>
   tokens.filter(token => token.wordIndex !== null).map(token => token.text)
 
-// Groups the words into the pieces sent one by one to the voice: the first sentence alone so the voice starts soon (unless
-// isFirstSentenceAlone is false), then whole sentences of at least half maxCharacters each, synthesized while the
-// previous piece plays.
-export const chunksOf = (words: readonly string[], maxCharacters: number, isFirstSentenceAlone = true): string[][] => {
+// The words that end a paragraph, by their index: those a blank line follows, and the last one.
+export const paragraphEndsOf = (tokens: readonly SpokenToken[]): Set<number> => {
+  const ends = new Set<number>()
+  let lastWordIndex: number | null = null
+  for (const token of tokens) {
+    if (token.wordIndex !== null) lastWordIndex = token.wordIndex
+    else if (lastWordIndex !== null && token.text.includes('\n\n')) ends.add(lastWordIndex)
+  }
+  if (lastWordIndex !== null) ends.add(lastWordIndex)
+  return ends
+}
+
+// Groups the words into the pieces sent one by one to the voice, as Chunking says: a piece ends on a paragraph's end,
+// or else on a sentence's end once it holds half maxCharacters (the first sentence alone when asked); a piece past
+// maxCharacters ends on its next sentence, and one with no sentence end past one and a half times it.
+export const chunksOf = (
+  words: readonly string[],
+  chunking: Chunking,
+  paragraphEnds: ReadonlySet<number> = new Set(),
+): string[][] => {
+  const { maxCharacters, isFirstSentenceAlone, isCutAtParagraphs } = chunking
   const chunks: string[][] = []
   let current: string[] = []
   let currentLength = 0
-  for (const word of words) {
+  for (const [wordIndex, word] of words.entries()) {
     current.push(word)
     currentLength += word.length + 1
     const isSentenceEnd = SENTENCE_END.test(word)
-    const limit = chunks.length === 0 && isFirstSentenceAlone ? 0 : maxCharacters / 2
-    if ((isSentenceEnd && currentLength >= limit) || currentLength >= maxCharacters * 1.5) {
+    const isFirstPiece = chunks.length === 0
+    const isPieceEnd = isCutAtParagraphs
+      ? paragraphEnds.has(wordIndex) || (isFirstPiece && isFirstSentenceAlone && isSentenceEnd) || (isSentenceEnd && currentLength >= maxCharacters)
+      : isSentenceEnd && currentLength >= (isFirstPiece && isFirstSentenceAlone ? 0 : maxCharacters / 2)
+    if (isPieceEnd || currentLength >= maxCharacters * 1.5) {
       chunks.push(current)
       current = []
       currentLength = 0

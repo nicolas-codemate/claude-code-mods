@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { chunksOf, sentenceStartOf, spokenTextOf, tokensOf, wordsOf } from './spoken-text'
+import { chunksOf, paragraphEndsOf, sentenceStartOf, spokenTextOf, tokensOf, wordsOf } from './spoken-text'
 
 test('the voice reads the prose of an answer and leaves code, tables and Markdown marks to the screen', async () => {
   const answer = [
@@ -43,8 +43,8 @@ test('the tokens number the words and keep the spaces between them', async () =>
 test('the first sentence goes to the voice alone, the next ones together', async () => {
   const words = 'One. Two words here. Three words there. Four.'.split(' ')
 
-  expect(chunksOf(words, 30)).toEqual([['One.'], ['Two', 'words', 'here.'], ['Three', 'words', 'there.'], ['Four.']])
-  expect(chunksOf(words, 80)).toEqual([['One.'], ['Two', 'words', 'here.', 'Three', 'words', 'there.', 'Four.']])
+  expect(chunksOf(words, { maxCharacters: 30, isFirstSentenceAlone: true, isCutAtParagraphs: false })).toEqual([['One.'], ['Two', 'words', 'here.'], ['Three', 'words', 'there.'], ['Four.']])
+  expect(chunksOf(words, { maxCharacters: 80, isFirstSentenceAlone: true, isCutAtParagraphs: false })).toEqual([['One.'], ['Two', 'words', 'here.', 'Three', 'words', 'there.', 'Four.']])
 })
 
 test('a reading taken up again starts from the sentence it was in', async () => {
@@ -72,9 +72,28 @@ test('sources and links listed after an answer are shown, not read', async () =>
 test('a voice that reads the answer whole gets it in one piece, its first sentence not apart', async () => {
   const words = 'One. Two words here. Three words there. Four.'.split(' ')
 
-  expect(chunksOf(words, 2_400, false)).toEqual([words])
+  expect(chunksOf(words, { maxCharacters: 2_400, isFirstSentenceAlone: false, isCutAtParagraphs: false })).toEqual([words])
 })
 
 test('the guidance a pull request template leaves in HTML comments is not read', async () => {
   expect(spokenTextOf('<!-- Describe the change -->\nAdds the tax.\n<!--\nChecklist\n-->')).toBe('Adds the tax.')
+})
+
+test('a voice told the text around a piece gets a paragraph at a time, a long one cut at the end of a sentence', async () => {
+  const tokens = tokensOf('First idea here. Still the first.\n\nSecond paragraph, short.\n\nA third one that runs long. It goes on and on.')
+  const pieces = chunksOf(wordsOf(tokens), { maxCharacters: 20, isFirstSentenceAlone: false, isCutAtParagraphs: true }, paragraphEndsOf(tokens))
+
+  expect(pieces.map(piece => piece.join(' '))).toEqual([
+    'First idea here. Still the first.',
+    'Second paragraph, short.',
+    'A third one that runs long.',
+    'It goes on and on.',
+  ])
+})
+
+test('JSON shown outside a code block is not read, a line or an inline span of it', async () => {
+  const answer = ['Here is the payload:', '{', '  "id": 3,', '  "tags": ["a", "b"]', '}', 'and the short one `{"ok": true}` too.'].join('\n')
+
+  expect(spokenTextOf(answer)).toBe('Here is the payload:\n\nand the short one  too.')
+  expect(spokenTextOf('Use `findAll` here.')).toBe('Use findAll here.')
 })

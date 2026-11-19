@@ -75,6 +75,25 @@ const FRENCH_LETTER_NAMES: Readonly<Record<string, string>> = {
 
 const WORD_CORE = /^([^\p{L}\p{N}]*)(.*?)([^\p{L}\p{N}]*)$/u
 
+// A word in capitals is spelled as people say it: one of two or three letters (API, URL), or one with no vowel to read
+// (HTML, SQL), is spelled; a longer one with vowels (COVID, NASA, JSON) is read as a word.
+export const isSpelledAcronym = (word: string): boolean => /^\p{Lu}{2,}$/u.test(word) && (word.length <= 3 || !/[AEIOU]/.test(word))
+
+// The letters of a spelled acronym as the voice must say them: a French voice reads `YT` as a word, it is given the
+// letters' names; the others take the letters apart.
+const spelledLettersOf = (acronym: string, language: TalkLanguage): string => {
+  const letters = [...acronym.toLowerCase()]
+  switch (language) {
+    case 'fr':
+      return letters.map(letter => FRENCH_LETTER_NAMES[letter] ?? letter).join(' ')
+    case 'en':
+    case 'es':
+    case 'de':
+    case 'it':
+      return letters.join(' ').toUpperCase()
+  }
+}
+
 // findByUserId, user_subscriptions and feature-flag are read as the words they are made of.
 export const isCodeIdentifier = (word: string): boolean => /[_]/.test(word) || /^\p{Ll}+\p{Lu}/u.test(word)
 
@@ -88,7 +107,7 @@ export const identifierPartsOf = (identifier: string): string[] =>
 const frenchRespellingOf = (part: string): string => {
   const respelled = FRENCH_RESPELLINGS[part.toLowerCase()]
   if (respelled !== undefined) return respelled
-  if (/^\p{Lu}{2,5}$/u.test(part)) return [...part.toLowerCase()].map(letter => FRENCH_LETTER_NAMES[letter] ?? letter).join(' ')
+  if (isSpelledAcronym(part)) return spelledLettersOf(part, 'fr')
   return part
 }
 
@@ -133,6 +152,8 @@ const PATH_WORD = new RegExp(
 // An extension follows a name: `.claude` alone is a hidden folder.
 const NAMES_A_FILE = new RegExp(`[^\\\\/.][^\\\\/]*${EXTENSION}$|${LINE_NUMBER}$`)
 
+const TICKET_REFERENCE = /^([A-Z][A-Z0-9]{0,9})-(\d{2,})$/
+
 const PATH_WORDS: Readonly<Record<TalkLanguage, { file: string; folder: string }>> = {
   fr: { file: 'ce fichier', folder: 'ce dossier' },
   en: { file: 'this file', folder: 'this folder' },
@@ -151,6 +172,14 @@ export const speakableWordOf = (word: string, language: TalkLanguage, isRespelli
     return `${pathLeading}${NAMES_A_FILE.test(pathCore) ? PATH_WORDS[language].file : PATH_WORDS[language].folder}${pathTrailing}`
   }
   const [, leading = '', core = '', trailing = ''] = WORD_CORE.exec(word) ?? []
+  // A ticket's reference (`YT-7703`): its dash read as a minus, its number as thousands; its letters, then its digits
+  // two by two, are heard as a reference.
+  const ticket = TICKET_REFERENCE.exec(core)
+  if (ticket !== null) {
+    const key = ticket[1] ?? ''
+    const spokenKey = isSpelledAcronym(key) ? spelledLettersOf(key, language) : key
+    return `${leading}${spokenKey} ${(ticket[2] ?? '').match(/\d{1,2}/g)?.join(' ') ?? ''}${trailing}`
+  }
   if (core === '' || /^\p{N}/u.test(core)) return word
   const respell = isRespellingEnglish ? RESPELLING_BY_LANGUAGE[language] : null
   const spoken = respell === null ? splitIdentifier(core) : respellWord(core, respell)

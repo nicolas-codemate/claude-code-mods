@@ -66,7 +66,7 @@ export const openAi: VoiceProvider<OpenAiOptions, null> = {
   voiceOptionField: 'openaiVoice',
   models: null,
   speedRange: { min: 0.5, max: 2 },
-  chunking: { maxCharacters: 2_400, isFirstSentenceAlone: false },
+  chunking: { maxCharacters: 2_400, isFirstSentenceAlone: false, isCutAtParagraphs: false },
   isRespellingEnglish: false,
   commandsLookedFor: [],
   optionsOf,

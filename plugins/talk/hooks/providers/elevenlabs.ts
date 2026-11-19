@@ -100,7 +100,7 @@ export const elevenLabs: VoiceProvider<ElevenLabsOptions, null> = {
   // ElevenLabs refuses any other speed.
   speedRange: { min: 0.7, max: 1.2 },
   // Told the text around each piece, it keeps one tone over short pieces.
-  chunking: { maxCharacters: 320, isFirstSentenceAlone: true },
+  chunking: { maxCharacters: 900, isFirstSentenceAlone: false, isCutAtParagraphs: true },
   isRespellingEnglish: false,
   commandsLookedFor: [],
   optionsOf,

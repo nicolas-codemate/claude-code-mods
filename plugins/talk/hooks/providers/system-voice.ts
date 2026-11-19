@@ -43,7 +43,7 @@ export const systemVoice: VoiceProvider<SystemVoiceOptions, SystemVoiceCommand |
   voiceOptionField: null,
   models: null,
   speedRange: { min: 0.5, max: 2 },
-  chunking: { maxCharacters: 260, isFirstSentenceAlone: true },
+  chunking: { maxCharacters: 260, isFirstSentenceAlone: true, isCutAtParagraphs: false },
   isRespellingEnglish: true,
   commandsLookedFor: COMMANDS,
   optionsOf: async () => ({}),

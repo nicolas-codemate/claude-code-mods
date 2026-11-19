@@ -3,7 +3,7 @@ import type { EngineInterface, RenderChildren, RenderInput } from 'claude-code'
 import type { EngineAvailability, Installation, Reading, ReadingPhase, SettingName, SpokenToken, TalkEngineName, TalkLanguage, VoiceCatalog, VoiceChoice, VoiceDownload, VoiceFilter, Spending, Credits } from '../../types'
 import { AUTO_ENGINE_ORDER, costLabelOf, effectiveSpeedOf, engineLabelOf, fallbackVoiceLabelOf, modelChoicesOf, speedRangeOf } from '../engines'
 import { isLanguage, languageNameOf, LANGUAGES } from '../languages'
-import { sentenceStartOf, textOfTokens, wordsOf } from '../spoken-text'
+import { textOfTokens } from '../spoken-text'
 import type { Palette } from './theme'
 
 export type BandActions = {
@@ -108,19 +108,24 @@ const textRowsOf = (text: string, columns: number): number => {
 }
 
 
-// The whole answer when it fits the rows the band is given; otherwise from the sentence being read on, as much of it as
-// the rows hold, so that the band never grows past what Claude Code gives it.
+// The whole answer when it fits the rows the band is given; otherwise the page of rows holding the word being read, so
+// that the text stands still until the reading reaches the band's last row, then turns to the next page.
 export const visibleTokensOf = (reading: Reading, columns: number, rows: number): SpokenToken[] => {
   if (rows <= 0) return []
   if (textRowsOf(textOfTokens(reading.tokens), columns) <= rows) return reading.tokens
-  const firstWord = sentenceStartOf(wordsOf(reading.tokens), Math.max(0, reading.currentWordIndex))
-  const fromSentence = reading.tokens.slice(Math.max(0, reading.tokens.findIndex(token => token.wordIndex === firstWord)))
-  const kept: SpokenToken[] = []
-  for (const token of fromSentence) {
-    if (textRowsOf(textOfTokens([...kept, token]), columns) > rows) break
-    kept.push(token)
-  }
-  return kept
+  let shownText = ''
+  const rowOfToken = reading.tokens.map(token => {
+    shownText += token.text
+    return textRowsOf(shownText, columns) - 1
+  })
+  const currentTokenIndex = Math.max(0, reading.tokens.findIndex(token => token.wordIndex === reading.currentWordIndex))
+  const pageFirstRow = Math.floor((rowOfToken[currentTokenIndex] ?? 0) / rows) * rows
+  const pageTokens = reading.tokens.filter((_, tokenIndex) => {
+    const row = rowOfToken[tokenIndex] ?? 0
+    return row >= pageFirstRow && row < pageFirstRow + rows
+  })
+  // A page opens on a word, not on the space that wrapped it there.
+  return pageTokens[0]?.wordIndex === null ? pageTokens.slice(1) : pageTokens
 }
 
 const PROGRESS_BAR_COLUMNS = 24

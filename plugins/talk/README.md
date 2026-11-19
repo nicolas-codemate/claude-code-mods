@@ -26,8 +26,11 @@ Built for my own use and mostly tested on Linux: [issues and pull requests](../.
 | `/talk status` | Lists the voices this machine can use, and why the others cannot |
 | `/talk setup` | Installs the local voice, Piper, and a voice of the language |
 
-Speak with Claude Code's dictation, `/voice` (hold the space bar); typing or dictating cuts the voice short. Code and
-commands stay on screen, never read. The band's bottom line opens the engine, voice, speed and language.
+Speak with Claude Code's dictation, `/voice` (hold the space bar); typing or dictating cuts the voice short. The answer
+stays whole on screen, and a fast model (Haiku) first turns it into what a voice would say: the gist without the
+detail, code, JSON and paths named rather than read (the `Spoken version` option turns it off). In German, "this file"
+and "this folder" are not declined after a preposition. The band's bottom line opens the engine, voice, speed and
+language.
 
 ![The engines open above the settings line, ElevenLabs selected until Apply](docs/media/engine-settings.png)
 
