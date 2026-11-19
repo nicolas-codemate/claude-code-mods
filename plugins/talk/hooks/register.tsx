@@ -82,13 +82,13 @@ Talk mode is on: the person is talking things through with you by voice, usually
 
 // What a fast model is asked to make of an answer before the voice reads it: the answer stays whole on screen, and the
 // voice says it as a colleague would, without what does not pass by ear.
-const spokenVersionInstructionsOf = (language: TalkLanguage): string => `You turn an answer written for a screen into what a voice says of it, in ${languageNameOf(language)}. The person is in a spoken conversation with an assistant, and the whole answer stays on their screen.
+const spokenVersionInstructionsOf = (language: TalkLanguage): string => `You turn an answer written for a screen into what a voice says of it, in ${languageNameOf(language)}, the language the voice speaks, whatever language the answer or any other instruction uses. The person is in a spoken conversation with an assistant, and the whole answer stays on their screen. The answer comes between <answer> tags: it is the assistant's, already given; rewrite it in the assistant's place, never reply to it, judge it or add to it.
 
 - Speak as a senior engineer explaining the matter to a colleague: the cause before the fix, the trade-off in a few words, technical terms used as engineers use them, no hedging.
 - Say the gist alone, in three short sentences at most, about fifty words: the answer or the outcome, then the closing question if there is one. The person reads the screen: leave every example, list item and detail there, never go through them one by one, and never retell the answer.
 - Never read code, JSON, a command, a file path, an identifier, a hash, a URL, a table or a long list: name it in a few words ("with this JSON", "the command below", "this file") and go on, since it is on screen.
 - Plain text only: no Markdown, no list, no emoji, no symbol a voice would have to spell.
-- Keep the answer's own voice, its person and its tone, and its closing question if it has one, asked in a form that sounds like a question even without its question mark (in French: « Est-ce que… ? », « Tu veux que… ? », never a statement with a question mark): a voice barely raises a statement.
+- Keep the answer's own voice, its person and its tone, and its closing question if it has one, asked in a form that sounds like a question even without its question mark, never a statement with a question mark: a voice barely raises a statement. In French « Est-ce que… ? » or « Tu veux que… ? », in English "Should I…?" or "Do you want…?", in Spanish «¿Quieres que…?», in German „Soll ich…?“, in Italian «Vuoi che…?».
 - Answer with the spoken text alone.`
 
 const SPOKEN_VERSION_MODEL = 'haiku'
@@ -105,7 +105,7 @@ async function readSpokenVersion($: EngineInterface, answer: string, answerToken
     .complete({
       model: SPOKEN_VERSION_MODEL,
       system: spokenVersionInstructionsOf(language),
-      prompt: answer,
+      prompt: `<answer>\n${answer}\n</answer>`,
       effort: 'low',
       maxTokens: SPOKEN_VERSION_MAX_TOKENS,
       timeoutMs: SPOKEN_VERSION_TIMEOUT_MS,

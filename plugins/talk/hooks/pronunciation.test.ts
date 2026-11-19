@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { identifierPartsOf, speakableWordOf } from './pronunciation'
+import { identifierPartsOf, isSpelledAcronym, speakableWordOf } from './pronunciation'
 
 test('an identifier is read as the words it is made of', async () => {
   expect(identifierPartsOf('findByUserId')).toEqual(['find', 'By', 'User', 'Id'])
@@ -53,8 +53,19 @@ test('a very long word with slashes is told apart from a path at once', async ()
 })
 
 test('a ticket\'s reference is read as its letters, then its digits two by two', async () => {
-  expect(speakableWordOf('YT-7703.', 'fr', false)).toBe('YT 77 03.')
+  expect(speakableWordOf('YT-7703.', 'fr', false)).toBe('i grec té 77 03.')
+  expect(speakableWordOf('YT-7703', 'en', false)).toBe('Y T 77 03')
   expect(speakableWordOf('(JIRA-12345)', 'en', false)).toBe('(JIRA 12 34 5)')
   expect(speakableWordOf('COVID-19', 'fr', false)).toBe('COVID 19')
   expect(speakableWordOf('UTF-8', 'fr', false)).toBe('UTF-8')
+})
+
+test('a word in capitals is spelled when people spell it, read when they read it', async () => {
+  expect(['API', 'URL', 'YT', 'HTML', 'SQL', 'HTTP'].filter(isSpelledAcronym)).toEqual(['API', 'URL', 'YT', 'HTML', 'SQL', 'HTTP'])
+  expect(['COVID', 'NASA', 'JSON', 'SEPA', 'Api', 'A'].filter(isSpelledAcronym)).toEqual([])
+  // A cloud voice keeps the word itself, for the account's pronunciation dictionary to find; a local French voice is
+  // given the letters' names.
+  expect(speakableWordOf('CI', 'fr', false)).toBe('CI')
+  expect(speakableWordOf('HTML', 'fr', true)).toBe('ache té ème èle')
+  expect(speakableWordOf('COVID', 'fr', true)).toBe('COVID')
 })

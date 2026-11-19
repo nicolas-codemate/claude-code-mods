@@ -526,7 +526,7 @@ test('an answer is read as a fast model says it, the whole answer left on screen
   const answering = $.turn.complete({ answer, durationMs: 10, isAborted: false, turnId: 'turn-1', reason: 'answer' })
   await clock.advance(500)
 
-  expect(asked).toEqual([{ model: 'haiku', prompt: answer }])
+  expect(asked).toEqual([{ model: 'haiku', prompt: `<answer>\n${answer}\n</answer>` }])
   expect((await band.find({ type: 'Text', text: /JSON/ }))?.text).toBe('On garde le cache, avec ce JSON.')
   await clock.advance(20_000)
   await answering
