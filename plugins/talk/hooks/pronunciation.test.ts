@@ -51,3 +51,10 @@ test('a very long word with slashes is told apart from a path at once', async ()
   speakableWordOf(`${'a.'.repeat(20_000)}/b`, 'fr', false)
   expect(Date.now() - startedAt).toBeLessThan(500)
 })
+
+test('a ticket\'s reference is read as its letters, then its digits two by two', async () => {
+  expect(speakableWordOf('YT-7703.', 'fr', false)).toBe('YT 77 03.')
+  expect(speakableWordOf('(JIRA-12345)', 'en', false)).toBe('(JIRA 12 34 5)')
+  expect(speakableWordOf('COVID-19', 'fr', false)).toBe('COVID 19')
+  expect(speakableWordOf('UTF-8', 'fr', false)).toBe('UTF-8')
+})

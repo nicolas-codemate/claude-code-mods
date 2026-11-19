@@ -133,6 +133,8 @@ const PATH_WORD = new RegExp(
 // An extension follows a name: `.claude` alone is a hidden folder.
 const NAMES_A_FILE = new RegExp(`[^\\\\/.][^\\\\/]*${EXTENSION}$|${LINE_NUMBER}$`)
 
+const TICKET_REFERENCE = /^([A-Z][A-Z0-9]{0,9})-(\d{2,})$/
+
 const PATH_WORDS: Readonly<Record<TalkLanguage, { file: string; folder: string }>> = {
   fr: { file: 'ce fichier', folder: 'ce dossier' },
   en: { file: 'this file', folder: 'this folder' },
@@ -151,6 +153,10 @@ export const speakableWordOf = (word: string, language: TalkLanguage, isRespelli
     return `${pathLeading}${NAMES_A_FILE.test(pathCore) ? PATH_WORDS[language].file : PATH_WORDS[language].folder}${pathTrailing}`
   }
   const [, leading = '', core = '', trailing = ''] = WORD_CORE.exec(word) ?? []
+  // A ticket's reference (`YT-7703`): its dash read as a minus, its number as thousands; its letters, then its digits
+  // two by two, are heard as a reference.
+  const ticket = TICKET_REFERENCE.exec(core)
+  if (ticket !== null) return `${leading}${ticket[1]} ${(ticket[2] ?? '').match(/\d{1,2}/g)?.join(' ') ?? ''}${trailing}`
   if (core === '' || /^\p{N}/u.test(core)) return word
   const respell = isRespellingEnglish ? RESPELLING_BY_LANGUAGE[language] : null
   const spoken = respell === null ? splitIdentifier(core) : respellWord(core, respell)

@@ -85,14 +85,16 @@ Talk mode is on: the person is talking things through with you by voice, usually
 const spokenVersionInstructionsOf = (language: TalkLanguage): string => `You turn an answer written for a screen into what a voice says of it, in ${languageNameOf(language)}. The person is in a spoken conversation with an assistant, and the whole answer stays on their screen.
 
 - Speak as a senior engineer explaining the matter to a colleague: the cause before the fix, the trade-off in a few words, technical terms used as engineers use them, no hedging.
-- Keep the substance and leave out the detail: say the point, the outcome or the question in plain spoken sentences, as short as the answer allows and never longer than it.
+- Say the gist alone, in three short sentences at most, about fifty words: the answer or the outcome, then the closing question if there is one. The person reads the screen: leave every example, list item and detail there, never go through them one by one, and never retell the answer.
 - Never read code, JSON, a command, a file path, an identifier, a hash, a URL, a table or a long list: name it in a few words ("with this JSON", "the command below", "this file") and go on, since it is on screen.
 - Plain text only: no Markdown, no list, no emoji, no symbol a voice would have to spell.
-- Keep the answer's own voice, its person and its tone, and its closing question if it has one.
+- Keep the answer's own voice, its person and its tone, and its closing question if it has one, asked in a form that sounds like a question even without its question mark (in French: « Est-ce que… ? », « Tu veux que… ? », never a statement with a question mark): a voice barely raises a statement.
 - Answer with the spoken text alone.`
 
 const SPOKEN_VERSION_MODEL = 'haiku'
 const SPOKEN_VERSION_TIMEOUT_MS = 8_000
+// Room for the three sentences asked, and a stop to a model that would retell the whole answer.
+const SPOKEN_VERSION_MAX_TOKENS = 200
 
 // The answer as the voice says it, made by a fast model; the answer itself, cleaned, when the model does not answer.
 async function readSpokenVersion($: EngineInterface, answer: string, answerTokens: SpokenToken[]): Promise<void> {
@@ -100,7 +102,14 @@ async function readSpokenVersion($: EngineInterface, answer: string, answerToken
   if (pluginOptions.spokenVersion === false) return readTokens($, answerTokens, 0)
   const { language } = await settingsOf($, pluginOptions)
   const result = await $.model
-    .complete({ model: SPOKEN_VERSION_MODEL, system: spokenVersionInstructionsOf(language), prompt: answer, effort: 'low', timeoutMs: SPOKEN_VERSION_TIMEOUT_MS })
+    .complete({
+      model: SPOKEN_VERSION_MODEL,
+      system: spokenVersionInstructionsOf(language),
+      prompt: answer,
+      effort: 'low',
+      maxTokens: SPOKEN_VERSION_MAX_TOKENS,
+      timeoutMs: SPOKEN_VERSION_TIMEOUT_MS,
+    })
     .catch(() => null)
   // A message sent or a stop pressed while the model wrote: the answer is no longer to be read.
   if (generation !== readingGeneration) return
