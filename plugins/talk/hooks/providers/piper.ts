@@ -229,7 +229,7 @@ export const piper: VoiceProvider<PiperOptions, PiperFound> = {
   voiceOptionField: 'piperVoiceName',
   models: null,
   speedRange: { min: 0.5, max: 2 },
-  chunking: { maxCharacters: 260, isFirstSentenceAlone: true },
+  chunking: { maxCharacters: 260, isFirstSentenceAlone: true, isCutAtParagraphs: false },
   isRespellingEnglish: true,
   commandsLookedFor: ['piper'],
   optionsOf,

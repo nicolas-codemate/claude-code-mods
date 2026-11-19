@@ -33,7 +33,7 @@ import { SynthesisError } from './providers/synthesis'
 import type { Synthesis } from './providers/synthesis'
 import { voiceToolkitOf } from './providers/toolkit'
 import { speakableWordOf } from './pronunciation'
-import { chunksOf, sentenceStartOf, spokenTextOf, textOfTokens, tokensOf, wordsOf } from './spoken-text'
+import { chunksOf, paragraphEndsOf, sentenceStartOf, spokenTextOf, textOfTokens, tokensOf, wordsOf } from './spoken-text'
 import { wordAtElapsedMs } from './timing'
 import { SAMPLE_SENTENCES, TEST_SENTENCES } from './voices'
 import { renderBand, renderStartLine } from './view/band'
@@ -72,13 +72,41 @@ const voiceConversationInstructions = (language: TalkLanguage): string => `# Tal
 
 Talk mode is on: the person is talking things through with you by voice, usually to brainstorm. They dictate their messages, and your final answer of each turn is read aloud to them by a speech synthesizer while a band above their prompt highlights each word. Write every final answer to be heard, in ${languageNameOf(language)}, the language the voice speaks, whatever language the person writes in or any other instruction asks for:
 
-- Talk like a colleague thinking out loud with them: short answers, two to six sentences, one idea at a time. When you need their view, end on one question, not several.
+- Talk like a colleague thinking out loud with them, straight to the point: one to three sentences, one idea at a time. No preamble, no restating their question, no recap of what you did or will do, no filler: say the answer, the outcome or the one thing they need, and stop. When you need their view, end on one question, not several.
 - Plain spoken sentences only: no headings, tables, bullet lists, bold, emoji or links. Spell out what a symbol would say.
 - Name code (a method, a table, a class) only when the name matters; otherwise say what it does.
 - Anything that must be read rather than heard (code, a command, a file path or a file with its line number, a long list) goes in a fenced code block: it is shown on screen and never spoken, so the sentences around it must make sense without it.
 - Sources and links go last, as a list of markdown links: they are shown and never spoken, so never name a URL or a source's title in a sentence.
 - Their messages come from dictation: read misheard technical words for what they sound like.
 - Tool calls and work go on as usual; only the final answer is spoken, so keep it to what they need to hear.`
+
+// What a fast model is asked to make of an answer before the voice reads it: the answer stays whole on screen, and the
+// voice says it as a colleague would, without what does not pass by ear.
+const spokenVersionInstructionsOf = (language: TalkLanguage): string => `You turn an answer written for a screen into what a voice says of it, in ${languageNameOf(language)}. The person is in a spoken conversation with an assistant, and the whole answer stays on their screen.
+
+- Speak as a senior engineer explaining the matter to a colleague: the cause before the fix, the trade-off in a few words, technical terms used as engineers use them, no hedging.
+- Keep the substance and leave out the detail: say the point, the outcome or the question in plain spoken sentences, as short as the answer allows and never longer than it.
+- Never read code, JSON, a command, a file path, an identifier, a hash, a URL, a table or a long list: name it in a few words ("with this JSON", "the command below", "this file") and go on, since it is on screen.
+- Plain text only: no Markdown, no list, no emoji, no symbol a voice would have to spell.
+- Keep the answer's own voice, its person and its tone, and its closing question if it has one.
+- Answer with the spoken text alone.`
+
+const SPOKEN_VERSION_MODEL = 'haiku'
+const SPOKEN_VERSION_TIMEOUT_MS = 8_000
+
+// The answer as the voice says it, made by a fast model; the answer itself, cleaned, when the model does not answer.
+async function readSpokenVersion($: EngineInterface, answer: string, answerTokens: SpokenToken[]): Promise<void> {
+  const generation = readingGeneration
+  if (pluginOptions.spokenVersion === false) return readTokens($, answerTokens, 0)
+  const { language } = await settingsOf($, pluginOptions)
+  const result = await $.model
+    .complete({ model: SPOKEN_VERSION_MODEL, system: spokenVersionInstructionsOf(language), prompt: answer, effort: 'low', timeoutMs: SPOKEN_VERSION_TIMEOUT_MS })
+    .catch(() => null)
+  // A message sent or a stop pressed while the model wrote: the answer is no longer to be read.
+  if (generation !== readingGeneration) return
+  const spokenTokens = result?.isAnswered === true ? tokensOf(spokenTextOf(result.text)) : []
+  await readTokens($, spokenTokens.length > 0 ? spokenTokens : answerTokens, 0)
+}
 
 const spokenLanguageNoteOf = (language: TalkLanguage): string =>
   `Talk mode: answer in ${languageNameOf(language)}, the language the voice speaks, whatever language this message or any setting asks for.`
@@ -196,8 +224,8 @@ async function readTokens($: EngineInterface, tokens: SpokenToken[], fromWordInd
     await setReading($, reading => ({ ...reading, engine }))
     const directory = await audioDirectoryOf($)
     const isRespellingEnglish = isRespellingEnglishFor(engine)
-    const { maxCharacters, isFirstSentenceAlone } = chunkingOf(engine)
-    const chunks = chunksOf(words.slice(fromWordIndex), maxCharacters, isFirstSentenceAlone)
+    const paragraphEnds = new Set([...paragraphEndsOf(tokens)].filter(index => index >= fromWordIndex).map(index => index - fromWordIndex))
+    const chunks = chunksOf(words.slice(fromWordIndex), chunkingOf(engine), paragraphEnds)
     const firstWordIndexes = chunks.map((_, index) => fromWordIndex + chunks.slice(0, index).reduce((count, chunk) => count + chunk.length, 0))
     const speakableWordsOf = (pieceWords: readonly string[]): string[] =>
       pieceWords.map(word => speakableWordOf(word, settings.language, isRespellingEnglish))
@@ -680,7 +708,7 @@ export const register: Register = (on, options) => {
       const tokens = tokensOf(spokenTextOf(e.answer))
       if (tokens.length > 0) {
         await setReading($, () => ({ tokens, currentWordIndex: -1, phase: 'synthesizing', engine: null, error: null }))
-        void readTokens($, tokens, 0)
+        void readSpokenVersion($, e.answer, tokens)
       }
     }
     return completed

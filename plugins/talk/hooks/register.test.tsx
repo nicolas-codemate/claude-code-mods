@@ -508,3 +508,50 @@ test('a sample that fails says why, and gives the answer back', async ($, on) =>
   expect((await band.find({ type: 'Text', text: /cache/ }))?.text).toBe('On garde le cache.')
   await band.unmount()
 })
+
+test('an answer is read as a fast model says it, the whole answer left on screen', async ($, on) => {
+  const clock = mock.clock(on)
+  const asked: { model: string; prompt: string }[] = []
+  standInForTheEngine(on)
+  machineWithPiper(on, clock)
+  on('model.complete', async (_, e) => {
+    asked.push({ model: e.model, prompt: e.prompt })
+    return { value: { isAnswered: true, text: 'On garde le cache, avec ce JSON.', usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } } as never
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'talk', args: '', ...TYPED_AT_PROMPT })
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const answer = 'On garde le cache.\n\n{\n  "ttl": 60\n}'
+  const answering = $.turn.complete({ answer, durationMs: 10, isAborted: false, turnId: 'turn-1', reason: 'answer' })
+  await clock.advance(500)
+
+  expect(asked).toEqual([{ model: 'haiku', prompt: answer }])
+  expect((await band.find({ type: 'Text', text: /JSON/ }))?.text).toBe('On garde le cache, avec ce JSON.')
+  await clock.advance(20_000)
+  await answering
+  await band.unmount()
+})
+
+test('with the spoken version off, the answer is read as written', { options: { spokenVersion: false } }, async ($, on) => {
+  const clock = mock.clock(on)
+  let isModelAsked = false
+  standInForTheEngine(on)
+  machineWithPiper(on, clock)
+  on('model.complete', async () => {
+    isModelAsked = true
+    return { value: { isAnswered: false, reason: 'empty-reply', usage: {} } } as never
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'talk', args: '', ...TYPED_AT_PROMPT })
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const answering = $.turn.complete({ answer: 'On garde le cache.', durationMs: 10, isAborted: false, turnId: 'turn-1', reason: 'answer' })
+  await clock.advance(500)
+
+  expect(isModelAsked).toBe(false)
+  expect((await band.find({ type: 'Text', text: /cache/ }))?.text).toBe('On garde le cache.')
+  await clock.advance(20_000)
+  await answering
+  await band.unmount()
+})

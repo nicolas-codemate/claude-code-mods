@@ -28,10 +28,12 @@ export type Machine<Found> = { platform: string; wavPlayer: readonly string[] | 
 
 export const NO_AUDIO_PLAYER = 'no audio player found (pw-play, paplay, aplay, afplay or ffplay)'
 
-// How an answer is cut into the pieces sent to the voice: the first sentence alone, to start soon, then pieces made
-// while the one before plays, so that a stop leaves at most one piece made for nothing. A cloud voice that cannot be
-// told the text around a piece gets the answer whole: short pieces made its pace change from one to the next.
-export type Chunking = { maxCharacters: number; isFirstSentenceAlone: boolean }
+// How an answer is cut into the pieces sent to the voice, each made while the one before plays, so that a stop leaves at
+// most one piece made for nothing: a local voice gets the first sentence alone, to start soon, then sentences; a voice
+// told the text around a piece gets a paragraph at a time, which it reads as one; a cloud voice that cannot be told it
+// gets the answer whole, short pieces making its pace change from one to the next. A piece grows past maxCharacters
+// only to end its sentence.
+export type Chunking = { maxCharacters: number; isFirstSentenceAlone: boolean; isCutAtParagraphs: boolean }
 
 export type SpeedRange = { min: number; max: number }
 
