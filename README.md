@@ -10,6 +10,7 @@ Mods for [Claude Code](https://code.claude.com), installed as plugins.
 | --- | --- |
 | [diff-review](plugins/diff-review) | Review pane for uncommitted changes, the pull request or one commit at a time: ask Claude about any line, read and settle GitHub review threads, all from the keyboard (terminal only) |
 | [talk](plugins/talk) | Voice conversation mode: talk things through with Claude, its answers read aloud by a local or cloud voice and highlighted word by word above the prompt |
+| [code-nav](plugins/code-nav) | Read-only code navigation pane: find a file, a class or a method by a few letters, click a name to go to its declaration, list usages and implementations, with nothing to index; Claude opens it when you ask to see some code (terminal only) |
 
 **Personal tools.** These mods were built for my own use and are mostly tested on my own machine, under Linux. Another
 system, terminal or way of working may well bring out bugs I have never met. If you hit one, an
