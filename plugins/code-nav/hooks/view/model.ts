@@ -27,7 +27,7 @@ import {
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_TABS_SHARE,
 } from '../constants'
-import { displayRowOf } from '../display-row'
+import { displayRowOf, drawnWidthOf } from '../display-row'
 import type { TreeRow } from '../file-tree'
 import type { ColumnRange, DisplayPiece } from '../display-row'
 import { canGoBack, canGoForward } from '../navigation-history'
@@ -237,6 +237,8 @@ const PALETTE_SIDE_MARGIN = 2
 const PALETTE_CHROME_ROWS = 4
 // Rows left free above and below the structure of the file, the code showing around it.
 const STRUCTURE_VERTICAL_MARGIN = 2
+// Scrolled to its end, a long line stops two columns short of the right edge, clear of where its cut mark would stand.
+export const SIDEWAYS_SCROLL_MARGIN_COLUMNS = 2
 
 // The search over the project and the text search open over the top of the pane; the structure of the file stands in
 // the middle of the code it lists.
@@ -493,6 +495,15 @@ function clickHintOf(piece: DisplayPiece, namesDeclaredOnLine: ReadonlySet<strin
   return namesDeclaredOnLine?.has(piece.text) ? 'usages' : 'definition'
 }
 
+// The code stays scrolled sideways no further than the widest line drawn needs: past it, every row would draw empty,
+// with no mark left to scroll back from, once that line is edited shorter or scrolled out of sight.
+function scrolledColumnsKeepingWidestLineInSight(drawnLines: readonly string[], codeColumns: number, scrolledColumns: number): number {
+  const widestDrawnColumns = drawnLines.reduce((widestSoFar, lineText) => Math.max(widestSoFar, drawnWidthOf(lineText)), 0)
+  const furthestUsefulScroll = widestDrawnColumns <= codeColumns ? 0 : widestDrawnColumns - codeColumns + SIDEWAYS_SCROLL_MARGIN_COLUMNS
+
+  return Math.min(scrolledColumns, furthestUsefulScroll)
+}
+
 export function buildPaneModel(snapshot: PaneSnapshot, room: PaneRoom): PaneModel {
   const { file } = snapshot
   const lineCount = file?.lines.length ?? 0
@@ -530,10 +541,11 @@ export function buildPaneModel(snapshot: PaneSnapshot, room: PaneRoom): PaneMode
   const paletteBox = paletteBoxOf(snapshot.palette?.mode ?? null, { ...room, middleTop, middleRows, codeAreaLeft, codeAreaColumns })
   const paletteShownItems = paletteBox.shownItems
 
+  const lastLine = Math.min(lineCount, firstLine + codeRows - 1)
+  const scrolledColumns = scrolledColumnsKeepingWidestLineInSight(file?.lines.slice(firstLine - 1, lastLine) ?? [], codeColumns, snapshot.scrolledColumns)
   const shownCodeRows: CodeRow[] = []
   if (file !== null) {
     const matchesByLine = matchesByLineOf(snapshot, file.path)
-    const lastLine = Math.min(lineCount, firstLine + codeRows - 1)
     for (let lineNumber = firstLine; lineNumber <= lastLine; lineNumber += 1) {
       shownCodeRows.push({
         lineNumber,
@@ -544,7 +556,7 @@ export function buildPaneModel(snapshot: PaneSnapshot, room: PaneRoom): PaneMode
           file.tokensByLine[lineNumber - 1] ?? [],
           highlightsOfLine(snapshot, matchesByLine, file.path, lineNumber),
           codeColumns,
-          snapshot.scrolledColumns,
+          scrolledColumns,
         ).map(piece => ({ ...piece, clickHint: clickHintOf(piece, snapshot.declaredNamesByLine.get(lineNumber)) })),
       })
     }
@@ -597,7 +609,7 @@ export function buildPaneModel(snapshot: PaneSnapshot, room: PaneRoom): PaneMode
     textSearchStatus: textSearchStatusOf(snapshot.resultsPanel),
     isCodeDimmed: snapshot.peek !== null || paletteBox.height !== null,
     selectedLines: snapshot.selectedLines,
-    scrolledColumns: snapshot.scrolledColumns,
+    scrolledColumns,
     bookmarkCount: snapshot.bookmarkCount,
     breadcrumb: snapshot.breadcrumb,
     peek: snapshot.peek === null ? null : peekViewOf(snapshot.peek, peekCodeRows, codeAreaColumns - 2 * PEEK_FRAME_THICKNESS),

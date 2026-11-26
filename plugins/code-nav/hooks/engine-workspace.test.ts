@@ -42,3 +42,8 @@ test('a search names the directory searched, and reads what git ignores only whe
   expect(dependencySearch.includes('--no-ignore')).toBe(true)
   expect(dependencySearch.slice(-5)).toEqual(['--glob', '*.php', '--regexp', 'function save', 'vendor'])
 })
+
+test('a search keeps the case of what it looks for unless asked to ignore it', async () => {
+  expect(searchArgumentsOf('save', {}).includes('--ignore-case')).toBe(false)
+  expect(searchArgumentsOf('order total', { isCaseInsensitive: true }).includes('--ignore-case')).toBe(true)
+})

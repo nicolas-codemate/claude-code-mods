@@ -23,7 +23,7 @@ function isPathOfGlobs(path: string, globs: readonly string[]): boolean {
 
 // What ripgrep would print over the files held in memory, for the three ways the mod runs it: the file list, the
 // declarations (a heading per file, "line:replacement" per match), a search (one "path:line:column:text" per match).
-// The patterns are run as JavaScript.
+// The patterns are run as JavaScript, in any case when ripgrep is asked to ignore it.
 export function ripgrepOutputOf(argv: readonly string[], textByPath: Record<string, string>): string {
   const searchedDirectory = argv.at(-1) ?? './'
   const searchedPaths = Object.keys(textByPath)
@@ -34,12 +34,13 @@ export function ripgrepOutputOf(argv: readonly string[], textByPath: Record<stri
     return searchedPaths.map(path => `./${path}\n`).join('')
   }
   const pattern = argumentAfter(argv, '--regexp')
+  const caseFlag = argv.includes('--ignore-case') ? 'i' : ''
   const paths = searchedPaths.filter(path => isPathOfGlobs(path, argumentsAfterEvery(argv, '--glob')))
   if (argv.includes('--vimgrep')) {
     return paths
       .flatMap(path =>
         (textByPath[path] ?? '').split('\n').flatMap((lineText, lineIndex) =>
-          [...lineText.matchAll(new RegExp(pattern, 'g'))].map(match => `./${path}:${lineIndex + 1}:${match.index + 1}:${lineText}\n`),
+          [...lineText.matchAll(new RegExp(pattern, `g${caseFlag}`))].map(match => `./${path}:${lineIndex + 1}:${match.index + 1}:${lineText}\n`),
         ),
       )
       .join('')

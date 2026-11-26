@@ -49,7 +49,7 @@ export function createMemoryWorkspace(textByPath: Record<string, string>, option
       for (const path of searchedPaths) {
         const lines = (textByPath[path] ?? '').split('\n')
         for (const [lineIndex, lineText] of lines.entries()) {
-          for (const match of lineText.matchAll(new RegExp(pattern, 'g'))) {
+          for (const match of lineText.matchAll(new RegExp(pattern, searchOptions.isCaseInsensitive ? 'gi' : 'g'))) {
             matches.push({ path, line: lineIndex + 1, column: match.index, text: lineText })
             if (searchOptions.maxMatches !== undefined && matches.length >= searchOptions.maxMatches) {
               return matches

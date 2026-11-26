@@ -16,6 +16,8 @@ export function linesWordOf(selectedLines: SelectedLines): string {
 // A row of the code as the terminal copies it: the gutter's mark of the line pointed at or of a bookmark, its number,
 // then the code, behind a mark when the code is scrolled sideways.
 const ROW_WITH_GUTTER = new RegExp(`^\\s*[${MARKED_LINE_SIGN}${BOOKMARK_SIGN}]?\\s*(\\d+)(?: ${SCROLLED_START_MARK}?(.*))?$`)
+// A gutter with no code after it: the row of a blank line, or a drag that stopped inside a line's number.
+const GUTTER_ALONE = new RegExp(`^\\s*[${MARKED_LINE_SIGN}${BOOKMARK_SIGN}]?\\s*(\\d+)$`)
 // The mouse selects whole rows of the screen: a row past the first carries the columns beside the code too, the
 // tabs on its left and pinned files on its right, each behind this border.
 const COLUMN_BORDER = '│'
@@ -56,10 +58,21 @@ export function selectedLinesIn(selectionText: string, lines: readonly string[],
   const numberedRows = rows.map(row => numberedRowOf(row, lines))
   const anchorIndex = numberedRows.findIndex(numberedRow => numberedRow !== null)
   const anchor = numberedRows[anchorIndex]
-  if (anchor === null || anchor === undefined) {
+  const startLine = anchor === null || anchor === undefined ? null : anchor.lineNumber - anchorIndex
+  // A drag ending inside the number of the next line carries a piece of its gutter and none of its code.
+  const lastRowIndex = rows.length - 1
+  const lastRowGutterNumber = gutterNumberAloneIn(rows[lastRowIndex] ?? '')
+  const isLastRowAPieceOfGutter =
+    rows.length > 1 &&
+    numberedRows[lastRowIndex] === null &&
+    lastRowGutterNumber !== null &&
+    (startLine === null || lastRowGutterNumber !== startLine + lastRowIndex)
+  if (isLastRowAPieceOfGutter) {
+    rows.pop()
+  }
+  if (startLine === null) {
     return selectedLineFoundAmongShown(rows, lines, shownRange)
   }
-  const startLine = anchor.lineNumber - anchorIndex
   const selectedLines = { startLine, endLine: startLine + rows.length - 1 }
   const isEveryRowItsLine = rows.every((row, rowIndex) => {
     const lineText = lines[startLine + rowIndex - 1]
@@ -68,7 +81,8 @@ export function selectedLinesIn(selectionText: string, lines: readonly string[],
       return false
     }
     if (numberedRow === null || numberedRow === undefined) {
-      return rowIndex === 0 && isWrittenIn(row.split(COLUMN_BORDER)[0] ?? '', lineText)
+      // Past the first row, a gutter alone is the row of a line scrolled out of sight sideways.
+      return rowIndex === 0 ? isWrittenIn(row.split(COLUMN_BORDER)[0] ?? '', lineText) : gutterNumberAloneIn(row) === startLine + rowIndex
     }
 
     return numberedRow.lineNumber === startLine + rowIndex && isWrittenIn(numberedRow.code, lineText)
@@ -87,8 +101,22 @@ function numberedRowOf(row: string, lines: readonly string[]): { lineNumber: num
     const lineNumber = Number(match[1])
     const code = match[2] ?? ''
     const lineText = lines[lineNumber - 1]
-    if (lineText !== undefined && isWrittenIn(code, lineText)) {
+    // A number with no code is as likely a number of the code itself: it stands for its line only when that line is
+    // blank.
+    const isRowOfItsLine = lineText !== undefined && (normalized(code) === '' ? normalized(lineText) === '' : isWrittenIn(code, lineText))
+    if (isRowOfItsLine) {
       return { lineNumber, code }
+    }
+  }
+
+  return null
+}
+
+function gutterNumberAloneIn(row: string): number | null {
+  for (const part of row.split(COLUMN_BORDER)) {
+    const match = GUTTER_ALONE.exec(part)
+    if (match !== null) {
+      return Number(match[1])
     }
   }
 

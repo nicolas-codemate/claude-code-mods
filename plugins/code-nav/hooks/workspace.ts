@@ -9,6 +9,8 @@ export type SearchOptions = {
   directory?: string
   // Also search what git ignores (vendor/, node_modules/): slower, asked only when the project's own code has no answer.
   includeIgnored?: boolean
+  // A text the person typed in lower case: the names the analyses search keep their case.
+  isCaseInsensitive?: boolean
   maxMatches?: number
 }
 

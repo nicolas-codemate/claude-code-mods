@@ -171,6 +171,21 @@ test('the search is capped and says when more matches existed', async () => {
   expect(answer.isTruncated).toBe(true)
 })
 
+test('a search cut at its limit before reaching any usage says it stopped there, not that there is none', async () => {
+  const workspaceFindingTheNameOnlyWhereItIsNotUsed: Workspace = {
+    ...workspace,
+    search: async (_pattern, options) =>
+      Array.from({ length: options?.maxMatches ?? 0 }, (_, index) => ({ path: 'src/types/order.ts', line: 1, column: index, text: '' })),
+  }
+  const answer = await findScriptUsages(
+    workspaceFindingTheNameOnlyWhereItIsNotUsed,
+    positionIn('src/api/orders.ts', 'async function fetchOrders(', 'fetchOrders'),
+  )
+  expect(answer.usages).toEqual([])
+  expect(answer.isTruncated).toBe(true)
+  expect(answer.note).toBe('No usage of fetchOrders among the first 3000 places fetchOrders is written: the search stopped there.')
+})
+
 test('a click on nothing answers no symbol', async () => {
   const answer = await usagesAt(USE_ORDERS, '// fetchOrders is not called here', 'called')
   expect(answer).toEqual({ symbol: null, title: '', usages: [], isTruncated: false, note: null })

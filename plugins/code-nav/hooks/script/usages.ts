@@ -309,7 +309,7 @@ async function namesGivenByReexportsIn(
 async function usagesOfModule(
   session: AnalysisSession,
   modulePath: string,
-): Promise<{ usages: Usage[]; isTruncated: boolean }> {
+): Promise<{ usages: Usage[]; isTruncated: boolean; note: string | null }> {
   const stem = baseNameWithoutExtension(modulePath)
   const searchedWord = stem === 'index' ? baseNameOf(directoryOf(modulePath)) : stem
   const matches = await session.workspace.search(patternOfNames([searchedWord]), {
@@ -335,7 +335,11 @@ async function usagesOfModule(
     }
   }
 
-  return { usages, isTruncated: matches.length > MAXIMUM_MATCHES_SEARCHED || paths.length > MAXIMUM_FILES_ANALYSED }
+  const isCutAtMatchLimit = matches.length > MAXIMUM_MATCHES_SEARCHED
+  const isTruncated = isCutAtMatchLimit || paths.length > MAXIMUM_FILES_ANALYSED
+  const note = isTruncated && usages.length === 0 ? noteOfSearchCutBeforeAnyUsage(modulePath, [searchedWord], isCutAtMatchLimit) : null
+
+  return { usages, isTruncated, note }
 }
 
 function subjectOf(clickResolution: ClickResolution): Subject {
@@ -377,6 +381,16 @@ function searchedNamesOf(clickResolution: ClickResolution): string[] {
   return namesAComponent ? [...new Set([name, name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()])] : [name]
 }
 
+// The places of a name are read in path order: those past the limit may hold every usage there is.
+function noteOfSearchCutBeforeAnyUsage(title: string, searchedNames: readonly string[], isCutAtMatchLimit: boolean): string {
+  const writtenName = searchedNames.join(' or ')
+  const placesRead = isCutAtMatchLimit
+    ? `among the first ${MAXIMUM_MATCHES_SEARCHED} places ${writtenName} is written`
+    : `in the first ${MAXIMUM_FILES_ANALYSED} files where ${writtenName} is written`
+
+  return `No usage of ${title} ${placesRead}: the search stopped there.`
+}
+
 function confirmedFirst(usages: readonly Usage[]): Usage[] {
   return [
     ...usages.filter(usage => usage.certainty === 'confirmed'),
@@ -399,9 +413,9 @@ export async function findScriptUsages(workspace: Workspace, position: CodePosit
   }
   if (click.kind === 'specifier') {
     const moduleUsages =
-      firstLocation === undefined ? { usages: [], isTruncated: false } : await usagesOfModule(session, firstLocation.path)
+      firstLocation === undefined ? { usages: [], isTruncated: false, note: null } : await usagesOfModule(session, firstLocation.path)
 
-    return { symbol, title, usages: moduleUsages.usages, isTruncated: moduleUsages.isTruncated, note: null }
+    return { symbol, title, ...moduleUsages }
   }
   const names = searchedNamesOf(clickResolution)
   const isSearchedInProject = subject.locations.length === 0 || subject.locations.some(isKnownOutsideItsFile)
@@ -442,17 +456,15 @@ export async function findScriptUsages(workspace: Workspace, position: CodePosit
       usagesByFile.push(await usagesInFile(session, subject, path, namesGivenByReexports))
     }
   }
+  const usages = confirmedFirst(usagesByFile.flat())
+  const isTruncated =
+    matches.length > MAXIMUM_MATCHES_SEARCHED || orderedPaths.length > analysedPaths.length || hasMoreUnderOtherNames
   const note =
-    subject.locations.length === 0 && subject.packageName === null
-      ? `The declaration of ${symbol.name} is not known: every use of that name is listed`
-      : null
+    isTruncated && usages.length === 0
+      ? noteOfSearchCutBeforeAnyUsage(title, names, matches.length > MAXIMUM_MATCHES_SEARCHED)
+      : subject.locations.length === 0 && subject.packageName === null
+        ? `The declaration of ${symbol.name} is not known: every use of that name is listed`
+        : null
 
-  return {
-    symbol,
-    title,
-    usages: confirmedFirst(usagesByFile.flat()),
-    isTruncated:
-      matches.length > MAXIMUM_MATCHES_SEARCHED || orderedPaths.length > analysedPaths.length || hasMoreUnderOtherNames,
-    note,
-  }
+  return { symbol, title, usages, isTruncated, note }
 }

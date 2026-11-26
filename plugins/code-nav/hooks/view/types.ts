@@ -37,6 +37,7 @@ export type PaneActions = {
   dismissInlineNote: () => Promise<void>
   setSelectionAside: () => Promise<void>
   toggleBookmark: (line: number) => Promise<void>
+  removeBookmarkOfRow: (rowIndex: number) => Promise<void>
   listBookmarks: () => Promise<void>
   scrollCodeSideways: (side: CutSide) => Promise<void>
   goToLine: () => Promise<void>

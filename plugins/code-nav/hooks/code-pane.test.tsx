@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { PALETTE_NEXT_KEY, PALETTE_PREVIOUS_KEY } from './constants'
+import { BOOKMARKS_STORE_KEY_PREFIX, PALETTE_NEXT_KEY, PALETTE_PREVIOUS_KEY } from './constants'
 import { SHOP_FILES } from './php/shop-project'
 import {
   askClaudeToShow,
@@ -14,6 +14,7 @@ import {
   paletteItemTexts,
   pressPageKey,
   resultRowTexts,
+  ROOT,
   runCodeNav,
   shownPath,
   tabTexts,
@@ -787,5 +788,94 @@ test('the files are searched by a few letters of their path in their own field, 
 
   await openFilesDrawer(pane, world)
   expect((await treeRowTexts(pane)).length).toBeGreaterThan(0)
+  await pane.unmount()
+})
+
+test('a text typed in lower case is found in the whole project whatever its case, one with a capital letter in that case only', WHOLE_MOD_TEST, async ($, on) => {
+  stubWorld(on, SHOP_FILES)
+  await startSession($)
+  await runCodeNav($, CHECKOUT)
+  const pane = await mountPane($)
+  const classLine = lineNumberOf(SHOP_FILES, ORDER_REPOSITORY, 'class OrderRepository')
+
+  await pane.press({ key: 'menu-search-in-project' })
+  await pane.input({ key: await paletteFieldKeyOf(pane), text: 'class orderrepository' })
+  expect(await resultRowTexts(pane)).toEqual([expect.stringContaining(`${ORDER_REPOSITORY}:${classLine} `)])
+
+  await pane.press({ key: 'menu-search-in-project' })
+  await pane.input({ key: await paletteFieldKeyOf(pane), text: 'class orderRepository' })
+  expect(await resultRowTexts(pane)).toEqual([])
+  expect(await pane.find({ type: 'Text', text: '"class orderRepository" is written nowhere in the project.' })).toBeDefined()
+  await pane.unmount()
+})
+
+test('going back to a file shows it from its first column, however far the file left was scrolled sideways', WHOLE_MOD_TEST, async ($, on) => {
+  const longCall = `        $this->orders->save($order); // ${'a reminder written far too long for any pane '.repeat(7)}`
+  const wideNote = `    // ${'a note on the width of this line '.repeat(4)}`
+  const files = {
+    ...SHOP_FILES,
+    'src/Service/Wide.php': `<?php\n\nclass Wide\n{\n${wideNote}\n}\n`,
+    'src/Service/Long.php': `<?php\n\nclass Long\n{\n    public function keep(): void\n    {\n${longCall}\n    }\n}\n`,
+  }
+  stubWorld(on, files)
+  await startSession($)
+  await runCodeNav($, 'src/Service/Wide.php')
+  await runCodeNav($, 'src/Service/Long.php')
+  const pane = await mountPane($, { bodyColumns: 100 })
+  await pane.press({ key: 'cut-after-7' })
+  expect(await pane.find({ type: 'Text', text: /‹ from column \d+/ })).toBeDefined()
+
+  await pane.press({ key: shortcutButtonKey('goBack', 'q') })
+  expect(await shownPath(pane, files)).toBe('src/Service/Wide.php')
+  expect(await pane.find({ type: 'Text', text: /‹ from column/ })).toBeUndefined()
+  expect(await pane.find({ key: 'cut-after-5' })).toBeDefined()
+  expect(await pane.find({ key: clickHintKeyOf(files, 'src/Service/Wide.php', 'class Wide', 'Wide') })).toBeDefined()
+  await pane.unmount()
+})
+
+test('the tag over a declaration of a language with no analysis lists where its name is written', WHOLE_MOD_TEST, async ($, on) => {
+  const files = {
+    'shop/billing.py': ['def compute_total(order):', '    return sum(line.price for line in order.lines)', ''].join('\n'),
+    'shop/checkout.py': ['from shop.billing import compute_total', '', 'def checkout(order):', '    return compute_total(order)', ''].join('\n'),
+  }
+  stubWorld(on, files)
+  await startSession($)
+  await runCodeNav($, 'shop/billing.py')
+  const pane = await mountPane($)
+  const hintKey = clickHintKeyOf(files, 'shop/billing.py', 'def compute_total(', 'compute_total')
+  expect((await pane.find({ key: hintKey }))?.props.label).toBe(' ↪ list usages ')
+
+  await pane.press({ key: hintKey })
+  expect(await pane.find({ type: 'Text', text: /^No declaration named/ })).toBeUndefined()
+  const rows = await resultRowTexts(pane)
+  expect(rows.some(row => row.includes('shop/checkout.py:1 '))).toBe(true)
+  expect(rows.some(row => row.includes('shop/checkout.py:4 '))).toBe(true)
+  await pane.unmount()
+})
+
+test('a bookmark whose line left its file is taken off from its row in the list of bookmarks', WHOLE_MOD_TEST, async ($, on) => {
+  const notesOf = (lineCount: number) => Array.from({ length: lineCount }, (_, lineIndex) => `order note ${lineIndex + 1}`).join('\n')
+  const files = { ...SHOP_FILES, 'docs/orders.txt': notesOf(60) }
+  const world = stubWorld(on, files)
+  await startSession($)
+  await runCodeNav($, 'docs/orders.txt')
+  const pane = await mountPane($, { bodyRows: 70 })
+  await pane.press({ key: 'gutter-5' })
+  await pane.press({ key: 'gutter-40' })
+  world.textByPath['docs/orders.txt'] = notesOf(10)
+  world.modifiedAtByPath['docs/orders.txt'] = 2
+  await world.clock.advance(2000)
+  expect(await pane.find({ key: 'gutter-40' })).toBeUndefined()
+
+  await pane.press({ key: 'menu-bookmarks' })
+  expect(await resultRowTexts(pane)).toEqual([expect.stringContaining('docs/orders.txt:5 '), expect.stringContaining('docs/orders.txt:40 ')])
+  await pane.press({ key: 'result-remove-1' })
+  expect(await resultRowTexts(pane)).toEqual([expect.stringContaining('docs/orders.txt:5 ')])
+  expect(world.store.get(`${BOOKMARKS_STORE_KEY_PREFIX}${ROOT}`)).toEqual([{ path: 'docs/orders.txt', line: 5, preview: 'order note 5' }])
+
+  await pane.press({ key: 'menu-search-in-project' })
+  await pane.input({ key: await paletteFieldKeyOf(pane), text: 'order note 1' })
+  expect(await pane.find({ key: 'result-open-0' })).toBeDefined()
+  expect(await pane.find({ key: 'result-remove-0' })).toBeUndefined()
   await pane.unmount()
 })

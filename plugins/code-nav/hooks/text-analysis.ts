@@ -1,5 +1,6 @@
 import type { ClickedSymbol, CodePosition, DefinitionAnswer, ImplementationsAnswer, NavigationTarget, Usage, UsagesAnswer } from '../types'
 import { TEXT_SEARCH_MATCH_LIMIT } from './constants'
+import { genericSymbolsOfFile } from './outline/generic-outline'
 import { labelOfSymbol, wholeNamePattern } from './symbol-names'
 import type { Workspace } from './workspace'
 
@@ -15,20 +16,30 @@ export function wordAt(lineText: string, column: number): { name: string; startC
   return null
 }
 
-async function clickedWord(workspace: Workspace, position: CodePosition): Promise<ClickedSymbol | null> {
-  const text = await workspace.readFile(position.path)
+function clickedWordIn(text: string | null, position: CodePosition): ClickedSymbol | null {
   const lineText = text?.split('\n')[position.line - 1]
   const word = lineText === undefined ? null : wordAt(lineText, position.column)
 
   return word === null ? null : { ...word, line: position.line, description: `the word ${word.name}` }
 }
 
+async function clickedWord(workspace: Workspace, position: CodePosition): Promise<ClickedSymbol | null> {
+  return clickedWordIn(await workspace.readFile(position.path), position)
+}
+
 // A file of a language the mod does not analyse: the word under the click is looked up by name alone, among the
-// project's declarations.
+// project's declarations. The word is on its declaration when the outline of its file, the one the tag over it is
+// told from, declares it on that line.
 export async function resolveTextDefinition(workspace: Workspace, position: CodePosition): Promise<DefinitionAnswer> {
-  const symbol = await clickedWord(workspace, position)
+  const text = await workspace.readFile(position.path)
+  const symbol = clickedWordIn(text, position)
   if (symbol === null) {
     return { symbol: null, targets: [], isOnDeclaration: false, note: null }
+  }
+  const isOnDeclaration =
+    text !== null && genericSymbolsOfFile(position.path, text).some(declaration => declaration.line === position.line && declaration.name === symbol.name)
+  if (isOnDeclaration) {
+    return { symbol, targets: [], isOnDeclaration: true, note: null }
   }
   const targets: NavigationTarget[] = workspace.symbolsNamed(symbol.name).map(declaration => ({
     path: declaration.path,

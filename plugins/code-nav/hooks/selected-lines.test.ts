@@ -53,3 +53,24 @@ test('rows selected across the screen keep the line of the file, the tabs beside
   expect(selectedLinesIn(selection, LINES, ALL_SHOWN)).toEqual({ startLine: 7, endLine: 9 })
   expect(selectedLinesIn('   6     {\n   7         $this->persist($order);   │ src/', LINES, ALL_SHOWN)).toEqual({ startLine: 6, endLine: 7 })
 })
+
+// Forty lines where 30 is written on line 12 only, and line 2 is blank.
+const ORDER_LIMITS_LINES = Array.from({ length: 40 }, (_, lineIndex) =>
+  lineIndex === 1 ? '' : lineIndex === 11 ? 'const MAXIMUM_LINES_PER_ORDER = 30;' : `$order->addLine(new OrderLine('item ${'abcdefghijklmnopqrstuvwxyzabcdefghijklmn'[lineIndex]}'));`,
+)
+const ORDER_LIMITS_SHOWN = { firstLine: 1, lastLine: ORDER_LIMITS_LINES.length }
+
+test('a number alone is a number written in the code, not the gutter of that line, unless that line is blank', async () => {
+  expect(selectedLinesIn('30', ORDER_LIMITS_LINES, ORDER_LIMITS_SHOWN)).toBeNull()
+  expect(selectedLinesIn('  30', ORDER_LIMITS_LINES, ORDER_LIMITS_SHOWN)).toBeNull()
+  expect(selectedLinesIn('= 30;', ORDER_LIMITS_LINES, ORDER_LIMITS_SHOWN)).toEqual({ startLine: 12, endLine: 12 })
+  expect(selectedLinesIn('   2', ORDER_LIMITS_LINES, ORDER_LIMITS_SHOWN)).toEqual({ startLine: 2, endLine: 2 })
+})
+
+test('rows dragged down into the number of the next line keep the lines before it', async () => {
+  const selection = [`  12 ${ORDER_LIMITS_LINES[11]}`, `  13 ${ORDER_LIMITS_LINES[12]}`, '  1'].join('\n')
+
+  expect(selectedLinesIn(selection, ORDER_LIMITS_LINES, ORDER_LIMITS_SHOWN)).toEqual({ startLine: 12, endLine: 13 })
+  const rowOfALineScrolledOutOfSight = '  13'
+  expect(selectedLinesIn([`  12 ${ORDER_LIMITS_LINES[11]}`, rowOfALineScrolledOutOfSight].join('\n'), ORDER_LIMITS_LINES, ORDER_LIMITS_SHOWN)).toEqual({ startLine: 12, endLine: 13 })
+})

@@ -257,6 +257,12 @@ export async function findPhpUsages(workspace: Workspace, position: CodePosition
       return unhandledSubject
     }
   }
+  // The matches are read in path order: those past the limit may hold every usage there is.
+  const isCutBeforeAnyUsage = foundUsages.isTruncated && foundUsages.usages.length === 0
+  const searchedName = symbol?.name ?? foundUsages.title
+  const usagesNote = isCutBeforeAnyUsage
+    ? `No usage of ${foundUsages.title} among the first ${MAXIMUM_ANALYSED_MATCHES} places ${searchedName} is written: the search stopped there.`
+    : foundUsages.note
 
-  return { symbol, ...foundUsages }
+  return { symbol, ...foundUsages, note: usagesNote }
 }

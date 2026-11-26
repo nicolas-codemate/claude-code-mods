@@ -83,7 +83,7 @@ import type { PaletteSource } from './palette-search'
 import { phpSymbolsOfFile } from './php/analysis'
 import { pathFromRoot, writtenPlaceOf, writtenSymbolOf } from './place-request'
 import { scriptSymbolsOfFile } from './script/analysis'
-import { firstMatchIndexFrom, textMatchesInLines } from './text-search'
+import { firstMatchIndexFrom, isCaseSensitiveText, textMatchesInLines } from './text-search'
 import { genericSymbolsOfFile } from './outline/generic-outline'
 import { escapedForRegularExpression, isClassLikeKind, labelOfSymbol, wholeNamePattern } from './symbol-names'
 import { tokenizeSource } from './syntax/tokenize'
@@ -92,7 +92,7 @@ import { drawnWidthOf } from './display-row'
 import type { CutSide } from './display-row'
 import { baseNameOf } from './paths'
 import { lineRangeOf, linesWordOf, selectedLinesIn } from './selected-lines'
-import { buildPaneModel, clampedTopLine, columnWidthsOf, firstShownIndexKeeping } from './view/model'
+import { buildPaneModel, clampedTopLine, columnWidthsOf, firstShownIndexKeeping, SIDEWAYS_SCROLL_MARGIN_COLUMNS } from './view/model'
 import type { PaneSnapshot, PeekSnapshot, ShownFile } from './view/model'
 import { filesFilterFieldKey, paletteFieldKey, renderNarrowPane, renderPane } from './view/pane'
 import { themeOf } from './view/theme'
@@ -160,6 +160,8 @@ let paletteContext: { recentPaths: readonly string[]; currentPath: string | null
 const lastDrawnLayout = {
   codeRows: 40,
   codeColumns: 100,
+  // The columns the code was drawn scrolled by, which the lines drawn may have brought back short of what was asked.
+  scrolledColumns: 0,
   resultsTop: 0,
   resultsRows: 0,
   bodyColumns: 120,
@@ -520,9 +522,17 @@ async function isDrawerOpen($: EngineInterface, side: DrawerSide): Promise<boole
   return (await columnModeOf($, side)) === 'drawer' && (await drawerOpennessOf($, side)) > 0
 }
 
+// The field of the files goes with them: a text left in it would stay in the way of Escape, unseen.
+async function slideDrawerClosed($: EngineInterface, side: DrawerSide): Promise<void> {
+  slideDrawer($, side, false)
+  if (side === 'files') {
+    await resetFilesFilter($)
+  }
+}
+
 async function foldDrawer($: EngineInterface, side: DrawerSide): Promise<void> {
   if (await isDrawerOpen($, side)) {
-    slideDrawer($, side, false)
+    await slideDrawerClosed($, side)
   }
 }
 
@@ -546,7 +556,7 @@ async function toggleDrawer($: EngineInterface, side: DrawerSide): Promise<void>
     return
   }
   if (await isDrawerOpen($, side)) {
-    slideDrawer($, side, false)
+    await slideDrawerClosed($, side)
     return
   }
   const currentPath = await read($, currentPathAtom)
@@ -714,6 +724,16 @@ async function toggleBookmark($: EngineInterface, line: number): Promise<void> {
   )
 }
 
+async function removeBookmarkOfRow($: EngineInterface, rowIndex: number): Promise<void> {
+  const resultsPanel = await read($, resultsPanelAtom)
+  const row = resultsPanel?.kind === 'bookmarks' ? resultsPanel.rows[rowIndex] : undefined
+  if (row === undefined) {
+    return
+  }
+  const bookmarks = await read($, bookmarksAtom)
+  await saveBookmarks($, bookmarks.filter(bookmark => bookmark.path !== row.path || bookmark.line !== row.line))
+}
+
 async function listBookmarks($: EngineInterface): Promise<void> {
   const bookmarks = await read($, bookmarksAtom)
   if (bookmarks.length === 0) {
@@ -734,7 +754,7 @@ async function listBookmarks($: EngineInterface): Promise<void> {
       mark: 'exact',
       isDependency: false,
     })),
-    selectedIndex: currentResults?.kind === 'bookmarks' ? currentResults.selectedIndex : null,
+    selectedIndex: currentResults?.kind === 'bookmarks' && currentResults.selectedIndex !== null ? Math.min(currentResults.selectedIndex, bookmarks.length - 1) : null,
     firstShownIndex: currentResults?.kind === 'bookmarks' ? currentResults.firstShownIndex : 0,
   })
 }
@@ -780,9 +800,11 @@ async function scrollCodeSideways($: EngineInterface, side: CutSide): Promise<vo
     return
   }
   const widestLineColumns = widestLineColumnsOf(file)
-  const lastScrolledColumns = Math.max(0, widestLineColumns - lastDrawnLayout.codeColumns + 2)
+  const lastScrolledColumns = Math.max(0, widestLineColumns - lastDrawnLayout.codeColumns + SIDEWAYS_SCROLL_MARGIN_COLUMNS)
   const step: Record<CutSide, number> = { before: -sidewaysStep(), after: sidewaysStep() }
-  await update($, scrolledColumnsAtom, scrolledColumns => Math.max(0, Math.min(lastScrolledColumns, scrolledColumns + step[side])))
+  await update($, scrolledColumnsAtom, scrolledColumns =>
+    Math.max(0, Math.min(lastScrolledColumns, Math.min(scrolledColumns, lastDrawnLayout.scrolledColumns) + step[side])),
+  )
 }
 
 // --- Where the reading stands in the file ---------------------------------------------------------------------------
@@ -1095,11 +1117,12 @@ async function stepThroughHistory($: EngineInterface, step: 1 | -1): Promise<voi
       return
     }
     const { place } = stepped
-    if (shownFile?.path === place.path || (await readShownFile($, place.path))) {
+    const isSameFile = shownFile?.path === place.path
+    if (isSameFile || (await readShownFile($, place.path))) {
       await update($, historyAtom, () => stepped.history)
       const markedSymbol: MarkedSymbol | null =
         place.markedLine === null ? null : { path: place.path, line: place.markedLine, startColumn: 0, endColumn: 0 }
-      await showView($, place.path, place.topLine, markedSymbol, shownFile?.path === place.path)
+      await showView($, place.path, place.topLine, markedSymbol, isSameFile)
       await saveTabs($, tabsAfterOpening(await read($, tabsAtom), place.path, leavingView, { topLine: place.topLine, markedSymbol }))
       await revealInTree($, place.path)
       return
@@ -1637,7 +1660,8 @@ async function searchTextInProject($: EngineInterface, text: string): Promise<vo
   }
   const projectWorkspace = await ensureWorkspace($)
   const literalPattern = escapedForRegularExpression(text)
-  const matches = await latestAnswerOrNoticed($, () => projectWorkspace.search(literalPattern, { maxMatches: TEXT_SEARCH_MATCH_LIMIT + 1 }))
+  const searchOptions = { isCaseInsensitive: !isCaseSensitiveText(text), maxMatches: TEXT_SEARCH_MATCH_LIMIT + 1 }
+  const matches = await latestAnswerOrNoticed($, () => projectWorkspace.search(literalPattern, searchOptions))
   if (matches === null) {
     return
   }
@@ -1793,6 +1817,7 @@ function paneActions($: EngineInterface): PaneActions {
     dismissNotice: () => clearNotice($),
     setSelectionAside: () => setSelectionAside($),
     toggleBookmark: line => afterTakingKeyboard(() => toggleBookmark($, line)),
+    removeBookmarkOfRow: rowIndex => afterTakingKeyboard(() => removeBookmarkOfRow($, rowIndex)),
     listBookmarks: () => afterTakingKeyboard(() => listBookmarks($)),
     scrollCodeSideways: side => afterTakingKeyboard(() => scrollCodeSideways($, side)),
     goToLine: () => afterTakingKeyboard(() => openPalette($, 'everything', ':')),
@@ -2265,7 +2290,8 @@ export const register: Register = (on, options) => {
       takeKeyboardBack($)
       return { value: undefined }
     }
-    if ((await read($, filesFilterAtom)).query !== '' && (await read($, paletteAtom)) === null) {
+    const areFilesShown = (await columnModeOf($, 'files')) === 'pinned' || (await isDrawerOpen($, 'files'))
+    if (areFilesShown && (await read($, filesFilterAtom)).query !== '' && (await read($, paletteAtom)) === null) {
       await resetFilesFilter($)
       takeKeyboardBack($)
       return { value: undefined }
@@ -2349,6 +2375,7 @@ export const register: Register = (on, options) => {
       isPaneFocused: e.props.isFocused,
       codeRows: model.geometry.codeRows,
       codeColumns: model.geometry.codeColumns,
+      scrolledColumns: model.scrolledColumns,
       resultsTop: model.geometry.resultsTop,
       resultsRows: model.geometry.resultsRows,
       bodyColumns: model.geometry.bodyColumns,

@@ -128,6 +128,17 @@ test('more matches than the analysis reads are reported as truncated', async () 
   expect(answer.usages.length).toBe(1000)
 })
 
+test('a search cut at its limit before reaching any usage says it stopped there, not that there is none', async () => {
+  const callsOnInvoices = Array.from({ length: 1100 }, (_, index) => `    $invoice->getId(); // ${index}`).join('\n')
+  const files = {
+    'src/Accounting/InvoiceExport.php': `<?php\nnamespace Shop\\Accounting;\nuse Shop\\Entity\\Invoice;\nfunction export(Invoice $invoice) {\n${callsOnInvoices}\n}\n`,
+  }
+  const answer = await findPhpUsages(createShopWorkspace(files), shopPosition('src/Entity/Order.php', 'public function getId(): int', 'getId'))
+  expect(answer.usages).toEqual([])
+  expect(answer.isTruncated).toBe(true)
+  expect(answer.note).toBe('No usage of Order::getId among the first 1000 places getId is written: the search stopped there.')
+})
+
 test('a click on nothing has no usages', async () => {
   const answer = await usagesAt(CHECKOUT, 'return null;', 'null')
   expect(answer).toEqual({ symbol: null, title: '', usages: [], isTruncated: false, note: null })

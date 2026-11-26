@@ -99,7 +99,8 @@ A line wider than the pane ends with `…`: a click on it scrolls the code to th
 the lines then start with `‹`, a click on which scrolls back; the header says from which column the code is shown.
 
 A click on the number of a line sets a bookmark, `◆` in the margin; a second click takes it off. `◆ Bookmarks`, in the
-bar under the header, lists them all, across files, to walk and open as any list. They are kept for the project.
+bar under the header, lists them all, across files, to walk and open as any list; `× remove` on a row takes that
+bookmark off, even one whose line has left its file. They are kept for the project.
 
 When the list under the code is open, a click on a row, or the keys above and below (`z` or `w`, and `s`) walking it
 row by row, previews its place between the code and the list: half the height of the pane, up to thirty lines, the
@@ -162,7 +163,8 @@ made again when the search opens, so there is nothing to keep up to date. What g
   or of a service container, a variable assigned in one branch only are listed as candidates rather than resolved.
   TypeScript is followed through imports and declared types, not inferred: an untyped callback parameter or a `v-for`
   item falls back to candidates.
-- Usages of a very common method name are analysed up to a thousand matches; the title then shows a `+`.
+- Usages of a very common method name are analysed up to a thousand matches; the title then shows a `+`, and when none
+  of those matches is a usage the note says the search stopped there rather than that there is none.
 - A file over about 1.5 MB is shown without colors and without clickable names.
 - A Ctrl+click is a click: the terminal does not tell the pane which one it was, hence the tag over a name to go to
   its declaration.

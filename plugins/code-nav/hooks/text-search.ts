@@ -1,13 +1,18 @@
 export type TextMatch = { line: number; column: number }
 
-// Where a text is written in the lines of one file, in reading order. Typed all in lower case it matches whatever the
-// case, as ripgrep's smart case and an editor's search do; with a capital letter it matches that case only.
+// Typed all in lower case a text matches whatever the case, as ripgrep's smart case and an editor's search do; with a
+// capital letter it matches that case only.
+export function isCaseSensitiveText(text: string): boolean {
+  return text !== text.toLowerCase()
+}
+
+// Where a text is written in the lines of one file, in reading order, in the case the text asks for.
 export function textMatchesInLines(lines: readonly string[], text: string, limit: number): { matches: TextMatch[]; isTruncated: boolean } {
   const matches: TextMatch[] = []
   if (text === '') {
     return { matches, isTruncated: false }
   }
-  const isCaseSensitive = text !== text.toLowerCase()
+  const isCaseSensitive = isCaseSensitiveText(text)
   const searchedText = isCaseSensitive ? text : text.toLowerCase()
   for (const [lineIndex, lineText] of lines.entries()) {
     const searchedLine = isCaseSensitive ? lineText : lineText.toLowerCase()

@@ -161,6 +161,7 @@ export function searchArgumentsOf(pattern: string, options: SearchOptions): stri
     '--max-columns',
     String(LONGEST_SEARCHED_LINE_BYTES),
     ...(options.includeIgnored ? ['--no-ignore'] : []),
+    ...(options.isCaseInsensitive ? ['--ignore-case'] : []),
     ...(options.globs ?? []).flatMap(glob => ['--glob', glob]),
     '--regexp',
     pattern,

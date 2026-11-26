@@ -273,3 +273,18 @@ test('a name declared on its line is told as listing its usages, any other name 
   expect(hintsOfLine(0)).toEqual(['total:usages'])
   expect(hintsOfLine(1)).toEqual(['subtotal:definition'])
 })
+
+test('the code scrolled sideways further than the lines drawn need comes back so that the widest of them stays in sight', async () => {
+  const room = { bodyRows: 40, bodyColumns: 120 }
+  const overShortLines = buildPaneModel({ ...SNAPSHOT, scrolledColumns: 200 }, room)
+  expect(overShortLines.scrolledColumns).toBe(0)
+  expect(overShortLines.codeRows[0]?.pieces.map(piece => piece.text).join('')).toBe('line 1')
+
+  const longLine = `$order->addLine(${'x'.repeat(150)});`
+  const fileWithLongLine: ShownFile = { ...FILE, lines: [longLine, ...FILE.lines.slice(1)] }
+  const overLongLine = buildPaneModel({ ...SNAPSHOT, file: fileWithLongLine, scrolledColumns: 200 }, room)
+  expect(overLongLine.scrolledColumns).toBe(longLine.length - overLongLine.geometry.codeColumns + 2)
+  expect(overLongLine.codeRows[0]?.pieces[0]?.cut).toBe('before')
+  expect(overLongLine.codeRows[0]?.pieces.at(-1)?.text.endsWith(');')).toBe(true)
+  expect(buildPaneModel({ ...SNAPSHOT, file: fileWithLongLine, scrolledColumns: 20 }, room).scrolledColumns).toBe(20)
+})

@@ -62,6 +62,8 @@ const RESULTS_HEADINGS: Record<ResultsKind, string> = {
 const SIGNS_OF_ITEMS_WITHOUT_SYMBOL: Record<PaletteItemKind, string> = { file: '◇', line: '#', symbol: '·' }
 // The usages list repeats one name on every row, so its rows show where they are and what the line says instead.
 const IS_LABEL_SHOWN_IN_RESULTS: Record<ResultsKind, boolean> = { definitions: true, implementations: true, parents: true, usages: false, textSearch: false, bookmarks: false }
+// A bookmark is taken off from its row too: its line may have left the file, its number no longer drawn to click.
+const IS_REMOVABLE_IN_RESULTS: Record<ResultsKind, boolean> = { definitions: false, implementations: false, parents: false, usages: false, textSearch: false, bookmarks: true }
 const IS_MARK_OF_UNVERIFIED_ROW: Record<ResultRowMark, boolean> = { exact: false, confirmed: false, match: false, candidate: true, unverified: true }
 
 export function shortcutButtonKey(action: ShortcutAction, hotkey: string): string {
@@ -623,6 +625,8 @@ function resultsTitleOf(resultsPanel: ResultsPanel): string {
 // Beside the place of each row: the one click that goes into its file, the rest of the row previewing it.
 const RESULT_OPEN_LABEL = ' ↗ open '
 const RESULT_OPEN_KEY_PREFIX = 'result-open-'
+const RESULT_REMOVE_LABEL = ' × remove '
+const RESULT_REMOVE_KEY_PREFIX = 'result-remove-'
 const RESULT_PREVIEW_KEY_PREFIX = 'result-preview-'
 
 function renderResults(ui: ViewElements, input: PaneInput) {
@@ -636,7 +640,9 @@ function renderResults(ui: ViewElements, input: PaneInput) {
   const shownRows = resultsPanel.rows.slice(model.firstShownResultIndex, model.firstShownResultIndex + model.geometry.resultsRows)
   const labelColumns = IS_LABEL_SHOWN_IN_RESULTS[resultsPanel.kind] ? Math.min(40, Math.max(0, ...shownRows.map(row => row.label.length))) : 0
   const locationColumns = Math.min(Math.floor(model.geometry.codeAreaColumns * 0.45), Math.max(0, ...shownRows.map(row => locationOf(row).length)))
-  const previewColumns = Math.max(0, model.geometry.codeAreaColumns - 2 - 2 - (labelColumns > 0 ? labelColumns + 2 : 0) - locationColumns - 1 - RESULT_OPEN_LABEL.length - 1)
+  const isRemoveShown = IS_REMOVABLE_IN_RESULTS[resultsPanel.kind] && isPaneClickable(input)
+  const removeColumns = isRemoveShown ? RESULT_REMOVE_LABEL.length : 0
+  const previewColumns = Math.max(0, model.geometry.codeAreaColumns - 2 - 2 - (labelColumns > 0 ? labelColumns + 2 : 0) - locationColumns - 1 - RESULT_OPEN_LABEL.length - removeColumns - 1)
 
   return (
     <Box key="results-box" flexDirection="column" flexShrink={0}>
@@ -682,6 +688,9 @@ function renderResults(ui: ViewElements, input: PaneInput) {
               `${RESULT_OPEN_KEY_PREFIX}${rowIndex}`,
               () => input.actions.openResultRow(rowIndex),
               <Text color={theme.accent}>{RESULT_OPEN_LABEL}</Text>,
+            )}
+            {isRemoveShown && (
+              <Button key={`${RESULT_REMOVE_KEY_PREFIX}${rowIndex}`} plain dimColor label={RESULT_REMOVE_LABEL} onPress={() => input.actions.removeBookmarkOfRow(rowIndex)} />
             )}
             <Text> </Text>
             {clickableWhenPaneIs(
