@@ -1,0 +1,34 @@
+{
+  "name": "code-nav",
+  "version": "0.1.0",
+  "description": "Read-only code navigation pane: fuzzy file and symbol search, go to definition, usages and implementations with a click, driven by you or by Claude",
+  "author": {
+    "name": "Nicolas DEMAY",
+    "email": "nicolas@codemate.consulting",
+    "url": "https://codemate.consulting"
+  },
+  "homepage": "https://github.com/nicolas-codemate/claude-code-mods/tree/main/plugins/code-nav",
+  "repository": "https://github.com/nicolas-codemate/claude-code-mods",
+  "license": "MIT",
+  "keywords": [
+    "navigation",
+    "ide",
+    "go-to-definition",
+    "search",
+    "mod"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "theme": {
+      "type": "string",
+      "title": "Theme",
+      "description": "Colors of the code pane: auto follows the Claude Code theme.",
+      "options": [
+        "auto",
+        "dark",
+        "light"
+      ],
+      "default": "auto"
+    }
+  }
+}

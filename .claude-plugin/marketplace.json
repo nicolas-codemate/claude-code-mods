@@ -18,6 +18,11 @@
       "name": "talk",
       "source": "./plugins/talk",
       "description": "Voice conversation mode: Claude answers as if talking, its answers are read aloud and highlighted word by word above the prompt"
+    },
+    {
+      "name": "code-nav",
+      "source": "./plugins/code-nav",
+      "description": "Read-only code navigation pane: fuzzy file and symbol search, go to definition, usages and implementations with a click, driven by you or by Claude"
     }
   ]
 }

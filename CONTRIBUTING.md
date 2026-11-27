@@ -29,7 +29,8 @@ npx -p typescript@5.9.3 tsc -p tsconfig.json
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test plugins/diff-review
 ```
 
-A change in behaviour comes with a test that fails without it. `types/claude-code.d.ts` is the plugin API the mods are
+A change in behaviour comes with a test that fails without it. To teach code-nav a language, follow
+[its guide](plugins/code-nav/docs/adding-a-language.md). `types/claude-code.d.ts` is the plugin API the mods are
 typed against; refresh it from a recent Claude Code when the API moves.
 
 ## Writing
