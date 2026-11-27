@@ -11,6 +11,7 @@ import {
   MIN_PANE_COLUMNS,
   PALETTE_FIELD_KEY_PREFIX,
   PALETTE_ITEM_KEY_PREFIX,
+  PALETTE_CLOSE_KEY,
   PALETTE_NEXT_KEY,
   PALETTE_PREVIOUS_KEY,
   PEEK_OPEN_KEY,
@@ -19,6 +20,7 @@ import {
   SHORTCUT_KEY_PREFIX,
   TAB_BUTTON_KEY_PREFIX,
   TREE_ROW_KEY_PREFIX,
+  TEXT_SCOPE_KEY_PREFIX,
   TOKEN_HINT_KEY_PREFIX,
   TOKEN_KEY_PREFIX,
 } from '../constants'
@@ -33,23 +35,25 @@ import { highlightBackgroundOf, RESULT_MARK_SIGNS, SYMBOL_KIND_LETTERS } from '.
 import type { HotkeysOf, PaneActions, ViewElements } from './types'
 import { baseNameOf } from '../paths'
 import { lineRangeOf, linesWordOf } from '../selected-lines'
+import { lineNumberTypedIn } from '../text-position'
 
 export type PaneInput = { model: PaneModel; hotkeysOf: HotkeysOf; actions: PaneActions }
 
 // The shortcuts drawn in the bar under the code; every other one keeps its key through a hidden button.
-const FOOTER_ACTIONS: readonly ShortcutAction[] = ['findEverything', 'fileOutline', 'searchText', 'showUsages', 'showImplementations', 'closeTab', 'toggleTabsColumn', 'toggleFiles', 'copyLocation', 'toggleHelp']
+const FOOTER_ACTIONS: readonly ShortcutAction[] = ['findEverything', 'fileOutline', 'goToLine', 'searchInFile', 'showUsages', 'showImplementations', 'closeTab', 'toggleTabsColumn', 'toggleFiles', 'copyLocation', 'toggleHelp']
 const HEADER_ACTIONS: readonly ShortcutAction[] = ['goBack', 'goForward']
 const RESULTS_ACTIONS: readonly ShortcutAction[] = ['previousResult', 'nextResult', 'closeResults']
 
 const HEADER_LABELS: Partial<Record<ShortcutAction, string>> = { goBack: '◀', goForward: '▶' }
 
-const PALETTE_FIELD_LABELS: Record<PaletteMode, string> = { everything: 'find', outline: 'structure', textSearch: 'grep' }
+const PALETTE_FIELD_LABELS: Record<PaletteMode, string> = { everything: 'find', outline: 'structure', textSearch: 'grep', goToLine: 'go to line' }
 const PALETTE_PLACEHOLDERS: Record<PaletteMode, string> = {
   everything: 'a file, a class or a method: OrRe, Order::save, src/Order, name:42',
   outline: 'a symbol of this file',
   textSearch: 'a text to search',
+  goToLine: 'a line number',
 }
-const PALETTE_SUBMIT_LABELS: Record<PaletteMode, string> = { everything: 'open', outline: 'go', textSearch: 'search' }
+const PALETTE_SUBMIT_LABELS: Record<PaletteMode, string> = { everything: 'open', outline: 'go', textSearch: 'search', goToLine: 'go' }
 const RESULTS_HEADINGS: Record<ResultsKind, string> = {
   definitions: 'Declarations',
   usages: 'Usages',
@@ -308,6 +312,19 @@ function renderMenuButton(ui: ViewElements, key: string, label: string, hint: st
   )
 }
 
+// What the buttons after it act on: the file shown, or the whole project.
+function renderMenuGroupTitle(ui: ViewElements, title: string) {
+  const { Text } = ui
+
+  return <Text color={ui.theme.muted}>{`${title} `}</Text>
+}
+
+function renderMenuSeparator(ui: ViewElements) {
+  const { Text } = ui
+
+  return <Text color={ui.theme.border}>{'│ '}</Text>
+}
+
 // The searches, always within one click, and where the last text search stands with its previous and next match.
 function renderMenuBar(ui: ViewElements, input: PaneInput) {
   const { Box, Button, Text } = ui
@@ -315,16 +332,22 @@ function renderMenuBar(ui: ViewElements, input: PaneInput) {
   const status = input.model.textSearchStatus
   const [findHotkey = ''] = input.hotkeysOf('findEverything')
   const [structureHotkey = ''] = input.hotkeysOf('fileOutline')
-  const [searchHotkey = ''] = input.hotkeysOf('searchText')
+  const [lineHotkey = ''] = input.hotkeysOf('goToLine')
+  const [fileSearchHotkey = ''] = input.hotkeysOf('searchInFile')
+  const [projectSearchHotkey = ''] = input.hotkeysOf('searchInProject')
 
   return (
     <Box key="menu-bar" flexDirection="row" height={1} flexShrink={0} paddingX={1} backgroundColor={theme.paletteBackground} overflow="hidden">
-      {renderMenuButton(ui, 'menu-find', '⌕ Find', findHotkey, () => input.actions.runShortcut('findEverything'))}
+      {renderMenuGroupTitle(ui, 'FILE')}
       {renderMenuButton(ui, 'menu-structure', '☰ Structure', structureHotkey, () => input.actions.runShortcut('fileOutline'))}
-      {renderMenuButton(ui, 'menu-go-to-line', '↧ Line', '', () => input.actions.goToLine())}
+      {renderMenuButton(ui, 'menu-go-to-line', '↧ Line', lineHotkey, () => input.actions.runShortcut('goToLine'))}
+      {renderMenuButton(ui, 'menu-search-in-file', '⌕ Search', fileSearchHotkey, () => input.actions.runShortcut('searchInFile'))}
+      {renderMenuSeparator(ui)}
+      {renderMenuGroupTitle(ui, 'PROJECT')}
+      {renderMenuButton(ui, 'menu-find', '⌕ Find', findHotkey, () => input.actions.runShortcut('findEverything'))}
+      {renderMenuButton(ui, 'menu-search-in-project', '⌕ Search', projectSearchHotkey, () => input.actions.runShortcut('searchInProject'))}
+      {renderMenuSeparator(ui)}
       {renderMenuButton(ui, 'menu-bookmarks', '◆ Bookmarks', input.model.bookmarkCount === 0 ? '' : String(input.model.bookmarkCount), () => input.actions.listBookmarks())}
-      {renderMenuButton(ui, 'menu-search-in-file', 'Search in file', searchHotkey, () => input.actions.openTextSearch('file'))}
-      {renderMenuButton(ui, 'menu-search-in-project', 'Search in project', '', () => input.actions.openTextSearch('project'))}
       {renderSelectionForClaude(ui, input)}
       {status !== null && (
         <Box key="search-status" flexDirection="row" flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
@@ -734,7 +757,7 @@ function renderHelp(ui: ViewElements, input: PaneInput) {
           </Text>
           {shortcutsOfGroup(group).map(shortcut => (
             <Text color={theme.text}>
-              <Text color={theme.notice}>{input.hotkeysOf(shortcut.action).join(' / ').padEnd(7)}</Text>
+              <Text color={theme.notice}>{(input.hotkeysOf(shortcut.action).join(' / ') || 'mouse').padEnd(7)}</Text>
               {shortcut.description}
             </Text>
           ))}
@@ -800,7 +823,7 @@ function renderTextScopes(ui: ViewElements, input: PaneInput, textScope: TextSea
     <Box key="text-scopes" flexDirection="row" height={1} flexShrink={0}>
       {TEXT_SCOPES.map(scope => (
         <Box key={`text-scope-box-${scope}`} flexDirection="row" flexShrink={0} marginRight={3}>
-          <Button key={`text-scope-${scope}`} plain label={labels[scope]} onPress={() => input.actions.setTextScope(scope)}>
+          <Button key={`${TEXT_SCOPE_KEY_PREFIX}${scope}`} plain label={labels[scope]} onPress={() => input.actions.setTextScope(scope)}>
             <Text color={scope === textScope ? theme.accent : theme.muted} bold={scope === textScope}>
               {`${scope === textScope ? '◉' : '○'} ${labels[scope]}`}
             </Text>
@@ -847,6 +870,14 @@ function renderPalette(ui: ViewElements, input: PaneInput) {
 
       return statusOfScope[palette.textScope]()
     },
+    goToLine: () => {
+      const typedLine = lineNumberTypedIn(palette.query, model.lineCount)
+      if (palette.query.trim() === '' || typedLine !== null) {
+        return `${typedLine === null ? 'A line' : `Line ${typedLine}`} of ${model.lineCount} · Enter goes there · Esc closes`
+      }
+
+      return `Not a line of this file: type a number from 1 to ${model.lineCount}`
+    },
   }
   const status = statusOfMode[palette.mode]()
 
@@ -864,21 +895,26 @@ function renderPalette(ui: ViewElements, input: PaneInput) {
       backgroundColor={theme.paletteBackground}
       paddingX={1}
     >
-      <Box key="palette-previous-box" display="none">
-        <Button key={PALETTE_PREVIOUS_KEY} plain label="previous row" onPress={() => undefined} />
-      </Box>
-      <Input
-        key={paletteFieldKey(palette.fieldNumber)}
-        label={PALETTE_FIELD_LABELS[palette.mode]}
-        placeholder={PALETTE_PLACEHOLDERS[palette.mode]}
-        value={palette.initialQuery}
-        submitLabel={PALETTE_SUBMIT_LABELS[palette.mode]}
-        autoFocus
-        onInput={value => input.actions.updatePaletteQuery(value)}
-        onSubmit={value => input.actions.submitPalette(value)}
-      />
-      <Box key="palette-next-box" display="none">
-        <Button key={PALETTE_NEXT_KEY} plain label="next row" onPress={() => undefined} />
+      <Box key="palette-field-row" flexDirection="row" flexShrink={0}>
+        <Box key="palette-field-column" flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+          <Box key="palette-previous-box" display="none">
+            <Button key={PALETTE_PREVIOUS_KEY} plain label="previous row" onPress={() => undefined} />
+          </Box>
+          <Input
+            key={paletteFieldKey(palette.fieldNumber)}
+            label={PALETTE_FIELD_LABELS[palette.mode]}
+            placeholder={PALETTE_PLACEHOLDERS[palette.mode]}
+            value={palette.initialQuery}
+            submitLabel={PALETTE_SUBMIT_LABELS[palette.mode]}
+            autoFocus
+            onInput={value => input.actions.updatePaletteQuery(value)}
+            onSubmit={value => input.actions.submitPalette(value)}
+          />
+          <Box key="palette-next-box" display="none">
+            <Button key={PALETTE_NEXT_KEY} plain label="next row" onPress={() => undefined} />
+          </Box>
+        </Box>
+        <Button key={PALETTE_CLOSE_KEY} plain dimColor label="×" onPress={() => input.actions.closePalette()} />
       </Box>
       {palette.mode === 'textSearch' && renderTextScopes(ui, input, palette.textScope)}
       <Box key="palette-items" flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">

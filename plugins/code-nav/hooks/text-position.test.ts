@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { lineAndColumnOfOffset, lineStartOffsetsOf, lineTextAt, offsetOfLineAndColumn } from './text-position'
+import { lineAndColumnOfOffset, lineNumberTypedIn, lineStartOffsetsOf, lineTextAt, offsetOfLineAndColumn } from './text-position'
 
 const TEXT = 'const total = 1\n\nexport { total }\r\nlast'
 
@@ -24,4 +24,13 @@ test('the text of a line leaves its line break and carriage return out', async (
   expect(lineTextAt(TEXT, lineStartOffsets, 4)).toBe('last')
   expect(lineTextAt(TEXT, lineStartOffsets, 2)).toBe('')
   expect(lineTextAt(TEXT, lineStartOffsets, 7)).toBe('')
+})
+
+test('a line to go to is a number of the file, typed with or without a colon', async () => {
+  expect(lineNumberTypedIn('42', 100)).toBe(42)
+  expect(lineNumberTypedIn(' :7 ', 100)).toBe(7)
+  expect(lineNumberTypedIn('0', 100)).toBeNull()
+  expect(lineNumberTypedIn('101', 100)).toBeNull()
+  expect(lineNumberTypedIn('4a', 100)).toBeNull()
+  expect(lineNumberTypedIn('', 100)).toBeNull()
 })

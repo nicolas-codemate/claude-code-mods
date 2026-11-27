@@ -17,7 +17,7 @@ export type PaneActions = {
   submitPalette: (query: string) => Promise<void>
   openPaletteItem: (itemIndex: number) => Promise<void>
   setTextScope: (textScope: TextSearchScope) => Promise<void>
-  openTextSearch: (textScope: TextSearchScope) => Promise<void>
+  closePalette: () => Promise<void>
   pressResultRow: (rowIndex: number) => Promise<void>
   openResultRow: (rowIndex: number) => Promise<void>
   openPeekedRow: () => Promise<void>
@@ -40,7 +40,6 @@ export type PaneActions = {
   removeBookmarkOfRow: (rowIndex: number) => Promise<void>
   listBookmarks: () => Promise<void>
   scrollCodeSideways: (side: CutSide) => Promise<void>
-  goToLine: () => Promise<void>
 }
 
 export type HotkeysOf = (action: ShortcutAction) => readonly string[]

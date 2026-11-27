@@ -43,8 +43,8 @@ shows your message alone. `×` beside the notice keeps that selection out of you
 - `OrRe` or `ordrepo` finds `OrderRepository`, camel-case humps and word starts counting most;
 - `Order::save` (or `Order.save`) finds the method in the classes that match;
 - `src/Order` matches against whole paths;
-- `Order:42` opens the file on line 42, `:42` goes to that line of the file shown (`↧ Line` in the bar under the header
-  opens the search with the colon typed);
+- `Order:42` opens the file on line 42, `:42` goes to that line of the file shown (`g`, or `↧ Line` in the bar under
+  the header, asks for the line number alone, saying how many lines the file has);
 - with nothing typed, the files you last opened and the ones Claude touched.
 
 `↑` and `↓` pick a row while you keep typing, Enter opens it.
@@ -58,12 +58,14 @@ structure: the headings of Markdown and AsciiDoc, the keys of YAML, JSON, TOML, 
 CSS, SCSS and LESS, the targets of a Makefile, the stages of a Dockerfile, the tables and functions of SQL, the blocks
 of Twig and Jinja, the elements with an `id` in XML and HTML.
 
-`g` searches a text, in the file shown or in the whole project: `↑` and `↓` in its field, or a click, pick where.
+`l` searches a text in the file shown, `o` in the whole project: `↑` and `↓` in the field, or a click, switch between
+the two.
 In the file shown the matches are listed and lit as you type, the code scrolling to the first, and Enter goes to it;
 in the whole project Enter lists every line holding the text. A text typed in lower case matches any case, one with a
 capital letter that case only. The lines found are walked as any list under the code.
 
-The bar under the header holds the same searches within a click: `⌕ Find`, `Search in file` and `Search in project`.
+The bar under the header holds them within a click, by what they act on: `FILE ☰ Structure · ↧ Line · ⌕ Search`, then
+`PROJECT ⌕ Find · ⌕ Search`, then `◆ Bookmarks`.
 Once a text is searched it shows the text and where you stand among its matches (`3 / 18`), with `◀ previous` and
 `next ▶` to go from one to the other and `×` to clear the search. In the file shown the code itself goes to the match;
 a match in another file is previewed above the list.
@@ -121,8 +123,8 @@ strip and pinned files back into the drawer.
 
 **Tabs.** Every file opened, from the search, a click on a name, a row of a list, the explorer or Claude, opens in a
 tab of its own, or goes back to its tab when it is already open; each tab keeps where it was scrolled.  `n` and `p` go to the next and previous tab, `1` to `9` to the tab of that number.
-`c` closes the tab shown (or `×` on any tab), `b` all the others, `l` the tabs above it, `o` those below it, `m` all of
-them; the row under the title of the tabs does the same with the mouse: `close above · below · others · all`. The tabs opened for good come back the next time the pane opens on the project.
+`c` closes the tab shown (or `×` on any tab); the row under the title of the tabs closes the tabs above it or below
+it, the others or all of them: `close above · below · others · all`. The tabs opened for good come back the next time the pane opens on the project.
 
 **Files.** Every directory of the project, what git ignores included: `vendor/` and `node_modules/` are listed as
 any other, drawn dim, and read only when opened, so nothing is indexed ahead. A directory is drawn in gold with a
@@ -173,7 +175,8 @@ made again when the search opens, so there is nothing to keep up to date. What g
 
 Everything works with the mouse. Every action also has a key while the pane holds the keyboard (click in it, or use
 Claude Code's focus chord); `h` lists them all. A key the pane does not use goes to the prompt, as in any pane.
-Escape closes the search or the help, then the pane; the wheel and Page Up / Page Down scroll the code, `j` and `k`
+Escape closes the search or the help, then the pane; the search, the structure and the line to go to also close from
+the `×` of their frame, or by a click on any other button of the pane, which then does what it does; the wheel and Page Up / Page Down scroll the code, `j` and `k`
 a few lines at a time. The mouse selects text in the code as anywhere else in Claude Code.
 
 ## Settings

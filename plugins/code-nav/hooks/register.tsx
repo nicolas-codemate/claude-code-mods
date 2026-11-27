@@ -39,6 +39,8 @@ import {
   OPEN_TABS_STORE_KEY_PREFIX,
   BOOKMARKS_STORE_KEY_PREFIX,
   OUTLINE_ITEM_LIMIT,
+  PALETTE_CLOSE_KEY,
+  PALETTE_ITEM_KEY_PREFIX,
   PALETTE_ITEM_LIMIT,
   PALETTE_NEXT_KEY,
   PALETTE_PREVIOUS_KEY,
@@ -67,6 +69,7 @@ import {
   SHOW_TOOL_NAME,
   TEXT_SEARCH_MATCH_LIMIT,
   WHEEL_TICK_LINES,
+  TEXT_SCOPE_KEY_PREFIX,
 } from './constants'
 import { buildProjectIndex, createEngineWorkspace } from './engine-workspace'
 import type { EngineWorkspace } from './engine-workspace'
@@ -84,6 +87,7 @@ import { phpSymbolsOfFile } from './php/analysis'
 import { pathFromRoot, writtenPlaceOf, writtenSymbolOf } from './place-request'
 import { scriptSymbolsOfFile } from './script/analysis'
 import { firstMatchIndexFrom, isCaseSensitiveText, textMatchesInLines } from './text-search'
+import { lineNumberTypedIn } from './text-position'
 import { genericSymbolsOfFile } from './outline/generic-outline'
 import { escapedForRegularExpression, isClassLikeKind, labelOfSymbol, wholeNamePattern } from './symbol-names'
 import { tokenizeSource } from './syntax/tokenize'
@@ -1483,6 +1487,7 @@ function paletteItemsFor(mode: PaletteMode, query: string): PaletteItem[] {
     everything: () => (paletteSource === null ? [] : searchPalette(query, paletteSource, paletteContext, PALETTE_ITEM_LIMIT)),
     outline: () => outlineItems(query).slice(0, OUTLINE_ITEM_LIMIT),
     textSearch: () => [],
+    goToLine: () => [],
   }
 
   return itemsOfMode[mode]()
@@ -1561,6 +1566,16 @@ async function takeKeyboardAfterClick($: EngineInterface): Promise<void> {
   if (!lastDrawnLayout.isPaneFocused) {
     await takeKeyboard($)
   }
+}
+
+function isPressInPalette(element: string): boolean {
+  return (
+    element.startsWith(PALETTE_ITEM_KEY_PREFIX) ||
+    element.startsWith(TEXT_SCOPE_KEY_PREFIX) ||
+    element === PALETTE_PREVIOUS_KEY ||
+    element === PALETTE_NEXT_KEY ||
+    element === PALETTE_CLOSE_KEY
+  )
 }
 
 async function closePalette($: EngineInterface): Promise<void> {
@@ -1689,27 +1704,43 @@ async function submitPalette($: EngineInterface, query: string): Promise<void> {
   if (palette === null) {
     return
   }
-  if (palette.mode === 'textSearch') {
-    await closePalette($)
-    const submittedSearches: Record<TextSearchScope, () => Promise<void>> = {
-      file: async () => {
-        await showMatchesInShownFile($, query)
-        const resultsPanel = await read($, resultsPanelAtom)
-        const matches = resultsPanel?.kind === 'textSearch' ? resultsPanel.rows : []
-        if (matches.length > 0) {
-          await openResultRow($, firstMatchIndexFrom(matches, await read($, topLineAtom)))
-        }
-      },
-      project: () => searchTextInProject($, query),
+  const openSelectedItem = async () => {
+    if (palette.query !== query) {
+      await updatePaletteQuery($, query)
     }
-    await submittedSearches[palette.textScope]()
-    return
+    await openPaletteItem($, (await read($, paletteAtom))?.selectedIndex ?? 0)
   }
-  if (palette.query !== query) {
-    await updatePaletteQuery($, query)
+  const submissions: Record<PaletteMode, () => Promise<void>> = {
+    everything: openSelectedItem,
+    outline: openSelectedItem,
+    textSearch: async () => {
+      await closePalette($)
+      const submittedSearches: Record<TextSearchScope, () => Promise<void>> = {
+        file: async () => {
+          await showMatchesInShownFile($, query)
+          const resultsPanel = await read($, resultsPanelAtom)
+          const matches = resultsPanel?.kind === 'textSearch' ? resultsPanel.rows : []
+          if (matches.length > 0) {
+            await openResultRow($, firstMatchIndexFrom(matches, await read($, topLineAtom)))
+          }
+        },
+        project: () => searchTextInProject($, query),
+      }
+      await submittedSearches[palette.textScope]()
+    },
+    // A number that is not a line of the file leaves the field open, its status saying which numbers are.
+    goToLine: async () => {
+      const file = shownFile
+      const line = file === null ? null : lineNumberTypedIn(query, file.lines.length)
+      if (file === null || line === null) {
+        await updatePaletteQuery($, query)
+        return
+      }
+      await closePalette($)
+      await showPlace($, { path: file.path, line }, true)
+    },
   }
-  const selectedIndex = (await read($, paletteAtom))?.selectedIndex ?? 0
-  await openPaletteItem($, selectedIndex)
+  await submissions[palette.mode]()
 }
 
 // --- Shortcuts ------------------------------------------------------------------------------------------------------------
@@ -1730,7 +1761,9 @@ async function runShortcut($: EngineInterface, action: ShortcutAction): Promise<
   const shortcuts: Record<ShortcutAction, () => Promise<void>> = {
     findEverything: () => openPalette($, 'everything'),
     fileOutline: () => (shownFile === null ? showNotice($, 'No file shown.') : openPalette($, 'outline')),
-    searchText: () => openPalette($, 'textSearch'),
+    goToLine: () => (shownFile === null ? showNotice($, 'No file shown.') : openPalette($, 'goToLine')),
+    searchInFile: () => openPalette($, 'textSearch', '', 'file'),
+    searchInProject: () => openPalette($, 'textSearch', '', 'project'),
     showUsages: async () => {
       const position = await markedPosition($)
       if (position !== null) {
@@ -1796,7 +1829,7 @@ function paneActions($: EngineInterface): PaneActions {
     submitPalette: query => submitPalette($, query),
     openPaletteItem: itemIndex => afterTakingKeyboard(() => openPaletteItem($, itemIndex)),
     setTextScope: textScope => setTextScope($, textScope),
-    openTextSearch: textScope => afterTakingKeyboard(() => openPalette($, 'textSearch', '', textScope)),
+    closePalette: () => closePalette($),
     pressResultRow: rowIndex => afterTakingKeyboard(() => pressResultRow($, rowIndex)),
     openResultRow: rowIndex => afterTakingKeyboard(() => openResultRow($, rowIndex)),
     openPeekedRow: () => afterTakingKeyboard(() => openPeekedRow($)),
@@ -1820,7 +1853,6 @@ function paneActions($: EngineInterface): PaneActions {
     removeBookmarkOfRow: rowIndex => afterTakingKeyboard(() => removeBookmarkOfRow($, rowIndex)),
     listBookmarks: () => afterTakingKeyboard(() => listBookmarks($)),
     scrollCodeSideways: side => afterTakingKeyboard(() => scrollCodeSideways($, side)),
-    goToLine: () => afterTakingKeyboard(() => openPalette($, 'everything', ':')),
     dismissInlineNote: () => clearInlineNote($),
   }
 }
@@ -2258,6 +2290,16 @@ export const register: Register = (on, options) => {
 
   // In the find field the arrows leave for the hidden buttons before and after it: the selected row moves instead,
   // and the keyboard stays in the field.
+  // A click on any other control of the pane puts the search away before the control does what it does: the search
+  // is a frame over the pane, not a mode it is left in. A click on the code's plain text raises nothing to answer.
+  on('ui.press', { component: 'Pane', requestId: PANE_ID }, async ($, e, next) => {
+    if (!isPressInPalette(e.element) && (await read($, paletteAtom)) !== null) {
+      await closePalette($)
+    }
+
+    return next(e)
+  })
+
   on('ui.focus', { component: 'Pane', requestId: PANE_ID }, async ($, e, next) => {
     const isFilesFilterArrow = e.element === FILES_FILTER_NEXT_KEY || e.element === FILES_FILTER_PREVIOUS_KEY
     if (isFilesFilterArrow && e.origin.kind === 'person') {

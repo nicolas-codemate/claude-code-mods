@@ -45,3 +45,14 @@ export function lineTextAt(text: string, lineStartOffsets: readonly number[], li
 
   return lineText.endsWith('\r') ? lineText.slice(0, -1) : lineText
 }
+
+// The line a person typed to go to, written with or without a leading colon; null when it is not a line of the file.
+export function lineNumberTypedIn(typedText: string, lineCount: number): number | null {
+  const digits = typedText.trim().replace(/^:/, '')
+  if (!/^\d+$/.test(digits)) {
+    return null
+  }
+  const line = Number(digits)
+
+  return line >= 1 && line <= lineCount ? line : null
+}

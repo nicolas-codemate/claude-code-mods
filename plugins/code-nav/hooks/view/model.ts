@@ -244,7 +244,7 @@ export const SIDEWAYS_SCROLL_MARGIN_COLUMNS = 2
 // the middle of the code it lists.
 type PalettePlacement = 'top' | 'centeredOnCode'
 
-const PALETTE_PLACEMENT_OF_MODE: Record<PaletteMode, PalettePlacement> = { everything: 'top', outline: 'centeredOnCode', textSearch: 'top' }
+const PALETTE_PLACEMENT_OF_MODE: Record<PaletteMode, PalettePlacement> = { everything: 'top', outline: 'centeredOnCode', textSearch: 'top', goToLine: 'top' }
 
 type PaletteBox = { top: number; left: number; width: number; shownItems: number; height: number | null }
 

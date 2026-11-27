@@ -171,7 +171,7 @@ test('a text is searched in the file shown as it is typed, the matches counted a
   await runCodeNav($, CHECKOUT)
   const pane = await mountPane($, { bodyRows: 30 })
 
-  await pane.press({ key: shortcutButtonKey('searchText', 'g') })
+  await pane.press({ key: shortcutButtonKey('searchInFile', 'l') })
   expect((await pane.find({ key: 'text-scope-file' }))?.text).toBe('◉ in this file (Checkout.php)')
   const fieldKey = await paletteFieldKeyOf(pane)
   await pane.input({ key: fieldKey, text: 'unknown', kind: 'change' })
@@ -202,8 +202,8 @@ test('a text is searched in every file and its lines listed under the code', WHO
   await runCodeNav($, ORDER_REPOSITORY)
   const pane = await mountPane($)
 
-  await pane.press({ key: shortcutButtonKey('searchText', 'g') })
-  await pane.press({ key: 'text-scope-project' })
+  await pane.press({ key: shortcutButtonKey('searchInProject', 'o') })
+  expect((await pane.find({ key: 'text-scope-project' }))?.text?.startsWith('◉')).toBe(true)
   await pane.input({ key: await paletteFieldKeyOf(pane), text: 'STATUS_PAID' })
   const rows = await resultRowTexts(pane)
   expect(rows.some(row => row.includes(`${ORDER_REPOSITORY}:${lineNumberOf(SHOP_FILES, ORDER_REPOSITORY, 'STATUS_PAID')}`))).toBe(true)
@@ -304,18 +304,25 @@ test('lines selected with the mouse in the pane go to Claude with the next messa
   await pane.unmount()
 })
 
-test('the menu goes to a line of the file shown through the search, a colon typed for you', WHOLE_MOD_TEST, async ($, on) => {
+test('the menu asks for a line number of the file shown, stays open on a number that is not one of its lines, and goes to one that is', WHOLE_MOD_TEST, async ($, on) => {
   stubWorld(on, SHOP_FILES)
   await startSession($)
   await runCodeNav($, CHECKOUT)
   const pane = await mountPane($)
+  const lineCount = (SHOP_FILES[CHECKOUT] ?? '').replace(/\n$/, '').split('\n').length
 
   await pane.press({ key: 'menu-go-to-line' })
   const fieldKey = await paletteFieldKeyOf(pane)
-  expect((await pane.find({ key: fieldKey }))?.props.value).toBe(':')
-  await pane.input({ key: fieldKey, text: ':20' })
+  expect((await pane.find({ key: fieldKey }))?.props.label).toBe('go to line')
+  expect(await paletteItemTexts(pane)).toEqual([])
+  await pane.input({ key: fieldKey, text: String(lineCount + 50) })
+  expect(await pane.find({ type: 'Text', text: `Not a line of this file: type a number from 1 to ${lineCount}` })).toBeDefined()
+  await pane.input({ key: fieldKey, text: '20' })
   expect(await pane.find({ key: 'palette-box' })).toBeUndefined()
   expect(await markedLineNumber(pane)).toBe(20)
+
+  await pane.press({ key: shortcutButtonKey('goToLine', 'g') })
+  expect((await pane.find({ key: await paletteFieldKeyOf(pane) }))?.props.label).toBe('go to line')
   await pane.unmount()
 })
 
@@ -379,6 +386,28 @@ test('the tag over a declaration goes up to what it overrides or implements', WH
   await pane.press({ key: `token-parents-${findLatestLine}-${column}` })
   expect(await shownPath(pane, SHOP_FILES)).toBe('src/Repository/OrderFinder.php')
   expect(await markedLineNumber(pane)).toBe(lineNumberOf(SHOP_FILES, 'src/Repository/OrderFinder.php', 'public function findLatest'))
+  await pane.unmount()
+})
+
+test('the search frame closes from its cross, and on a click on any other control of the pane before that control acts', WHOLE_MOD_TEST, async ($, on) => {
+  stubWorld(on, SHOP_FILES)
+  await startSession($)
+  await runCodeNav($, CHECKOUT)
+  const pane = await mountPane($)
+
+  await pane.press({ key: 'menu-go-to-line' })
+  expect(await pane.find({ key: 'palette-box' })).toBeDefined()
+  await pane.press({ key: 'palette-close' })
+  expect(await pane.find({ key: 'palette-box' })).toBeUndefined()
+
+  await pane.press({ key: 'menu-structure' })
+  expect(await pane.find({ key: 'palette-box' })).toBeDefined()
+  await pane.press({ key: 'menu-search-in-project' })
+  expect((await pane.find({ key: await paletteFieldKeyOf(pane) }))?.props.label).toBe('grep')
+  await pane.press({ key: 'text-scope-file' })
+  expect(await pane.find({ key: 'palette-box' })).toBeDefined()
+  await pane.press({ key: 'files-toggle' })
+  expect(await pane.find({ key: 'palette-box' })).toBeUndefined()
   await pane.unmount()
 })
 
@@ -538,7 +567,7 @@ test('the row under the title of the tabs closes those above or below the tab sh
   await pane.unmount()
 })
 
-test('the active tab, the others, the tabs on the left, on the right or all of them close from their keys', WHOLE_MOD_TEST, async ($, on) => {
+test('the active tab closes from its key and from its cross, the other closings being left to the mouse', WHOLE_MOD_TEST, async ($, on) => {
   stubWorld(on, SHOP_FILES)
   await startSession($)
   for (const path of ['src/Entity/Order.php', 'src/Entity/Invoice.php', 'src/Entity/Product.php', 'src/Entity/Customer.php', 'src/Entity/Money.php']) {
@@ -551,22 +580,9 @@ test('the active tab, the others, the tabs on the left, on the right or all of t
   await pane.press({ key: shortcutButtonKey('closeTab', 'c') })
   expect(await tabTexts(pane)).toEqual(['Order.php', 'Invoice.php', 'Customer.php *', 'Money.php'])
   expect(await shownPath(pane, SHOP_FILES)).toBe('src/Entity/Customer.php')
-  await pane.press({ key: shortcutButtonKey('closeTabsOnTheRight', 'o') })
-  expect(await tabTexts(pane)).toEqual(['Order.php', 'Invoice.php', 'Customer.php *'])
-  await pane.press({ key: shortcutButtonKey('closeTabsOnTheLeft', 'l') })
-  expect(await tabTexts(pane)).toEqual(['Customer.php *'])
-
-  await runCodeNav($, 'src/Entity/Order.php')
-  await pane.press({ key: shortcutButtonKey('closeOtherTabs', 'b') })
-  expect(await tabTexts(pane)).toEqual(['Order.php *'])
+  expect(await pane.find({ key: shortcutButtonKey('closeOtherTabs', 'b') })).toBeUndefined()
   await pane.press({ key: 'close-tab-0' })
-  expect(await tabTexts(pane)).toEqual([])
-  expect(await shownPath(pane, SHOP_FILES)).toBeUndefined()
-
-  await runCodeNav($, 'src/Entity/Order.php')
-  await runCodeNav($, 'src/Entity/Invoice.php')
-  await pane.press({ key: shortcutButtonKey('closeAllTabs', 'm') })
-  expect(await tabTexts(pane)).toEqual([])
+  expect(await tabTexts(pane)).toEqual(['Invoice.php', 'Customer.php *', 'Money.php'])
   await pane.unmount()
 })
 

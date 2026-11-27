@@ -154,8 +154,8 @@ export type ResultsPanel = {
 export type FilesFilterState = { query: string; initialQuery: string; fieldNumber: number; selectedIndex: number; items: PaletteItem[] }
 
 // everything: files, classes and methods of the project. outline: the declarations of the file shown.
-// textSearch: a text looked for in every file, on Enter.
-export type PaletteMode = 'everything' | 'outline' | 'textSearch'
+// textSearch: a text looked for in the file shown or in every file. goToLine: a line number of the file shown.
+export type PaletteMode = 'everything' | 'outline' | 'textSearch' | 'goToLine'
 
 // Where a text is searched: the file shown, as it is typed, or every file of the project, on Enter.
 export type TextSearchScope = 'file' | 'project'
