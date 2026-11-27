@@ -243,3 +243,19 @@ test('property hooks and broken code do not derail the members that follow', asy
   expect(outline.classes[0]?.properties.map(property => property.name)).toEqual(['label', 'count'])
   expect(outline.classes[0]?.methods.map(method => method.name).includes('add')).toBe(true)
 })
+
+test('a DNF type right after a visibility is read whole, a write visibility in parentheses is skipped', async () => {
+  const outline = parsePhpOutline(
+    'src/Billing/Subscription.php',
+    '<?php\nclass Subscription {\n  private (Customer&\\Stringable)|null $signatory = null;\n  public private(set) Invoice $invoice;\n  public function __construct(private (Payer&\\Stringable)|null $payer = null, public protected(set) Order $order) {}\n}\n',
+  )
+  const properties = outline.classes[0]?.properties ?? []
+  expect(properties.map(property => [property.name, property.typeText])).toEqual([
+    ['signatory', '(Customer&\\Stringable)|null'],
+    ['invoice', 'Invoice'],
+    ['payer', '(Payer&\\Stringable)|null'],
+    ['order', 'Order'],
+  ])
+  const markedNames = [...outline.classReferenceTokenIndexes].map(tokenIndex => outline.source.tokens[tokenIndex]?.text)
+  expect(['Customer', 'Invoice', 'Payer', 'Order'].every(name => markedNames.includes(name))).toBe(true)
+})

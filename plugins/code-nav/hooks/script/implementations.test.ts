@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import type { ImplementationsAnswer } from '../../types'
 import { findScriptImplementations } from './implementations'
-import { createShopWorkspace, positionIn, SHOP_FILES } from './test-project'
+import { createShopWorkspace, positionIn, RENAMED_PARENT_FILES, SHOP_FILES } from './test-project'
 
 const workspace = createShopWorkspace()
 
@@ -108,4 +108,26 @@ test('a class nothing extends says so, a click on nothing answers no symbol', as
   expect(leaf.note).toBe('Nothing extends or implements MemoryOrderRepository')
   const nothing = await implementationsAt('src/api/orders.ts', "'/orders'", 'orders')
   expect(nothing).toEqual({ symbol: null, title: '', targets: [], note: null })
+})
+
+test('a class extending its parent under another name is an implementation: renamed import, default import, index file', async () => {
+  const answer = await findScriptImplementations(
+    createShopWorkspace(RENAMED_PARENT_FILES),
+    positionIn('src/base-service.ts', 'class BaseService', 'BaseService', RENAMED_PARENT_FILES),
+  )
+  expect(answer.targets.map(target => `${target.certainty} ${target.label}`).sort()).toEqual([
+    'exact InvoiceService',
+    'exact OrderService',
+    'exact PaymentService',
+    'exact RefundService',
+    'exact ShippingService',
+  ])
+})
+
+test('an interface named on the line after "implements" lists its class', async () => {
+  const answer = await findScriptImplementations(
+    createShopWorkspace(RENAMED_PARENT_FILES),
+    positionIn('src/storage.ts', 'interface Saveable', 'Saveable', RENAMED_PARENT_FILES),
+  )
+  expect(answer.targets.map(target => `${target.certainty} ${target.label}`).sort()).toEqual(['exact InvoiceArchive', 'exact OrderArchive'])
 })

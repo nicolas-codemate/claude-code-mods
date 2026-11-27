@@ -14,7 +14,7 @@ import { createAnalysisSession, modelOf } from './session'
 import type { AnalysisSession } from './session'
 import { isPunctuation } from './structure'
 import { targetOfLocated, targetOfSymbol, withoutDuplicateTargets } from './targets'
-import { componentNameOfTag } from './vue-template'
+import { componentNameOfTag, isPlainElementTag } from './vue-template'
 
 const MAXIMUM_CANDIDATES = 25
 const VUE_BUILT_IN_COMPONENTS = new Set(['Teleport', 'Transition', 'TransitionGroup', 'KeepAlive', 'Suspense', 'Component'])
@@ -127,7 +127,7 @@ async function resolveComponentTag(
 ): Promise<{ resolution: Resolution; candidateFiles: string[] }> {
   const componentName = componentNameOfTag(tagName)
   const camelCaseName = componentName.charAt(0).toLowerCase() + componentName.slice(1)
-  const isPlainElement = !tagName.includes('-') && tagName === tagName.toLowerCase()
+  const isPlainElement = isPlainElementTag(tagName)
   if (isPlainElement && bindingVisibleAt(model.structure, tagName, -1)?.importBinding == null) {
     return { resolution: { kind: 'unknown' }, candidateFiles: [] }
   }
@@ -192,7 +192,7 @@ async function answerOfComponentTag(
     return answerOfResolution(session, model, symbol, resolution, false)
   }
   if (candidateFiles.length === 0) {
-    const isPlainElement = !tagName.includes('-') && tagName === tagName.toLowerCase()
+    const isPlainElement = isPlainElementTag(tagName)
 
     const note = `No component named ${componentNameOfTag(tagName)} was found: a plugin may register it`
 

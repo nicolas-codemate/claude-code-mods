@@ -79,3 +79,53 @@ test('the classes below a class are found level by level, each once', async () =
   const descendants = await descendantsOfClass(project, 'Shop\\Entity\\HasTotal')
   expect(descendants.map(located => located.classDeclaration.name)).toEqual(['Invoice', 'Order', 'CreditNote'])
 })
+
+const PARENTS_IMPORTED_UNDER_ANOTHER_NAME = {
+  'src/Contract/Handler.php': '<?php\nnamespace Shop\\Contract;\ninterface Handler\n{\n    public function handle(string $message): void;\n}\n',
+  'src/Handler/MailHandler.php':
+    '<?php\nnamespace Shop\\Handler;\nuse Shop\\Contract\\Handler as HandlerContract;\nfinal class MailHandler implements HandlerContract\n{\n    public function handle(string $message): void\n    {\n    }\n}\n',
+  'src/Handler/SmsHandler.php':
+    '<?php\nnamespace Shop\\Handler;\nuse Shop\\Contract\\Handler;\nfinal class SmsHandler implements Handler\n{\n    public function handle(string $message): void\n    {\n    }\n}\n',
+  'src/Catalog/AbstractCatalog.php': '<?php\nnamespace Shop\\Catalog;\nabstract class AbstractCatalog\n{\n    abstract public function count(): int;\n}\n',
+  'src/Catalog/ProductCatalog.php':
+    '<?php\nnamespace Shop\\Catalog;\nuse Shop\\Catalog\\AbstractCatalog as Base;\nclass ProductCatalog extends Base\n{\n    public function count(): int\n    {\n        return 1;\n    }\n}\n',
+  'src/Catalog/CustomerCatalog.php': '<?php\nnamespace Shop\\Catalog;\nclass CustomerCatalog extends AbstractCatalog\n{\n    public function count(): int\n    {\n        return 2;\n    }\n}\n',
+  'src/Audit/Recorded.php': '<?php\nnamespace Shop\\Audit;\ntrait Recorded\n{\n    public function record(): void\n    {\n    }\n}\n',
+  'src/Audit/PaymentLedger.php': '<?php\nnamespace Shop\\Audit;\nuse Shop\\Audit\\Recorded as KeepsTrace;\nclass PaymentLedger\n{\n    use KeepsTrace;\n}\n',
+  'src/Audit/RefundLedger.php': '<?php\nnamespace Shop\\Audit;\nclass RefundLedger\n{\n    use Recorded;\n}\n',
+  'src/Contract/Notifier.php': '<?php\nnamespace Shop\\Contract;\ninterface Notifier\n{\n    public function notify(): void;\n}\n',
+  'src/Notification/PushSender.php':
+    '<?php\nnamespace Shop\\Notification;\nuse Shop\\Contract\\{Handler, Notifier as SendsAlerts};\nfinal class PushSender implements SendsAlerts\n{\n    public function notify(): void\n    {\n    }\n}\n',
+}
+
+function implementationsOfImportedParentAt(path: string, snippet: string, name: string): Promise<ImplementationsAnswer> {
+  return findPhpImplementations(
+    createShopWorkspace(PARENTS_IMPORTED_UNDER_ANOTHER_NAME),
+    positionIn(PARENTS_IMPORTED_UNDER_ANOTHER_NAME, path, snippet, name),
+  )
+}
+
+function sortedLabelsOf(answer: ImplementationsAnswer): string[] {
+  return answer.targets.map(target => target.label).sort()
+}
+
+test('a class implementing, extending or using its parent imported under another name is an implementation', async () => {
+  const ofInterface = await implementationsOfImportedParentAt('src/Contract/Handler.php', 'interface Handler', 'Handler')
+  expect(sortedLabelsOf(ofInterface)).toEqual(['MailHandler', 'SmsHandler'])
+  const ofAbstractClass = await implementationsOfImportedParentAt('src/Catalog/AbstractCatalog.php', 'abstract class AbstractCatalog', 'AbstractCatalog')
+  expect(sortedLabelsOf(ofAbstractClass)).toEqual(['CustomerCatalog', 'ProductCatalog'])
+  const ofTrait = await implementationsOfImportedParentAt('src/Audit/Recorded.php', 'trait Recorded', 'Recorded')
+  expect(sortedLabelsOf(ofTrait)).toEqual(['PaymentLedger', 'RefundLedger'])
+})
+
+test('the versions of a method include those of a class naming its interface under another name', async () => {
+  const answer = await implementationsOfImportedParentAt('src/Contract/Handler.php', 'public function handle(string $message): void;', 'handle')
+  expect(answer.title).toBe('Handler::handle')
+  expect(sortedLabelsOf(answer)).toEqual(['MailHandler::handle', 'SmsHandler::handle'])
+})
+
+test('an interface implemented only under a name given by a group use statement is not said to have no implementation', async () => {
+  const answer = await implementationsOfImportedParentAt('src/Contract/Notifier.php', 'interface Notifier', 'Notifier')
+  expect(sortedLabelsOf(answer)).toEqual(['PushSender'])
+  expect(answer.note).toBe(null)
+})

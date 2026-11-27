@@ -2,7 +2,7 @@ import type { CodePosition, Usage, UsageCertainty, UsagesAnswer } from '../../ty
 import type { SearchMatch, Workspace } from '../workspace'
 import { classReferenceAt, readPhpClick } from './click'
 import { receiverTypeOfMemberAccess } from './inference'
-import { lineTextAt, positionOfOffset, shortNameOf } from './outline'
+import { enclosingClassAt, lineTextAt, positionOfOffset, shortNameOf } from './outline'
 import type { PhpFileOutline } from './outline'
 import { ancestorNamesOf, createPhpProject } from './project'
 import type { PhpMemberKind, PhpProject } from './project'
@@ -19,6 +19,29 @@ const PHP_FILES = ['*.php']
 const OWN_CLASS_NAMES = new Set(['self', 'static', 'parent'])
 const NOT_A_PLAIN_NAME_AFTER = new Set(['->', '?->', '::', 'function', 'new', 'const'])
 const CERTAINTY_ORDER: Record<UsageCertainty, number> = { confirmed: 0, unverified: 1 }
+const CONSTRUCTOR_NAME = '__construct'
+// PHP calls these itself, on a cast, a call of the object, a read of an undeclared property...: those places do not
+// write the method's name, so a text search cannot find them.
+const MAGIC_METHODS_CALLED_WITHOUT_THEIR_NAME = new Set(
+  [
+    '__destruct',
+    '__call',
+    '__callStatic',
+    '__get',
+    '__set',
+    '__isset',
+    '__unset',
+    '__sleep',
+    '__wakeup',
+    '__serialize',
+    '__unserialize',
+    '__toString',
+    '__invoke',
+    '__set_state',
+    '__clone',
+    '__debugInfo',
+  ].map(name => name.toLowerCase()),
+)
 
 function usageAtOffset(outline: PhpFileOutline, offset: number, certainty: UsageCertainty): Usage {
   const { line, column } = positionOfOffset(outline, offset)
@@ -97,6 +120,71 @@ async function usagesOfClass(project: PhpProject, fullyQualifiedName: string): P
   }
 
   return { title: shortName, usages, isTruncated, note: null }
+}
+
+// An attribute's name stands right after "#[" or after a comma between the attributes of one group.
+function isAttributeNameAt(outline: PhpFileOutline, tokenIndex: number): boolean {
+  const { tokens, matchingBracketIndexes } = outline.source
+  const previousText = tokens[tokenIndex - 1]?.text
+  if (previousText === '#[') {
+    return true
+  }
+  if (previousText !== ',') {
+    return false
+  }
+  let index = tokenIndex - 2
+  while (index >= 0) {
+    const text = tokens[index]?.text ?? ''
+    const openingIndex = matchingBracketIndexes[index] ?? -1
+    if ((text === ')' || text === ']' || text === '}') && openingIndex !== -1) {
+      index = openingIndex - 1
+    } else if (text === '(' || text === '[' || text === '{' || text === '#[') {
+      return text === '#['
+    } else {
+      index -= 1
+    }
+  }
+
+  return false
+}
+
+// The places building an instance of the class, which run its constructor without naming it: "new Order(...)" under
+// any name the file gives the class, "new self(...)" and "new static(...)" inside it, an attribute "#[Order(...)]".
+function constructionsIn(outline: PhpFileOutline, fullyQualifiedName: string): number[] {
+  const { tokens } = outline.source
+  const offsets: number[] = []
+  for (const tokenIndex of outline.classReferenceTokenIndexes) {
+    const token = tokens[tokenIndex]
+    const isBuilt = tokens[tokenIndex - 1]?.text === 'new' || isAttributeNameAt(outline, tokenIndex)
+    if (token !== undefined && isBuilt && !OWN_CLASS_NAMES.has(token.text) && classReferenceAt(outline, tokenIndex) === fullyQualifiedName) {
+      offsets.push(token.start)
+    }
+  }
+  tokens.forEach((token, tokenIndex) => {
+    const isOwnClassBuilt = tokens[tokenIndex - 1]?.text === 'new' && (token.text === 'self' || token.text === 'static')
+    if (isOwnClassBuilt && enclosingClassAt(outline, tokenIndex)?.fullyQualifiedName === fullyQualifiedName) {
+      offsets.push(token.start)
+    }
+  })
+
+  return [...new Set(offsets)].sort((first, second) => first - second)
+}
+
+async function constructionsOfClasses(project: PhpProject, fullyQualifiedNames: readonly string[]): Promise<{ usages: Usage[]; isTruncated: boolean }> {
+  const usages: Usage[] = []
+  let isTruncated = false
+  for (const fullyQualifiedName of fullyQualifiedNames) {
+    const search = await searchCapped(project, `\\b${shortNameOf(fullyQualifiedName)}\\b`)
+    isTruncated = isTruncated || search.isTruncated
+    for (const path of matchesByPath(search.matches).keys()) {
+      const outline = await project.outlineOfFile(path)
+      if (outline !== null) {
+        usages.push(...constructionsIn(outline, fullyQualifiedName).map(offset => usageAtOffset(outline, offset, 'confirmed')))
+      }
+    }
+  }
+
+  return { usages, isTruncated }
 }
 
 function memberAccessPattern(memberKind: PhpMemberKind, name: string): string {
@@ -188,9 +276,20 @@ async function usagesOfMember(project: PhpProject, subject: Extract<PhpSubject, 
       }
     }
   }
-  const note = declaringClassNames.length === 0 ? `The class holding ${name} could not be read: every access to that name is listed` : null
+  const lowerCaseName = name.toLowerCase()
+  const isConstructor = memberKind === 'method' && lowerCaseName === CONSTRUCTOR_NAME
+  const constructions = isConstructor ? await constructionsOfClasses(project, declaringClassNames) : { usages: [], isTruncated: false }
+  usages.push(...constructions.usages)
+  const isCalledWithoutItsName = memberKind === 'method' && MAGIC_METHODS_CALLED_WITHOUT_THEIR_NAME.has(lowerCaseName)
+  let note: string | null = null
+  if (declaringClassNames.length === 0) {
+    note = `The class holding ${name} could not be read: every access to that name is listed`
+  } else if (isCalledWithoutItsName) {
+    note = `PHP also calls ${name} without its name being written: those calls are not listed`
+  }
+  const sortedUsages = usages.sort((first, second) => CERTAINTY_ORDER[first.certainty] - CERTAINTY_ORDER[second.certainty])
 
-  return { title, usages: usages.sort((first, second) => CERTAINTY_ORDER[first.certainty] - CERTAINTY_ORDER[second.certainty]), isTruncated, note }
+  return { title, usages: sortedUsages, isTruncated: isTruncated || constructions.isTruncated, note }
 }
 
 async function usagesOfPlainName(project: PhpProject, name: string, pattern: string, isCallWanted: boolean): Promise<FoundUsages> {

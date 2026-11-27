@@ -165,6 +165,9 @@ made again when the search opens, so there is nothing to keep up to date. What g
   or of a service container, a variable assigned in one branch only are listed as candidates rather than resolved.
   TypeScript is followed through imports and declared types, not inferred: an untyped callback parameter or a `v-for`
   item falls back to candidates.
+- The usages of a PHP constructor are the `new`, `new self`, `new static` and attributes building its class. A magic
+  method PHP calls itself (`__toString` on a cast, `__invoke` on a call of the object, `__get`, `__call`…) is listed
+  only where its name is written, and the note says so.
 - Usages of a very common method name are analysed up to a thousand matches; the title then shows a `+`, and when none
   of those matches is a usage the note says the search stopped there rather than that there is none.
 - A file over about 1.5 MB is shown without colors and without clickable names.

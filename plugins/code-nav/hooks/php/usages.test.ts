@@ -143,3 +143,101 @@ test('a click on nothing has no usages', async () => {
   const answer = await usagesAt(CHECKOUT, 'return null;', 'null')
   expect(answer).toEqual({ symbol: null, title: '', usages: [], isTruncated: false, note: null })
 })
+
+test('the usages of a class include a DNF type right after a visibility, of a property and of a promoted parameter', async () => {
+  const files = {
+    'src/Crm/Customer.php': '<?php\nnamespace Shop\\Crm;\nclass Customer\n{\n}\n',
+    'src/Billing/Subscription.php':
+      '<?php\nnamespace Shop\\Billing;\nuse Shop\\Crm\\Customer;\nclass Subscription\n{\n    private (Customer&\\Stringable)|null $signatory = null;\n\n    public function __construct(private (Customer&\\Stringable)|null $promoted = null)\n    {\n    }\n}\n',
+  }
+  const answer = await findPhpUsages(createShopWorkspace(files), positionIn(files, 'src/Crm/Customer.php', 'class Customer', 'Customer'))
+  expect(placesOf(answer)).toEqual(['src/Billing/Subscription.php:6 confirmed', 'src/Billing/Subscription.php:8 confirmed'])
+})
+
+const BUILT_CLASSES = {
+  'src/Delivery/Parcel.php': `<?php
+namespace Shop\\Delivery;
+class Parcel
+{
+    public function __construct(
+        public readonly int $id,
+        public readonly string $status = 'draft',
+    ) {
+    }
+
+    public static function empty(): self
+    {
+        return new self(0);
+    }
+
+    public static function restored(int $id): static
+    {
+        return new static($id, 'restored');
+    }
+}
+`,
+  'src/Delivery/ExpressParcel.php': `<?php
+namespace Shop\\Delivery;
+class ExpressParcel extends Parcel
+{
+    public function __construct(int $id)
+    {
+        parent::__construct($id, 'express');
+    }
+}
+`,
+  'src/Delivery/ParcelFactory.php': `<?php
+namespace Shop\\Delivery;
+use Shop\\Delivery\\Parcel as Package;
+class ParcelFactory
+{
+    public function create(int $id): Package
+    {
+        return new Package($id);
+    }
+
+    public function createDefault(): Parcel
+    {
+        return new \\Shop\\Delivery\\Parcel(1);
+    }
+}
+`,
+  'src/Archive/Parcel.php': '<?php\nnamespace Shop\\Archive;\nclass Parcel\n{\n    public function __construct()\n    {\n    }\n}\n',
+  'src/Archive/Shelf.php': '<?php\nnamespace Shop\\Archive;\nclass Shelf\n{\n    public function store(): Parcel\n    {\n        return new Parcel();\n    }\n}\n',
+  'src/Pricing/Discount.php':
+    '<?php\nnamespace Shop\\Pricing;\n#[\\Attribute]\nclass Discount\n{\n    public function __construct(public readonly int $percent)\n    {\n    }\n}\n',
+  'src/Pricing/SummerSale.php': '<?php\nnamespace Shop\\Pricing;\n#[Discount(10)]\nclass SummerSale\n{\n}\n',
+  'src/Pricing/WinterSale.php': '<?php\nnamespace Shop\\Pricing;\n#[Seasonal(\'winter\'), Discount(5)]\nclass WinterSale\n{\n}\n',
+  'src/Pricing/Price.php':
+    "<?php\nnamespace Shop\\Pricing;\nclass Price\n{\n    public function __toString(): string\n    {\n        return '0 EUR';\n    }\n\n    public function __invoke(): string\n    {\n        return (string) $this;\n    }\n}\n",
+}
+
+function usagesOfBuiltClassAt(path: string, snippet: string, name: string): Promise<UsagesAnswer> {
+  return findPhpUsages(createShopWorkspace(BUILT_CLASSES), positionIn(BUILT_CLASSES, path, snippet, name))
+}
+
+test('the usages of a constructor are the places building the class, under any name, and the calls of parent::__construct', async () => {
+  const answer = await usagesOfBuiltClassAt('src/Delivery/Parcel.php', 'public function __construct(', '__construct')
+  expect(answer.title).toBe('Parcel::__construct')
+  expect(answer.usages.map(usage => `${usage.path}:${usage.line} ${usage.preview}`).sort()).toEqual([
+    "src/Delivery/ExpressParcel.php:7 parent::__construct($id, 'express');",
+    'src/Delivery/Parcel.php:13 return new self(0);',
+    "src/Delivery/Parcel.php:18 return new static($id, 'restored');",
+    'src/Delivery/ParcelFactory.php:13 return new \\Shop\\Delivery\\Parcel(1);',
+    'src/Delivery/ParcelFactory.php:8 return new Package($id);',
+  ])
+  expect(answer.usages.every(usage => usage.certainty === 'confirmed')).toBe(true)
+  expect(answer.note).toBe(null)
+})
+
+test('the usages of the constructor of an attribute class are the attributes naming it', async () => {
+  const answer = await usagesOfBuiltClassAt('src/Pricing/Discount.php', 'public function __construct(', '__construct')
+  expect(placesOf(answer)).toEqual(['src/Pricing/SummerSale.php:3 confirmed', 'src/Pricing/WinterSale.php:3 confirmed'])
+})
+
+test('the usages of a magic method PHP calls itself say that those calls are not listed', async () => {
+  const ofToString = await usagesOfBuiltClassAt('src/Pricing/Price.php', 'public function __toString()', '__toString')
+  expect(ofToString.note).toBe('PHP also calls __toString without its name being written: those calls are not listed')
+  const ofInvoke = await usagesOfBuiltClassAt('src/Pricing/Price.php', 'public function __invoke()', '__invoke')
+  expect(ofInvoke.note).toBe('PHP also calls __invoke without its name being written: those calls are not listed')
+})

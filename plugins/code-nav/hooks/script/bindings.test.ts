@@ -63,13 +63,15 @@ test('the "this" of a function signature is no parameter', async () => {
   ).toEqual(['event'])
 })
 
-test('a type is a plain name when it is one name, alone or allowing null', async () => {
+test('a type is a plain name when it is one name, alone, with type arguments or allowing null', async () => {
   const cases: Array<[string, string | null]> = [
     ['Order = x', 'Order'],
     ['Order | null,', 'Order'],
     ['Shop.Order)', 'Order'],
     ['Order[]', null],
-    ['Ref<Order>', null],
+    ['Ref<Order>', 'Ref'],
+    ['Repository<Order> | null = x', 'Repository'],
+    ['Repository<Order>[]', null],
     ['string', null],
     ['Order | Invoice', null],
     ['{ id: string }', null],

@@ -281,6 +281,111 @@ export const SHOP_FILES: Record<string, string> = {
   ].join('\n'),
 }
 
+// A generic repository reached through a value typed with a type argument, from each kind of declaration, beside an
+// unrelated class with a method of the same name.
+export const GENERIC_REPOSITORY_FILES: Record<string, string> = {
+  'package.json': '{ "name": "shop-front" }',
+  'src/types/order.ts': 'export interface Order {\n  id: string\n}\n',
+  'src/repositories/Repository.ts': 'export class Repository<T> {\n  save(entity: T): void {\n    console.log(entity)\n  }\n}\n',
+  'src/archive/InvoiceArchive.ts': 'export class InvoiceArchive {\n  save(invoiceNumber: string): void {\n    console.log(invoiceNumber)\n  }\n}\n',
+  'src/checkout/checkout.ts': [
+    "import type { Order } from '../types/order'",
+    "import type { Repository } from '../repositories/Repository'",
+    '',
+    'declare function build(): unknown',
+    '',
+    'export class PromotedCheckout {',
+    '  constructor(private readonly orders: Repository<Order>) {}',
+    '',
+    '  place(order: Order): void {',
+    '    this.orders.save(order)',
+    '  }',
+    '}',
+    '',
+    'export class FieldCheckout {',
+    '  private drafts: Repository<Order> = build() as never',
+    '',
+    '  place(order: Order): void {',
+    '    this.drafts.save(order)',
+    '  }',
+    '}',
+    '',
+    'export function placeWithParameter(pending: Repository<Order>, order: Order): void {',
+    '  pending.save(order)',
+    '}',
+    '',
+    'export function placeWithLocal(order: Order): void {',
+    '  const archived: Repository<Order> = build() as never',
+    '  archived.save(order)',
+    '}',
+    '',
+  ].join('\n'),
+}
+
+// A class each inheritor names otherwise: its own name, a renamed import, a default import under two names, the name an
+// index file gives it; and two interfaces, the second named on the line after "implements".
+export const RENAMED_PARENT_FILES: Record<string, string> = {
+  'package.json': '{ "name": "shop-services" }',
+  'src/base-service.ts': 'export class BaseService {\n  start(): void {}\n}\n\nexport default BaseService\n',
+  'src/payment-service.ts': [
+    "import { BaseService } from './base-service'",
+    '',
+    'export class PaymentService extends BaseService {}',
+    '',
+    'export const fallbackPaymentService = new BaseService()',
+    '',
+  ].join('\n'),
+  'src/order-service.ts': [
+    "import { BaseService as Base } from './base-service'",
+    '',
+    'export class OrderService extends Base {}',
+    '',
+    'export const fallbackOrderService = new Base()',
+    '',
+  ].join('\n'),
+  'src/invoice-service.ts': [
+    "import Service from './base-service'",
+    '',
+    'export class InvoiceService extends Service {}',
+    '',
+  ].join('\n'),
+  'src/refund-service.ts': [
+    "import Core from './base-service'",
+    '',
+    'export class RefundService extends Core {}',
+    '',
+    'export const fallbackRefundService = new Core()',
+    '',
+  ].join('\n'),
+  'src/index.ts': "export { BaseService as Service } from './base-service'\n",
+  'src/shipping-service.ts': [
+    "import { Service } from './index'",
+    '',
+    'export class ShippingService extends Service {}',
+    '',
+  ].join('\n'),
+  'src/storage.ts': 'export interface Loadable {\n  load(): void\n}\n\nexport interface Saveable {\n  save(): void\n}\n',
+  'src/order-archive.ts': [
+    "import type { Loadable, Saveable } from './storage'",
+    '',
+    'export class OrderArchive implements Loadable,',
+    '    Saveable {',
+    '  load(): void {}',
+    '  save(): void {}',
+    '}',
+    '',
+  ].join('\n'),
+  'src/invoice-archive.ts': [
+    "import type { Loadable, Saveable } from './storage'",
+    '',
+    'export class InvoiceArchive implements Loadable, Saveable {',
+    '  load(): void {}',
+    '  save(): void {}',
+    '}',
+    '',
+  ].join('\n'),
+}
+
 export function createShopWorkspace(files: Record<string, string> = SHOP_FILES): Workspace {
   return createMemoryWorkspace(files, { symbolsOfFile: scriptSymbolsOfFile })
 }

@@ -10,12 +10,15 @@ const MAXIMUM_CANDIDATE_FILES = 400
 const MAXIMUM_CANDIDATE_MATCHES = 2000
 
 // A class header naming one of the classes ("extends Order", "implements A, Order"), a trait use inside a class body,
-// or a line holding only that name, as a list of interfaces written one per line does. Each alternative ends on the
-// name, which lets ripgrep look for the name first.
+// a line holding only that name, as a list of interfaces written one per line does, or a use statement importing it
+// under another name ("use Shop\Order as BaseOrder;"), the header of such a file naming only that other name.
 function inheritancePattern(shortNames: readonly string[]): string {
   const names = `\\b(${shortNames.join('|')})`
+  const headerNamingTheClass = `(extends|implements|^\\s+use)\\s[^;{(]*${names}\\b`
+  const lineHoldingOnlyTheClass = `^\\s+[A-Za-z0-9_\\\\]*${names}\\s*,?\\s*\\{?\\s*$`
+  const importUnderAnotherName = `^\\s*use\\s[^;]*${names}\\s+as\\s`
 
-  return `((extends|implements|^\\s+use)\\s[^;{(]*${names}\\b)|(^\\s+[A-Za-z0-9_\\\\]*${names}\\s*,?\\s*\\{?\\s*$)`
+  return `(${headerNamingTheClass})|(${lineHoldingOnlyTheClass})|(${importUnderAnotherName})`
 }
 
 // The classes of the project that extend, implement or use a class, directly or through others, nearest first.

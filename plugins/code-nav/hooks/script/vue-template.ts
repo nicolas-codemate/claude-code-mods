@@ -278,3 +278,25 @@ export function componentNameOfTag(tagName: string): string {
     .map(part => part.charAt(0).toUpperCase() + part.slice(1))
     .join('')
 }
+
+// A single lower-case word is an HTML element ("button", "form"): it names a component only when the script gives
+// that very spelling to one.
+export function isPlainElementTag(tagName: string): boolean {
+  return !tagName.includes('-') && tagName === tagName.toLowerCase()
+}
+
+// Whether a tag of a template, in any of its spellings ("OrderTable", "order-table"), is the component of that name.
+export function isTagOfComponent(tagName: string, componentName: string): boolean {
+  return tagName === componentName || (!isPlainElementTag(tagName) && componentNameOfTag(tagName) === componentName)
+}
+
+// What every spelling of a component's tag shares: "order-table", "OrderTable" and "step-1-form", "Step1Form" read
+// the same once the dashes are dropped and the case ignored.
+export function caseAndDashFreeSpellingOf(name: string): string {
+  return name.replaceAll('-', '').toLowerCase()
+}
+
+// The kebab-case spelling Vue gives a component's name: "OrderTable" is written "order-table".
+export function kebabCaseTagOf(componentName: string): string {
+  return componentName.replace(/\B([A-Z])/g, '-$1').toLowerCase()
+}

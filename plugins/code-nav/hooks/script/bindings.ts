@@ -1,4 +1,4 @@
-import { indexAfterExpression, indexAfterGroup, indexAfterType, isIdentifier, isPunctuation } from './structure'
+import { indexAfterAngleGroup, indexAfterExpression, indexAfterGroup, indexAfterType, isIdentifier, isPunctuation } from './structure'
 import type { ScriptToken } from './tokenizer'
 
 // One name a pattern binds. sourceProperty is the key it is read from when the pattern destructures an object at its
@@ -25,7 +25,7 @@ const TYPE_KEYWORDS_NAMING_NO_DECLARATION = new Set([
 ])
 
 // The index of the type's name when the type at this index is one plain name ("Order", "Order<Line>",
-// "Order | null"); null for anything else, whose members cannot be read from a single declaration.
+// "Order | null"), its type arguments left aside; null for anything else, whose members cannot be read from a single declaration.
 export function plainTypeNameIndex(
   tokens: readonly ScriptToken[],
   matchingIndexes: Int32Array,
@@ -40,7 +40,7 @@ export function plainTypeNameIndex(
   }
   let indexAfterName = nameIndex + 1
   if (isPunctuation(tokens[indexAfterName], '<')) {
-    return null
+    indexAfterName = indexAfterAngleGroup(tokens, matchingIndexes, indexAfterName)
   }
   while (
     isPunctuation(tokens[indexAfterName], '|') &&

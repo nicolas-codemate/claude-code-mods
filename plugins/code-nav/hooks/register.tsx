@@ -1613,25 +1613,33 @@ async function openPaletteItem($: EngineInterface, itemIndex: number): Promise<v
   await showPlace($, { path: item.path, line: item.line, ...(name === null ? {} : { name }) }, true)
 }
 
+function titleOfMatchesInFile(text: string, fileName: string): string {
+  return `"${text}" in ${fileName}`
+}
+
 // The search in the file shown answers as the text is typed: every match listed under the code and lit in it, the
-// code scrolled to the first match from where it was read.
+// code scrolled to the first match from where it was read. A text of spaces alone is no search: the field emptied
+// takes away the matches it listed, and leaves any other list as it was.
 async function showMatchesInShownFile($: EngineInterface, text: string): Promise<void> {
   const file = shownFile
   if (file === null) {
     return
   }
-  if (text === '') {
-    if ((await read($, resultsPanelAtom))?.kind === 'textSearch') {
+  const fileName = baseNameOf(file.path)
+  if (text.trim() === '') {
+    const resultsPanel = await read($, resultsPanelAtom)
+    const isListOfMatchesInFile =
+      resultsPanel?.kind === 'textSearch' && resultsPanel.title === titleOfMatchesInFile(resultsPanel.searchedText ?? '', fileName)
+    if (isListOfMatchesInFile) {
       await update($, resultsPanelAtom, () => null)
     }
     return
   }
   const { matches, isTruncated } = textMatchesInLines(file.lines, text, TEXT_SEARCH_MATCH_LIMIT)
-  const fileName = baseNameOf(file.path)
   await openResultsPanel($, {
     kind: 'textSearch',
     searchedText: text,
-    title: `"${text}" in ${fileName}`,
+    title: titleOfMatchesInFile(text, fileName),
     rows: matches.map(match => ({
       path: file.path,
       line: match.line,
@@ -1654,6 +1662,10 @@ async function showMatchesInShownFile($: EngineInterface, text: string): Promise
 async function setTextScope($: EngineInterface, textScope: TextSearchScope): Promise<void> {
   const palette = await read($, paletteAtom)
   if (palette === null || palette.mode !== 'textSearch' || palette.textScope === textScope) {
+    return
+  }
+  if (textScope === 'file' && shownFile === null) {
+    await showNotice($, 'No file shown.')
     return
   }
   lastTextScope = textScope
@@ -1715,6 +1727,9 @@ async function submitPalette($: EngineInterface, query: string): Promise<void> {
     outline: openSelectedItem,
     textSearch: async () => {
       await closePalette($)
+      if (query.trim() === '') {
+        return
+      }
       const submittedSearches: Record<TextSearchScope, () => Promise<void>> = {
         file: async () => {
           await showMatchesInShownFile($, query)

@@ -895,3 +895,52 @@ test('a bookmark whose line left its file is taken off from its row in the list 
   expect(await pane.find({ key: 'result-remove-0' })).toBeUndefined()
   await pane.unmount()
 })
+
+type ListUnderTheCode = { titles: string[]; rowCount: number; notice: string | null }
+
+async function listUnderTheCode(pane: Awaited<ReturnType<typeof mountPane>>): Promise<ListUnderTheCode> {
+  const titles = (await pane.findAll({ type: 'Text' })).map(element => element.text ?? '').filter(text => text.startsWith('Search · '))
+  const noticeBox = await pane.find({ key: 'notice-box' })
+
+  return { titles, rowCount: (await resultRowTexts(pane)).length, notice: noticeBox === undefined ? null : (noticeBox.text ?? '').replace(/×$/, '') }
+}
+
+test('Enter in the search of the file with nothing typed, or spaces alone, leaves the list of project matches as it was', WHOLE_MOD_TEST, async ($, on) => {
+  stubWorld(on, SHOP_FILES)
+  await startSession($)
+  await runCodeNav($, ORDER_REPOSITORY)
+  const pane = await mountPane($)
+  await pane.press({ key: shortcutButtonKey('searchInProject', 'o') })
+  await pane.input({ key: await paletteFieldKeyOf(pane), text: 'STATUS_PAID' })
+  const listBefore = await listUnderTheCode(pane)
+  expect(listBefore.titles).toEqual(['Search · "STATUS_PAID" · 3'])
+  const markedLineBefore = await markedLineNumber(pane)
+
+  for (const typedText of ['', '   ']) {
+    await pane.press({ key: shortcutButtonKey('searchInFile', 'l') })
+    expect((await pane.find({ key: 'text-scope-file' }))?.text?.startsWith('◉')).toBe(true)
+    await pane.input({ key: await paletteFieldKeyOf(pane), text: typedText })
+    expect({ typedText, list: await listUnderTheCode(pane), markedLine: await markedLineNumber(pane) }).toEqual({
+      typedText,
+      list: listBefore,
+      markedLine: markedLineBefore,
+    })
+  }
+  await pane.unmount()
+})
+
+test('with no file shown, the search cannot be set on the file shown: it says so and stays on the whole project', WHOLE_MOD_TEST, async ($, on) => {
+  stubWorld(on, SHOP_FILES)
+  await startSession($)
+  await runCodeNav($)
+  const pane = await mountPane($)
+  await pane.press({ key: 'palette-close' })
+
+  await pane.press({ key: shortcutButtonKey('searchInFile', 'l') })
+  await pane.press({ key: 'text-scope-file' })
+  expect((await pane.find({ key: 'text-scope-project' }))?.text?.startsWith('◉')).toBe(true)
+  expect((await listUnderTheCode(pane)).notice).toBe('No file shown.')
+  await pane.input({ key: await paletteFieldKeyOf(pane), text: 'STATUS_PAID' })
+  expect((await listUnderTheCode(pane)).titles).toEqual(['Search · "STATUS_PAID" · 3'])
+  await pane.unmount()
+})

@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import type { DefinitionAnswer } from '../../types'
 import { resolveScriptDefinition } from './definition'
-import { createShopWorkspace, lineOf, positionIn, SHOP_FILES } from './test-project'
+import { createShopWorkspace, GENERIC_REPOSITORY_FILES, lineOf, positionIn, SHOP_FILES } from './test-project'
 
 const workspace = createShopWorkspace()
 
@@ -410,4 +410,15 @@ test('the symbol read under the click covers the whole name on its line', async 
 test('a file that cannot be read or a position outside it answers no symbol', async () => {
   expect((await resolveScriptDefinition(workspace, { path: 'src/missing.ts', line: 1, column: 0 })).symbol).toBe(null)
   expect((await resolveScriptDefinition(workspace, { path: USE_ORDERS, line: 999, column: 0 })).symbol).toBe(null)
+})
+
+test('a method called on a value whose declared type has type arguments goes to the method of that class, exact', async () => {
+  const files = GENERIC_REPOSITORY_FILES
+  const genericWorkspace = createShopWorkspace(files)
+  const checkout = 'src/checkout/checkout.ts'
+  const saveLine = lineOf('src/repositories/Repository.ts', 'save(entity: T)', files)
+  for (const call of ['this.orders.save(order)', 'this.drafts.save(order)', 'pending.save(order)', 'archived.save(order)']) {
+    const answer = await resolveScriptDefinition(genericWorkspace, positionIn(checkout, call, 'save', files))
+    expect([call, placesOf(answer)]).toEqual([call, [`exact src/repositories/Repository.ts:${saveLine} Repository.save`]])
+  }
 })

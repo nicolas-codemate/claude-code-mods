@@ -2,7 +2,8 @@ import { expect, test } from 'claude-code/testing'
 
 import type { UsagesAnswer } from '../../types'
 import type { Workspace } from '../workspace'
-import { createShopWorkspace, lineOf, positionIn, SHOP_FILES } from './test-project'
+import { resolveScriptDefinition } from './definition'
+import { createShopWorkspace, GENERIC_REPOSITORY_FILES, lineOf, positionIn, RENAMED_PARENT_FILES, SHOP_FILES } from './test-project'
 import { findScriptUsages } from './usages'
 
 const workspace = createShopWorkspace()
@@ -189,4 +190,83 @@ test('a search cut at its limit before reaching any usage says it stopped there,
 test('a click on nothing answers no symbol', async () => {
   const answer = await usagesAt(USE_ORDERS, '// fetchOrders is not called here', 'called')
   expect(answer).toEqual({ symbol: null, title: '', usages: [], isTruncated: false, note: null })
+})
+
+test('the usages of a method are confirmed on values whose declared type has type arguments', async () => {
+  const files = GENERIC_REPOSITORY_FILES
+  const answer = await findScriptUsages(createShopWorkspace(files), positionIn('src/repositories/Repository.ts', 'save(entity: T)', 'save', files))
+  expect(rowsOf(answer).sort()).toEqual([
+    'confirmed src/checkout/checkout.ts:10 this.orders.save(order)',
+    'confirmed src/checkout/checkout.ts:18 this.drafts.save(order)',
+    'confirmed src/checkout/checkout.ts:23 pending.save(order)',
+    'confirmed src/checkout/checkout.ts:28 archived.save(order)',
+  ])
+})
+
+test('the usages of a default export include those under the name an importing file alone gives it', async () => {
+  const answer = await findScriptUsages(
+    createShopWorkspace(RENAMED_PARENT_FILES),
+    positionIn('src/base-service.ts', 'class BaseService', 'BaseService', RENAMED_PARENT_FILES),
+  )
+  const rows = rowsOf(answer)
+  expect(rows.filter(row => row.includes('src/refund-service.ts') || row.includes('src/order-service.ts')).sort()).toEqual([
+    'confirmed src/order-service.ts:3 export class OrderService extends Base {}',
+    'confirmed src/order-service.ts:5 export const fallbackOrderService = new Base()',
+    'confirmed src/refund-service.ts:3 export class RefundService extends Core {}',
+    'confirmed src/refund-service.ts:5 export const fallbackRefundService = new Core()',
+  ])
+})
+
+const COMPONENT_TAG_FILES: Record<string, string> = {
+  'package.json': '{ "name": "shop-front" }',
+  'src/components/Button.vue': '<template>\n  <button class="shop-button"><slot /></button>\n</template>\n',
+  'src/components/Cart.vue': '<template>\n  <ul class="cart"></ul>\n</template>\n',
+  'src/components/Step1Form.vue': '<template>\n  <form class="address"></form>\n</template>\n',
+  'src/pages/CheckoutPage.vue': [
+    '<script setup lang="ts">',
+    "import Button from '../components/Button.vue'",
+    "import Cart from '../components/Cart.vue'",
+    "import Step1Form from '../components/Step1Form.vue'",
+    '</script>',
+    '',
+    '<template>',
+    '  <form>',
+    '    <step-1-form class="address" />',
+    '    <cart class="summary" />',
+    '    <Button class="pay">Pay the order</Button>',
+    '    <button type="reset">Empty the order</button>',
+    '  </form>',
+    '</template>',
+    '',
+  ].join('\n'),
+}
+
+async function tagRowsOfComponentImportedAs(name: string): Promise<string[]> {
+  const files = COMPONENT_TAG_FILES
+  const answer = await findScriptUsages(
+    createShopWorkspace(files),
+    positionIn('src/pages/CheckoutPage.vue', `import ${name} from`, name, files),
+  )
+
+  return rowsOf(answer).filter(row => row.split(' ')[2]?.startsWith('<'))
+}
+
+test('a native HTML element is no usage of the imported component of the same name', async () => {
+  expect(await tagRowsOfComponentImportedAs('Button')).toEqual([
+    'confirmed src/pages/CheckoutPage.vue:11 <Button class="pay">Pay the order</Button>',
+  ])
+})
+
+test('a tag written with a dash before a digit is a usage of the component it opens', async () => {
+  expect(await tagRowsOfComponentImportedAs('Step1Form')).toEqual(['confirmed src/pages/CheckoutPage.vue:9 <step-1-form class="address" />'])
+})
+
+test('a single lower-case tag is no usage of a component, as a click on it opens none', async () => {
+  expect(await tagRowsOfComponentImportedAs('Cart')).toEqual([])
+  const files = COMPONENT_TAG_FILES
+  const definition = await resolveScriptDefinition(
+    createShopWorkspace(files),
+    positionIn('src/pages/CheckoutPage.vue', '<cart class="summary"', 'cart', files),
+  )
+  expect(definition.targets).toEqual([])
 })

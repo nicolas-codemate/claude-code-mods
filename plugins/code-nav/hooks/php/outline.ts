@@ -233,6 +233,14 @@ export function parsePhpOutline(path: string, text: string): PhpFileOutline {
 
     return closingIndex === -1 ? tokens.length - 1 : closingIndex
   }
+  // private(set) restricts writing only; a parenthesis after a modifier can also open the type itself, a DNF type
+  // such as (Customer&Stringable)|null, which must be read whole.
+  const tokenCountOfModifierAt = (modifierTokenIndex: number): number => {
+    const isAsymmetricVisibility =
+      textAt(modifierTokenIndex + 1) === '(' && textAt(modifierTokenIndex + 2).toLowerCase() === 'set' && textAt(modifierTokenIndex + 3) === ')'
+
+    return isAsymmetricVisibility ? 4 : 1
+  }
   const sourceBetween = (firstTokenIndex: number, lastTokenIndex: number): string =>
     text.slice(tokens[firstTokenIndex]?.start ?? 0, tokens[lastTokenIndex]?.end ?? 0)
 
@@ -371,7 +379,7 @@ export function parsePhpOutline(path: string, text: string): PhpFileOutline {
             typeStartTokenIndex = closingIndexOf(typeStartTokenIndex) + 1
           } else if (token?.kind === 'name' && PROMOTION_MODIFIERS.has(token.text)) {
             isPromoted = true
-            typeStartTokenIndex += textAt(typeStartTokenIndex + 1) === '(' ? closingIndexOf(typeStartTokenIndex + 1) - typeStartTokenIndex + 1 : 1
+            typeStartTokenIndex += tokenCountOfModifierAt(typeStartTokenIndex)
           } else {
             break
           }
@@ -645,7 +653,7 @@ export function parsePhpOutline(path: string, text: string): PhpFileOutline {
         typeStartTokenIndex = closingIndexOf(typeStartTokenIndex) + 1
       } else if (token?.kind === 'name' && DECLARATION_MODIFIERS.has(token.text)) {
         isStatic = isStatic || token.text === 'static'
-        typeStartTokenIndex += textAt(typeStartTokenIndex + 1) === '(' ? closingIndexOf(typeStartTokenIndex + 1) - typeStartTokenIndex + 1 : 1
+        typeStartTokenIndex += tokenCountOfModifierAt(typeStartTokenIndex)
       } else {
         break
       }

@@ -257,3 +257,16 @@ test('a file that does not exist and a position past the end answer nothing', as
   expect((await resolvePhpDefinition(workspace, { path: 'src/Missing.php', line: 3, column: 2 })).symbol).toBe(null)
   expect((await resolvePhpDefinition(workspace, { path: CHECKOUT, line: 9000, column: 0 })).symbol).toBe(null)
 })
+
+test('a class in a DNF property type right after a visibility goes to the class, and so does a method called on the property', async () => {
+  const files = {
+    'src/Crm/Customer.php': '<?php\nnamespace Shop\\Crm;\nclass Customer\n{\n    public function name(): string\n    {\n        return \'\';\n    }\n}\n',
+    'src/Billing/Subscription.php':
+      '<?php\nnamespace Shop\\Billing;\nuse Shop\\Crm\\Customer;\nclass Subscription\n{\n    private (Customer&\\Stringable)|null $signatory = null;\n\n    public function signatoryName(): string\n    {\n        return $this->signatory->name();\n    }\n}\n',
+  }
+  const workspace = createShopWorkspace(files)
+  const ofType = await resolvePhpDefinition(workspace, positionIn(files, 'src/Billing/Subscription.php', 'private (Customer&', 'Customer'))
+  expect(placesOf(ofType)).toEqual(['Customer src/Crm/Customer.php:3 exact'])
+  const ofMethod = await resolvePhpDefinition(workspace, positionIn(files, 'src/Billing/Subscription.php', '$this->signatory->name()', 'name'))
+  expect(placesOf(ofMethod)).toEqual(['Customer::name src/Crm/Customer.php:5 exact'])
+})

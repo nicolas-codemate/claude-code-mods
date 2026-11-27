@@ -7,7 +7,7 @@ import type { ClickResolution } from './definition'
 import { isSamePlace, locatedDeclaration } from './located'
 import type { Located } from './located'
 import { resolveProjectModule } from './module-resolution'
-import { baseNameOf, baseNameWithoutExtension, directoryOf } from './paths'
+import { defaultImportPattern, isDefaultExportOfItsFile, moduleWordOf, namesGivenByReexportsIn, namesOfDefaultImportsIn } from './other-names'
 import { resolveNameAt, resolveTopLevelName, sourcesOfDestructuredName } from './reference-resolution'
 import type { ReadingContext, Resolution } from './reference-resolution'
 import { SCRIPT_FILE_GLOBS } from './script-model'
@@ -18,7 +18,7 @@ import { isPunctuation } from './structure'
 import { holderNameOf, topLevelDeclarationAround } from './symbols'
 import { targetOfLocated } from './targets'
 import { lineAndColumnOfOffset, lineTextAt } from '../text-position'
-import { componentNameOfTag, localNamesVisibleFrom } from './vue-template'
+import { caseAndDashFreeSpellingOf, componentNameOfTag, isTagOfComponent, kebabCaseTagOf, localNamesVisibleFrom } from './vue-template'
 
 const MAXIMUM_MATCHES_SEARCHED = 3000
 const MAXIMUM_FILES_ANALYSED = 200
@@ -34,6 +34,8 @@ type Subject = {
   // A name reached through a holder ("OrderStore.load"): a bare name of the same spelling is another thing.
   isReachedThroughHolder: boolean
   isPropertyOfType: boolean
+  // The files whose default export is the subject: a file importing it may give it any name.
+  defaultExportedPaths: string[]
 }
 
 function patternOfNames(names: readonly string[]): string {
@@ -206,9 +208,8 @@ async function usagesInTemplate(
   if (templateRange === null) {
     return usages
   }
-  const templateText = model.text.slice(templateRange.start, templateRange.end)
-  const tagNames = [...names].flatMap(name => [name, name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()])
-  if (!tagNames.some(name => templateText.includes(name))) {
+  const templateSpelling = caseAndDashFreeSpellingOf(model.text.slice(templateRange.start, templateRange.end))
+  if (![...names].some(name => templateSpelling.includes(caseAndDashFreeSpellingOf(name)))) {
     return usages
   }
   const scan = model.templateScan()
@@ -216,7 +217,7 @@ async function usagesInTemplate(
     return usages
   }
   for (const element of scan.elements) {
-    if (!names.has(element.tagName) && !names.has(componentNameOfTag(element.tagName))) {
+    if (![...names].some(name => isTagOfComponent(element.tagName, name))) {
       continue
     }
     const certainties: Array<UsageCertainty | null> = []
@@ -264,6 +265,11 @@ async function usagesInFile(
     return []
   }
   const searchedNames = namesSearchedIn(model, names)
+  for (const modulePath of subject.defaultExportedPaths) {
+    for (const name of await namesOfDefaultImportsIn(session, model, modulePath)) {
+      searchedNames.add(name)
+    }
+  }
   const context: ReadingContext = { model, structure: model.structure, templateLocalNames: null }
   const usages: Usage[] = []
   for (const [tokenIndex, token] of model.structure.tokens.entries()) {
@@ -280,38 +286,12 @@ async function usagesInFile(
   return usages.sort((first, second) => first.line - second.line || first.column - second.column)
 }
 
-// The other names an index file gives the subject: "export { fetchOrder as loadOrder } from './orders'" makes
-// loadOrder a name to search as well, which no file using it would otherwise match.
-async function namesGivenByReexportsIn(
-  session: AnalysisSession,
-  paths: readonly string[],
-  names: readonly string[],
-): Promise<string[]> {
-  const otherNames = new Set<string>()
-  for (const path of paths) {
-    const model = await modelOf(session, path)
-    for (const link of model?.structure.exportLinks ?? []) {
-      if (
-        link.kind === 'named' &&
-        names.includes(link.localName) &&
-        !names.includes(link.exportedName) &&
-        link.exportedName !== 'default'
-      ) {
-        otherNames.add(link.exportedName)
-      }
-    }
-  }
-
-  return [...otherNames]
-}
-
 // The files that import a module, each at the line of its import.
 async function usagesOfModule(
   session: AnalysisSession,
   modulePath: string,
 ): Promise<{ usages: Usage[]; isTruncated: boolean; note: string | null }> {
-  const stem = baseNameWithoutExtension(modulePath)
-  const searchedWord = stem === 'index' ? baseNameOf(directoryOf(modulePath)) : stem
+  const searchedWord = moduleWordOf(modulePath)
   const matches = await session.workspace.search(patternOfNames([searchedWord]), {
     globs: SCRIPT_FILE_GLOBS,
     maxMatches: MAXIMUM_MATCHES_SEARCHED + 1,
@@ -360,16 +340,19 @@ function subjectOf(clickResolution: ClickResolution): Subject {
     isReachedThroughHolder: firstDeclaration !== null && (firstDeclaration.role === 'member' || holderName !== null),
     isPropertyOfType:
       firstDeclaration !== null && firstDeclaration.role === 'member' && firstDeclaration.kind === 'property',
+    defaultExportedPaths: [...new Set(locations.filter(isDefaultExportOfItsFile).map(located => located.path))],
   }
 }
 
-function searchedNamesOf(clickResolution: ClickResolution): string[] {
+// The names to look for in each file, and the words to search the project for: a component is written in a template
+// in kebab-case too, a file using it under that spelling alone (registered globally) holding no other.
+function searchedNamesOf(clickResolution: ClickResolution): { names: string[]; searchedWords: string[] } {
   const { click, symbol } = clickResolution
   if (click.kind === 'componentTag') {
     const componentName = componentNameOfTag(click.tagName)
-    const kebabCaseName = componentName.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
+    const names = [...new Set([componentName, click.tagName])]
 
-    return [...new Set([componentName, kebabCaseName, click.tagName])]
+    return { names, searchedWords: [...new Set([...names, kebabCaseTagOf(componentName)])] }
   }
   const name = symbol?.name ?? ''
   const namesAComponent =
@@ -378,7 +361,7 @@ function searchedNamesOf(clickResolution: ClickResolution): string[] {
       located => located.path.endsWith('.vue') && located.declaration === null && located.offset === null,
     )
 
-  return namesAComponent ? [...new Set([name, name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()])] : [name]
+  return { names: [name], searchedWords: namesAComponent ? [...new Set([name, kebabCaseTagOf(name)])] : [name] }
 }
 
 // The places of a name are read in path order: those past the limit may hold every usage there is.
@@ -417,7 +400,7 @@ export async function findScriptUsages(workspace: Workspace, position: CodePosit
 
     return { symbol, title, ...moduleUsages }
   }
-  const names = searchedNamesOf(clickResolution)
+  const { names, searchedWords } = searchedNamesOf(clickResolution)
   const isSearchedInProject = subject.locations.length === 0 || subject.locations.some(isKnownOutsideItsFile)
   if (!isSearchedInProject) {
     const filePaths = [...new Set([model.path, ...subject.locations.map(located => located.path)])]
@@ -427,12 +410,17 @@ export async function findScriptUsages(workspace: Workspace, position: CodePosit
 
     return { symbol, title, usages: confirmedUsages, isTruncated: false, note: null }
   }
-  const matches = await workspace.search(patternOfNames(names), {
+  const matches = await workspace.search(patternOfNames(searchedWords), {
     globs: SCRIPT_FILE_GLOBS,
     maxMatches: MAXIMUM_MATCHES_SEARCHED + 1,
   })
+  const defaultImportMatches = await Promise.all(
+    subject.defaultExportedPaths.map(modulePath =>
+      workspace.search(defaultImportPattern(modulePath), { globs: SCRIPT_FILE_GLOBS, maxMatches: MAXIMUM_MATCHES_SEARCHED + 1 }),
+    ),
+  )
   const declaringPaths = subject.locations.map(located => located.path)
-  const matchedPaths = [...new Set(matches.map(match => match.path))]
+  const matchedPaths = [...new Set([...matches, ...defaultImportMatches.flat()].map(match => match.path))]
   const orderedPaths = [
     ...declaringPaths.filter(path => matchedPaths.includes(path)),
     ...matchedPaths.filter(path => !declaringPaths.includes(path)),
@@ -461,7 +449,7 @@ export async function findScriptUsages(workspace: Workspace, position: CodePosit
     matches.length > MAXIMUM_MATCHES_SEARCHED || orderedPaths.length > analysedPaths.length || hasMoreUnderOtherNames
   const note =
     isTruncated && usages.length === 0
-      ? noteOfSearchCutBeforeAnyUsage(title, names, matches.length > MAXIMUM_MATCHES_SEARCHED)
+      ? noteOfSearchCutBeforeAnyUsage(title, searchedWords, matches.length > MAXIMUM_MATCHES_SEARCHED)
       : subject.locations.length === 0 && subject.packageName === null
         ? `The declaration of ${symbol.name} is not known: every use of that name is listed`
         : null
