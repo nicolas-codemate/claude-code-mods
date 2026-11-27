@@ -31,7 +31,8 @@ Ask "show me where the total is computed": the pane opens beside the conversatio
 
 Hover a name: a tag offers `↪ go to definition`, or on a declaration `↪ list usages` and `↑ parents`. Usages are
 listed under the code, each previewed in place (`s` / `z` or a click) and opened with `↗ open`. PHP and
-TypeScript/Vue names are resolved by type, dependencies included; another language falls back to the name.
+TypeScript/Vue names are resolved by type, dependencies included; another language falls back to the name
+([adding a language](docs/adding-a-language.md)).
 
 ![The tag over a declaration](docs/media/hover-tag.png)
 
@@ -46,6 +47,19 @@ The bar under the header: `FILE ☰ Structure · ↧ Line · ⌕ Search`, `PROJE
 ![The structure of a file, over the code](docs/media/structure.png)
 
 ![A text searched in the whole project, a match in another file previewed](docs/media/search-in-project.png)
+
+## Fast, with no index to build
+
+An IDE or a language server indexes the whole project and its dependencies ahead, which takes minutes and gigabytes.
+code-nav does not:
+
+- **The project's lists** (files and declarations) come from two or three `rg` runs when the pane opens and again when
+  a search opens: about 100 ms on a project of 11,000 files and 60,000 declarations. Nothing to keep up to date; what
+  git ignores is left out.
+- **Each question reads only the files it goes through.** A PHP class is located through Composer's own autoload
+  tables, so `vendor/` is never scanned yet a dependency opens on a click; a TypeScript name is followed through the
+  imports. Files read are kept a few seconds for the next question.
+- **The file shown** is coloured once when opened, and its declarations read once, for the structure and the bar.
 
 ## Tabs and files
 

@@ -53,7 +53,7 @@ test('one search per language lists the declarations of the files git tracks, fr
     expect(() => new RegExp(argumentAfter(search.argv, '--regexp'))).not.toThrow()
   }
   expect(argumentsAfterEvery(searches[0]?.argv ?? [], '--glob')).toEqual(['*.php'])
-  expect(argumentsAfterEvery(searches[1]?.argv ?? [], '--glob')).toEqual(['*.ts', '*.tsx', '*.js', '*.jsx', '*.mjs', '*.vue'])
+  expect(argumentsAfterEvery(searches[1]?.argv ?? [], '--glob')).toEqual(['*.ts', '*.tsx', '*.mts', '*.cts', '*.js', '*.jsx', '*.mjs', '*.cjs', '*.vue'])
 })
 
 test('a PHP class is listed with its constants and its methods, whatever their modifiers', async () => {

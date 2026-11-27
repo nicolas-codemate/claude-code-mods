@@ -21,8 +21,7 @@ import type {
   TabsState,
   ViewedPlace,
 } from '../types'
-import { analysedLanguageOfPath, findImplementations, findParents, findUsages, resolveDefinition } from './analysis'
-import type { AnalysedLanguage } from './analysis'
+import { findImplementations, findParents, findUsages, resolveDefinition } from './analysis'
 import {
   COMMAND_NAME,
   CONFIGURED_THEME_KEY,
@@ -84,12 +83,10 @@ import { activeTabOf, NO_TABS, restoredTabsOf, savedTabsOf, tabsAfterActivating,
 import type { TabClosing, TabView } from './tabs'
 import { preparePaletteSource, searchPalette } from './palette-search'
 import type { PaletteSource } from './palette-search'
-import { phpSymbolsOfFile } from './php/analysis'
+import { symbolsOfFileInAnyLanguage } from './languages'
 import { pathFromRoot, writtenPlaceOf, writtenSymbolOf } from './place-request'
-import { scriptSymbolsOfFile } from './script/analysis'
 import { firstMatchIndexFrom, isCaseSensitiveText, textMatchesInLines } from './text-search'
 import { lineNumberTypedIn } from './text-position'
-import { genericSymbolsOfFile } from './outline/generic-outline'
 import { escapedForRegularExpression, isClassLikeKind, labelOfSymbol, wholeNamePattern } from './symbol-names'
 import { tokenizeSource } from './syntax/tokenize'
 import { wordAt } from './text-analysis'
@@ -1462,16 +1459,9 @@ function symbolsOfShownFile(): SymbolEntry[] {
   if (shownFile === null) {
     return []
   }
-  const { path } = shownFile
-  const text = shownFile.lines.join('\n')
-  // The text shown is read rather than the project's listing, which may be a few seconds behind an edit.
-  const symbolsOfLanguage: Record<AnalysedLanguage, () => readonly SymbolEntry[]> = {
-    php: () => phpSymbolsOfFile(path, text),
-    script: () => scriptSymbolsOfFile(path, text),
-    text: () => genericSymbolsOfFile(path, text),
-  }
 
-  return [...symbolsOfLanguage[analysedLanguageOfPath(path)]()]
+  // The text shown is read rather than the project's listing, which may be a few seconds behind an edit.
+  return symbolsOfFileInAnyLanguage(shownFile.path, shownFile.lines.join('\n'))
 }
 
 const OUTLINE_INDENTATION = '  '
