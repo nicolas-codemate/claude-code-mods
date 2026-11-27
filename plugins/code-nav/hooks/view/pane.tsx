@@ -1,6 +1,6 @@
 import type { RenderChildren } from 'claude-code'
 
-import type { BreadcrumbStep, ColumnMode, SymbolKind, PaletteItem, TextSearchScope, PaletteItemKind, PaletteMode, ResultRow, ResultRowMark, ResultsKind, ResultsPanel } from '../../types'
+import type { ColumnMode, SymbolKind, PaletteItem, TextSearchScope, PaletteItemKind, PaletteMode, ResultRow, ResultRowMark, ResultsKind, ResultsPanel } from '../../types'
 import {
   CLOSE_TAB_BUTTON_KEY_PREFIX,
   FILES_FILTER_FIELD_KEY_PREFIX,
@@ -196,37 +196,93 @@ const BREADCRUMB_SUFFIXES: Record<SymbolKind, string> = {
   section: '',
 }
 
-const BREADCRUMB_LEAD = '  › '
-const PATH_COLUMNS_ALWAYS_SHOWN = 50
+const BREADCRUMB_SEPARATOR = ' › '
+const BREADCRUMB_STRUCTURE_LABEL = ' ☰ structure '
+const BREADCRUMB_CUT_MARK = '… › '
 
-function breadcrumbLabelOf(breadcrumb: readonly BreadcrumbStep[]): string {
-  return breadcrumb.map(step => `${step.name}${BREADCRUMB_SUFFIXES[step.kind]}`).join(' › ')
+// One step of the bar under the code: a directory of the file read, the file, or a declaration holding the line read.
+type BarStep = { key: string; label: string; color: string; sign: string; isBold: boolean; onPress: () => Promise<void> }
+
+function barStepsOf(ui: ViewElements, input: PaneInput): BarStep[] {
+  const { theme } = ui
+  const { breadcrumb, path } = input.model
+  if (path === null) {
+    return []
+  }
+  const segments = path.split('/')
+  const directorySteps = segments.slice(0, -1).map((segment, segmentIndex) => {
+    const directoryPath = segments.slice(0, segmentIndex + 1).join('/')
+
+    return { key: `breadcrumb-directory-${segmentIndex}`, label: segment, color: theme.muted, sign: '', isBold: false, onPress: () => input.actions.revealInFiles(directoryPath, true) }
+  })
+  const fileStep = { key: 'breadcrumb-file', label: baseNameOf(path), color: theme.heading, sign: '', isBold: false, onPress: () => input.actions.revealInFiles(path, false) }
+  const symbolSteps = breadcrumb.map((step, stepIndex) => ({
+    key: `breadcrumb-step-${stepIndex}`,
+    label: `${step.name}${BREADCRUMB_SUFFIXES[step.kind]}`,
+    color: theme.symbolKindColors[step.kind],
+    sign: `${SYMBOL_KIND_LETTERS[step.kind]} `,
+    isBold: stepIndex === breadcrumb.length - 1,
+    onPress: () => input.actions.showDeclarationAt(step.line, step.name),
+  }))
+
+  return [...directorySteps, fileStep, ...symbolSteps]
 }
 
-// Where the reading stands: the declarations holding the line read, the innermost kept when they do not fit; a click
-// opens the structure of the file.
-function renderBreadcrumb(ui: ViewElements, input: PaneInput, columns: number) {
-  const { breadcrumb } = input.model
+// Under the code: where the reading stands, from the directories of the file to the declarations holding the line
+// read, each going where it names on a click. When they do not fit the outermost directories go first; the file and
+// the declaration read always stay.
+function renderBreadcrumbBar(ui: ViewElements, input: PaneInput) {
   const { Box, Button, Text } = ui
-  if (breadcrumb.length === 0 || columns <= BREADCRUMB_LEAD.length + 3) {
+  const { theme } = ui
+  const { geometry } = input.model
+  if (geometry.breadcrumbBarRows === 0) {
     return null
   }
-  const label = truncatedStart(breadcrumbLabelOf(breadcrumb), columns - BREADCRUMB_LEAD.length)
-  const text = (
-    <Text color={ui.theme.heading}>
-      <Text color={ui.theme.border}>{BREADCRUMB_LEAD}</Text>
-      {label}
-    </Text>
-  )
+  const steps = barStepsOf(ui, input)
+  const roomColumns = Math.max(10, geometry.codeAreaColumns - 2 - BREADCRUMB_STRUCTURE_LABEL.length - 1)
+  const widthFrom = (stepIndex: number) =>
+    steps.slice(stepIndex).reduce((width, step) => width + step.sign.length + step.label.length + BREADCRUMB_SEPARATOR.length, 0) + (stepIndex > 0 ? BREADCRUMB_CUT_MARK.length : 0)
+  const fileStepIndex = steps.findIndex(step => step.key === 'breadcrumb-file')
+  let firstShownStepIndex = 0
+  while (firstShownStepIndex < fileStepIndex && widthFrom(firstShownStepIndex) > roomColumns) {
+    firstShownStepIndex += 1
+  }
+  const isClickable = isPaneClickable(input)
 
   return (
-    <Box flexShrink={0}>
-      {isPaneClickable(input) ? (
-        <Button key="breadcrumb" plain label={label} onPress={() => input.actions.runShortcut('fileOutline')}>
-          {text}
-        </Button>
+    <Box key="breadcrumb-bar" flexDirection="row" height={1} flexShrink={0} paddingX={1} backgroundColor={theme.headerBackground} overflow="hidden">
+      <Box flexDirection="row" flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
+        {firstShownStepIndex > 0 && <Text color={theme.border}>{BREADCRUMB_CUT_MARK}</Text>}
+        {steps.slice(firstShownStepIndex).map((step, shownIndex) => {
+          const label = (
+            <Text color={step.color} bold={step.isBold}>
+              {step.sign !== '' && (
+                <Text color={step.color} dimColor>
+                  {step.sign}
+                </Text>
+              )}
+              {step.label}
+            </Text>
+          )
+
+          return (
+            <Box key={`${step.key}-box`} flexDirection="row" flexShrink={0}>
+              {shownIndex > 0 && <Text color={theme.border}>{BREADCRUMB_SEPARATOR}</Text>}
+              {isClickable ? (
+                <Button key={step.key} plain label={`${step.sign}${step.label}`} onPress={step.onPress}>
+                  {label}
+                </Button>
+              ) : (
+                label
+              )}
+            </Box>
+          )
+        })}
+      </Box>
+      {isClickable ? (
+        <Button key="breadcrumb" plain dimColor label={BREADCRUMB_STRUCTURE_LABEL} onPress={() => input.actions.runShortcut('fileOutline')} />
       ) : (
-        text
+        <Text color={theme.muted}>{BREADCRUMB_STRUCTURE_LABEL}</Text>
       )}
     </Box>
   )
@@ -245,14 +301,9 @@ function renderHeader(ui: ViewElements, input: PaneInput) {
   const dependencyTag = model.isDependencyFile ? ' dependency ' : ''
   const scrolledText = model.scrolledColumns > 0 ? `  ‹ from column ${model.scrolledColumns + 1}` : ''
   const columnsBesideIndex = 16 + BADGE_COLUMNS + FILES_TOGGLE_COLUMNS + TABS_TOGGLE_COLUMNS + position.length + dependencyTag.length + scrolledText.length + 4
-  // The path comes first, its end at least; the declarations read take what it leaves, up to a third of the header;
-  // the size of the index, the least needed, goes when they would not all fit.
-  const pathColumns = model.path?.length ?? 0
-  const breadcrumbWanted = model.breadcrumb.length === 0 ? 0 : Math.min(breadcrumbLabelOf(model.breadcrumb).length + BREADCRUMB_LEAD.length, Math.floor(model.geometry.bodyColumns / 3))
-  const isIndexShown = model.geometry.bodyColumns - columnsBesideIndex - pathColumns - breadcrumbWanted >= indexText.length
-  const fixedColumns = columnsBesideIndex + (isIndexShown ? indexText.length : 0)
-  const breadcrumbRoom = Math.max(0, Math.min(breadcrumbWanted, model.geometry.bodyColumns - fixedColumns - Math.min(pathColumns, PATH_COLUMNS_ALWAYS_SHOWN)))
-  const pathRoom = Math.max(10, model.geometry.bodyColumns - fixedColumns - breadcrumbRoom)
+  // The path comes first; the size of the index, the least needed, goes when both would not fit.
+  const isIndexShown = model.geometry.bodyColumns - columnsBesideIndex - (model.path?.length ?? 0) >= indexText.length
+  const pathRoom = Math.max(10, model.geometry.bodyColumns - columnsBesideIndex - (isIndexShown ? indexText.length : 0))
 
   return (
     <Box flexDirection="row" height={1} flexShrink={0} backgroundColor={ui.theme.headerBackground} paddingX={1}>
@@ -273,7 +324,6 @@ function renderHeader(ui: ViewElements, input: PaneInput) {
           {model.path === null ? 'No file shown' : truncatedStart(model.path, pathRoom)}
         </Text>
         {dependencyTag !== '' && <Text color={ui.theme.dependency}>{dependencyTag}</Text>}
-        {renderBreadcrumb(ui, input, breadcrumbRoom)}
         <Box flexShrink={0}>
           <Text color={ui.theme.muted}>{position}</Text>
           {scrolledText !== '' && <Text color={ui.theme.accent}>{scrolledText}</Text>}
@@ -1328,6 +1378,7 @@ export function renderPane(ui: ViewElements, input: PaneInput) {
         <Box key="code-area" flexDirection="column" width={geometry.codeAreaColumns} flexShrink={0} height={geometry.middleRows} overflow="hidden">
           {renderTabStrip(ui, input)}
           {model.isHelpShown ? renderHelp(ui, input) : renderCode(ui, input)}
+          {renderBreadcrumbBar(ui, input)}
           {model.peek !== null && renderPeek(ui, input, model.peek)}
           {renderResults(ui, input)}
           {renderInlineNote(ui, input)}

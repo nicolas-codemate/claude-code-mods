@@ -43,6 +43,7 @@ const SNAPSHOT: PaneSnapshot = {
   preferredExplorerWidth: 30,
   treeRows: [],
   treeOffset: 0,
+  revealedTreePath: null,
   filesFilter: { query: '', initialQuery: '', fieldNumber: 1, selectedIndex: 0, items: [] },
 }
 
@@ -69,8 +70,8 @@ const usagesPanel = (rowCount: number): ResultsPanel => ({
 test('the code takes the rows the header, the menu bar and the bar under the code leave', async () => {
   const model = buildPaneModel(SNAPSHOT, { bodyRows: 40, bodyColumns: 120 })
 
-  expect(model.geometry.codeRows).toBe(37)
-  expect(model.codeRows).toHaveLength(37)
+  expect(model.geometry.codeRows).toBe(36)
+  expect(model.codeRows).toHaveLength(36)
   expect(model.codeRows[0]?.lineNumber).toBe(1)
   expect(model.geometry.gutterWidth).toBe(5)
 })
@@ -79,7 +80,7 @@ test('the list under the code takes at most its share of the pane, the code the 
   const model = buildPaneModel({ ...SNAPSHOT, resultsPanel: usagesPanel(50) }, { bodyRows: 40, bodyColumns: 120 })
 
   expect(model.geometry.resultsRows).toBe(12)
-  expect(model.geometry.codeRows).toBe(24)
+  expect(model.geometry.codeRows).toBe(23)
   expect(model.geometry.resultsTop).toBe(26)
 
   const shortList = buildPaneModel({ ...SNAPSHOT, resultsPanel: usagesPanel(2) }, { bodyRows: 40, bodyColumns: 120 })
@@ -90,7 +91,7 @@ test('the first line shown never leaves the file', async () => {
   expect(clampedTopLine(500, 200, 38)).toBe(163)
   expect(clampedTopLine(-4, 200, 38)).toBe(1)
   expect(clampedTopLine(10, 5, 38)).toBe(1)
-  expect(buildPaneModel({ ...SNAPSHOT, topLine: 500 }, { bodyRows: 40, bodyColumns: 120 }).firstLine).toBe(164)
+  expect(buildPaneModel({ ...SNAPSHOT, topLine: 500 }, { bodyRows: 40, bodyColumns: 120 }).firstLine).toBe(165)
 })
 
 test('the usages listed are lit in the file shown, the name pointed at above them', async () => {
@@ -125,7 +126,7 @@ test('a strip of tabs takes one row above the code once a file is open in a tab'
   const model = buildPaneModel({ ...SNAPSHOT, tabs }, { bodyRows: 40, bodyColumns: 120 })
 
   expect(model.geometry.codeTop).toBe(3)
-  expect(model.geometry.codeRows).toBe(36)
+  expect(model.geometry.codeRows).toBe(35)
   expect(model.tabStrip?.shownTabs).toEqual([{ index: 0, path: 'src/Order.php', label: 'Order.php', isActive: true }])
   expect(buildPaneModel(SNAPSHOT, { bodyRows: 40, bodyColumns: 120 }).tabStrip).toBeNull()
 })
@@ -218,8 +219,8 @@ test('a place of the list is previewed between the code and the list, its line m
 
   expect(model.peek?.codeRows.map(row => row.lineNumber)).toEqual(Array.from({ length: 18 }, (_, rowIndex) => 114 + rowIndex))
   expect(model.peek?.codeRows.find(row => row.isMarkedLine)?.lineNumber).toBe(120)
-  expect(model.geometry.codeRows).toBe(37 - 6 - 21)
-  expect(model.geometry.resultsTop).toBe(2 + 10 + 21)
+  expect(model.geometry.codeRows).toBe(37 - 6 - 1 - 21)
+  expect(model.geometry.resultsTop).toBe(2 + 9 + 1 + 21)
   const notRead = buildPaneModel({ ...SNAPSHOT, resultsPanel: usagesPanel(5), peek: { path: 'a.php', line: 1, column: 0, matchLength: 0, scrolledLines: 0, file: null } }, { bodyRows: 40, bodyColumns: 120 })
   expect(notRead.peek?.isLoading).toBe(true)
 })

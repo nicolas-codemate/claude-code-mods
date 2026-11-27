@@ -77,6 +77,7 @@ export type PaneSnapshot = {
   preferredExplorerWidth: number
   treeRows: readonly TreeRow[]
   treeOffset: number
+  revealedTreePath: string | null
   filesFilter: FilesFilterState
 }
 
@@ -97,6 +98,10 @@ export type PaneGeometry = {
   codeRows: number
   gutterWidth: number
   resultsTop: number
+  // Where the preview of a row of the list starts, under the code and its bar.
+  peekTop: number
+  // 1 when a file is shown, its bar of declarations read drawn under the code; 0 otherwise.
+  breadcrumbBarRows: number
   // Rows of the list under the code, its title row left out; 0 when there is no list.
   resultsRows: number
   paletteTop: number
@@ -216,6 +221,7 @@ export type PaneModel = {
 
 const HEADER_ROWS = 1
 const MENU_BAR_ROWS = 1
+const BREADCRUMB_BAR_ROWS = 1
 const SIDEBAR_TITLE_ROWS = 1
 const FILES_FILTER_ROWS = 1
 // A tab of the side column takes two rows: its file's name, and the directory holding it.
@@ -533,7 +539,10 @@ export function buildPaneModel(snapshot: PaneSnapshot, room: PaneRoom): PaneMode
   const middleRows = Math.max(1, room.bodyRows - middleTop - FOOTER_ROWS)
   const peekCodeRows = snapshot.peek === null ? 0 : Math.max(1, Math.min(PEEK_MAX_CODE_ROWS, Math.floor(middleRows * PEEK_SHARE_OF_ROWS)))
   const peekBlockRows = snapshot.peek === null ? 0 : peekCodeRows + PEEK_TITLE_ROWS + 2 * PEEK_FRAME_THICKNESS
-  const codeRows = Math.max(1, middleRows - tabStripRows - resultsBlockRows - peekBlockRows)
+  // The bar naming the declarations read stays under the code of any file shown, so that the code does not move when
+  // the reading enters or leaves a declaration.
+  const breadcrumbBarRows = file !== null || snapshot.currentPath !== null ? BREADCRUMB_BAR_ROWS : 0
+  const codeRows = Math.max(1, middleRows - tabStripRows - breadcrumbBarRows - resultsBlockRows - peekBlockRows)
   const codeTop = middleTop + tabStripRows
   const gutterWidth = GUTTER_MARK_COLUMNS + Math.max(GUTTER_MIN_NUMBER_COLUMNS, String(lineCount).length) + 1
   const codeColumns = Math.max(1, codeAreaColumns - gutterWidth)
@@ -569,7 +578,9 @@ export function buildPaneModel(snapshot: PaneSnapshot, room: PaneRoom): PaneMode
       codeTop,
       codeRows,
       gutterWidth,
-      resultsTop: codeTop + codeRows + peekBlockRows,
+      resultsTop: codeTop + codeRows + breadcrumbBarRows + peekBlockRows,
+      peekTop: codeTop + codeRows + breadcrumbBarRows,
+      breadcrumbBarRows,
       resultsRows,
       paletteTop: paletteBox.top,
       paletteLeft: paletteBox.left,
@@ -599,7 +610,7 @@ export function buildPaneModel(snapshot: PaneSnapshot, room: PaneRoom): PaneMode
     tabCount: snapshot.tabs.tabs.length,
     sidebar: sidebarWidth === 0 && tabsDrawerWidth === 0 ? null : sidebarOf(snapshot, middleTop, middleRows),
     tabsMode,
-    explorerTree: isExplorerShown ? fileTreeViewOf(snapshot, middleTop + SIDEBAR_TITLE_ROWS + FILES_FILTER_ROWS, explorerRows, file?.path ?? snapshot.currentPath) : null,
+    explorerTree: isExplorerShown ? fileTreeViewOf(snapshot, middleTop + SIDEBAR_TITLE_ROWS + FILES_FILTER_ROWS, explorerRows, snapshot.revealedTreePath ?? file?.path ?? snapshot.currentPath) : null,
     filesFilter: isExplorerShown ? filesFilterViewOf(snapshot.filesFilter, explorerRows) : null,
     explorerMode,
     palette: snapshot.palette,

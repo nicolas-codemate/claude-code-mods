@@ -29,6 +29,10 @@ import { shortcutButtonKey } from './view/pane'
 
 // Each of these tests loads the whole mod, its analyses included, which a busy machine does slowly.
 const WHOLE_MOD_TEST = { timeoutMs: 30_000 }
+
+async function breadcrumbSteps(pane: Awaited<ReturnType<typeof mountPane>>): Promise<string[]> {
+  return (await pane.findAll({ type: 'Button' })).filter(element => /^breadcrumb-step-\d+$/.test(element.key ?? '')).map(element => String(element.props.label ?? ''))
+}
 const CHECKOUT = 'src/Service/Checkout.php'
 const ORDER_REPOSITORY = 'src/Repository/OrderRepository.php'
 
@@ -326,15 +330,47 @@ test('the menu asks for a line number of the file shown, stays open on a number 
   await pane.unmount()
 })
 
-test('the header tells which declarations hold the line read, and a click on them opens the structure', WHOLE_MOD_TEST, async ($, on) => {
+test('the bar under the code names the declarations holding the line read, each going to its declaration, and opens the structure', WHOLE_MOD_TEST, async ($, on) => {
   stubWorld(on, SHOP_FILES)
   await startSession($)
   await runCodeNav($, `${ORDER_REPOSITORY}:${lineNumberOf(SHOP_FILES, ORDER_REPOSITORY, 'public function findLatest') + 2}`)
   const pane = await mountPane($)
 
-  expect((await pane.find({ key: 'breadcrumb' }))?.text).toContain('OrderRepository › findLatest()')
+  expect(await breadcrumbSteps(pane)).toEqual(['C OrderRepository', 'm findLatest()'])
+  await pane.press({ key: 'breadcrumb-step-0' })
+  expect(await markedLineNumber(pane)).toBe(lineNumberOf(SHOP_FILES, ORDER_REPOSITORY, 'class OrderRepository'))
+  expect(await breadcrumbSteps(pane)).toEqual(['C OrderRepository'])
   await pane.press({ key: 'breadcrumb' })
   expect((await pane.find({ key: await paletteFieldKeyOf(pane) }))?.props.label).toBe('structure')
+  await pane.unmount()
+})
+
+test('the bar under the code starts with the directories of the file, each opening the files on it', WHOLE_MOD_TEST, async ($, on) => {
+  const world = stubWorld(on, SHOP_FILES)
+  await startSession($)
+  await runCodeNav($, ORDER_REPOSITORY)
+  const pane = await mountPane($)
+
+  const directorySteps = (await pane.findAll({ type: 'Button' })).filter(element => /^breadcrumb-directory-\d+$/.test(element.key ?? '')).map(element => String(element.props.label ?? ''))
+  expect(directorySteps).toEqual(['src', 'Repository'])
+  expect((await pane.find({ key: 'breadcrumb-file' }))?.props.label).toBe('OrderRepository.php')
+
+  await pane.press({ key: 'breadcrumb-directory-0' })
+  await world.clock.advance(500)
+  expect((await treeRowTexts(pane)).map(row => row.trim())).toContain('▾ Repository/')
+  expect(await pane.find({ key: 'explorer-drawer' })).toBeDefined()
+  await pane.unmount()
+})
+
+test('a line of a constructor body after its promoted properties is told as in the constructor', WHOLE_MOD_TEST, async ($, on) => {
+  const coupon = '<?php\n\nnamespace Shop\\Entity;\n\nclass Coupon\n{\n    public function __construct(\n        private string $code,\n        private ?int $percentage,\n    ) {\n        if ($percentage > 100) {\n            throw new \\InvalidArgumentException(\'At most 100.\');\n        }\n    }\n}\n'
+  const files = { ...SHOP_FILES, 'src/Entity/Coupon.php': coupon }
+  stubWorld(on, files)
+  await startSession($)
+  await runCodeNav($, `src/Entity/Coupon.php:${lineNumberOf(files, 'src/Entity/Coupon.php', '$percentage > 100')}`)
+  const pane = await mountPane($)
+
+  expect(await breadcrumbSteps(pane)).toEqual(['C Coupon', 'm __construct()'])
   await pane.unmount()
 })
 
@@ -415,9 +451,10 @@ test('the wheel and the page keys scroll the code, never past the end of the fil
   stubWorld(on, SHOP_FILES)
   await startSession($)
   await runCodeNav($, CHECKOUT)
-  // 20 rows: the header, the menu bar and the bar under the code leave 17 to the code, a page key moving 15 of them.
+  // 20 rows: the header, the menu bar, the bar of declarations read and the bar of keys leave 16 to the code, a page key
+  // moving 14 of them.
   const pane = await mountPane($, { bodyRows: 20 })
-  const codeRows = 17
+  const codeRows = 16
   expect(await firstShownLineNumber(pane)).toBe(1)
 
   await wheel($, 2)

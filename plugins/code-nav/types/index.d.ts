@@ -222,6 +222,8 @@ declare module 'claude-code' {
       explorerWidth: number
       // The directories of the explorer opened, by their path from the project root.
       expandedDirectories: string[]
+      // A directory or a file of the bar under the code shown in the files, lit there in place of the file read.
+      revealedTreePath: string | null
       filesFilter: FilesFilterState
       // The first row of the explorer in sight.
       treeOffset: number

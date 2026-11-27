@@ -15,6 +15,7 @@ import type {
   ResultsPanel,
   SelectedPlace,
   SymbolEntry,
+  SymbolKind,
   TextSearchScope,
   ColumnMode,
   TabsState,
@@ -116,6 +117,7 @@ const drawerOpennessAtom = atom({ plugin: 'code-nav', key: 'drawerOpenness' } as
 const sidebarWidthAtom = atom({ plugin: 'code-nav', key: 'sidebarWidth' } as const, SIDEBAR_DEFAULT_WIDTH)
 const explorerWidthAtom = atom({ plugin: 'code-nav', key: 'explorerWidth' } as const, EXPLORER_DEFAULT_WIDTH)
 const expandedDirectoriesAtom = atom({ plugin: 'code-nav', key: 'expandedDirectories' } as const, [])
+const revealedTreePathAtom = atom({ plugin: 'code-nav', key: 'revealedTreePath' } as const, null)
 const treeOffsetAtom = atom({ plugin: 'code-nav', key: 'treeOffset' } as const, 0)
 const treeRevisionAtom = atom({ plugin: 'code-nav', key: 'treeRevision' } as const, 0)
 const filesFilterAtom = atom({ plugin: 'code-nav', key: 'filesFilter' } as const, { query: '', initialQuery: '', fieldNumber: 0, selectedIndex: 0, items: [] })
@@ -531,6 +533,20 @@ async function slideDrawerClosed($: EngineInterface, side: DrawerSide): Promise<
   slideDrawer($, side, false)
   if (side === 'files') {
     await resetFilesFilter($)
+    await update($, revealedTreePathAtom, () => null)
+  }
+}
+
+// A directory or the file of the bar under the code, shown in the files: its directories opened, its row lit and
+// scrolled into sight, the files slid open when they are folded.
+async function revealInFiles($: EngineInterface, path: string, isDirectory: boolean): Promise<void> {
+  const directories = isDirectory ? [...ancestorDirectoriesOf(path), path] : ancestorDirectoriesOf(path)
+  await update($, expandedDirectoriesAtom, expanded => [...new Set([...expanded, ...directories])])
+  await update($, revealedTreePathAtom, () => path)
+  pathToReveal = path
+  if ((await columnModeOf($, 'files')) === 'drawer' && !(await isDrawerOpen($, 'files'))) {
+    slideDrawer($, 'files', true)
+    await resetFilesFilter($)
   }
 }
 
@@ -829,9 +845,25 @@ function cachedSymbolsOf(file: ShownFile): readonly SymbolEntry[] {
 
 // The declaration the line is in, and those holding it: the last declared at or above the line, then its container
 // up to the outermost. A declaration's end is not known, so a line below a method's closing brace still reads as in it.
+// A declaration written on one line, a property or a constant, holds no line below it: a line after a promoted
+// property of a constructor is still in the constructor.
+const IS_HOLDING_LINES_BELOW: Record<SymbolKind, boolean> = {
+  class: true,
+  interface: true,
+  trait: true,
+  enum: true,
+  function: true,
+  method: true,
+  constant: false,
+  property: false,
+  type: false,
+  variable: false,
+  section: true,
+}
+
 function breadcrumbOf(file: ShownFile, line: number): BreadcrumbStep[] {
   const symbols = cachedSymbolsOf(file)
-  const holderIndex = symbols.findLastIndex(symbol => symbol.line <= line)
+  const holderIndex = symbols.findLastIndex(symbol => symbol.line <= line && IS_HOLDING_LINES_BELOW[symbol.kind])
   const steps: BreadcrumbStep[] = []
   let holder = symbols[holderIndex]
   let holderIndexInFile = holderIndex
@@ -983,6 +1015,7 @@ async function saveTabs($: EngineInterface, tabs: TabsState): Promise<void> {
 // What every way of landing somewhere shows: the file, where it is read, the name pointed at, the code scrolled
 // sideways only as far as that name needs, the help put away.
 async function showView($: EngineInterface, path: string, topLine: number, markedSymbol: MarkedSymbol | null, isSameFile: boolean): Promise<void> {
+  await update($, revealedTreePathAtom, () => null)
   await update($, currentPathAtom, () => path)
   await update($, topLineAtom, () => topLine)
   await update($, markedSymbolAtom, () => markedSymbol)
@@ -1833,6 +1866,14 @@ function paneActions($: EngineInterface): PaneActions {
     runShortcut: action => afterTakingKeyboard(() => runShortcut($, action)),
     activateToken: (lineNumber, column) => afterTakingKeyboard(() => activateToken($, lineNumber, column)),
     markToken: (lineNumber, column) => afterTakingKeyboard(() => markToken($, lineNumber, column)),
+    revealInFiles: (path, isDirectory) => afterTakingKeyboard(() => revealInFiles($, path, isDirectory)),
+    showDeclarationAt: (line, name) =>
+      afterTakingKeyboard(async () => {
+        const currentPath = await read($, currentPathAtom)
+        if (currentPath !== null) {
+          await showPlace($, { path: currentPath, line, name }, true)
+        }
+      }),
     listParents: (lineNumber, column) =>
       afterTakingKeyboard(async () => {
         const currentPath = await read($, currentPathAtom)
@@ -2109,6 +2150,7 @@ async function readPaneSnapshot($: EngineInterface): Promise<PaneSnapshot> {
     preferredExplorerWidth: await read($, explorerWidthAtom),
     treeRows: await currentTreeRows($),
     treeOffset: await read($, treeOffsetAtom),
+    revealedTreePath: await read($, revealedTreePathAtom),
     filesFilter: await read($, filesFilterAtom),
     palette,
     paletteItems: palette?.items ?? [],
@@ -2442,7 +2484,7 @@ export const register: Register = (on, options) => {
       treeLastColumn: shownTree === null ? -1 : model.geometry.bodyColumns - 1,
       treeRowCount: shownTree?.rowCount ?? 0,
       treeVisibleRows: shownTree?.visibleRows ?? 20,
-      peekTop: model.geometry.codeTop + model.geometry.codeRows,
+      peekTop: model.geometry.peekTop,
       peekScrolledLinesRange: model.peek?.scrolledLinesRange ?? { lowest: 0, highest: 0 },
     })
     const revealedRowIndex = pathToReveal === null || shownTree === null ? -1 : snapshot.treeRows.findIndex(row => row.path === pathToReveal)
